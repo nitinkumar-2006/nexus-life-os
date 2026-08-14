@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>NEXUS — Personal Operating System</title>
+    <link rel="icon" type="image/png" href="/nexus-logo.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0F0F17" />
+    <!-- Apple's own PWA meta tags - iOS Safari's "Add to Home Screen" does
+         not fully honor the standard manifest.json spec (display mode,
+         status bar styling), so these are genuinely required for a real
+         standalone, no-browser-chrome launch experience on iOS specifically. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NEXUS" />
+    <!-- The standard, non-Apple-prefixed equivalent - what Chrome/Android
+         itself reads for the same "launch with no browser chrome" signal;
+         Apple's own tags above only cover iOS Safari. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="/nexus-logo.png" />
+    <script>
+        // Runs synchronously, before any CSS paints and before React mounts -
+        // this is what eliminates the "flash of wrong theme" on every reload.
+        // Without this, the page briefly rendered with no data-theme attribute
+        // at all, which falls through to the CSS's default (:root = the night
+        // theme's solid, opaque colors) until React's useEffect caught up a
+        // moment later and switched to the real theme - that snap from
+        // opaque-dark to transparent-glass is exactly what looked like the
+        // background "abruptly going dark/muddy" on refresh. React's own
+        // effect in DashboardLayout still runs afterwards and keeps handling
+        // every *subsequent* theme change (e.g. clicking the theme toggle) -
+        // this script only owns the very first paint.
+        (function () {
+            try {
+                var theme = localStorage.getItem('nexus_theme') || 'night';
+                document.documentElement.setAttribute('data-theme', theme);
+                if (theme === 'dynamic') {
+                    var now = new Date();
+                    var t = now.getHours() + now.getMinutes() / 60;
+                    var phase;
+                    if (t >= 4 && t < 6.5) phase = 'dawn';
+                    else if (t >= 6.5 && t < 17) phase = 'day';
+                    else if (t >= 17 && t < 19.5) phase = 'dusk';
+                    else phase = 'night';
+                    document.documentElement.setAttribute('data-sky-phase', phase);
+                }
+            } catch (e) {
+                /* localStorage unavailable (rare) - CSS defaults still apply, just without this optimization */
+            }
+
+            // The glass cards' CSS intentionally transitions backdrop-filter/
+            // box-shadow over 2.5s, so time-of-day changes (e.g. dusk fading
+            // into night) blend smoothly instead of snapping. But a CSS
+            // transition fires on ANY change to that property - including the
+            // very first time the browser resolves it from its default (none)
+            // to the real blur/saturate/brightness value on initial load. That
+            // made the glass effect visibly fade in from zero over 2.5 seconds
+            // on every single page load/refresh, which is exactly what looked
+            // like a "flicker" or "jump before settling". This class forces
+            // every transition off until React has actually mounted and
+            // painted the real UI, then removes itself so all the *intended*
+            // runtime transitions (theme toggle, day-to-night fades, etc.)
+            // keep working normally afterwards.
+            //
+            // Removal is tied to React actually inserting content into #app
+            // (via MutationObserver) rather than a fixed frame count - the JS
+            // bundle still has to load/parse/execute first, which can easily
+            // take longer than a couple of animation frames, so a fixed
+            // rAF-based delay risked removing this class before React had
+            // rendered anything, defeating the point. A short timeout is kept
+            // as a safety net in case the observer never fires for any reason.
+            var root = document.documentElement;
+            root.classList.add('no-initial-transition');
+
+            var removeGuard = function () {
+                root.classList.remove('no-initial-transition');
+            };
+
+            var appEl = document.getElementById('app');
+            var settled = false;
+            var finish = function () {
+                if (settled) return;
+                settled = true;
+                // A fixed settle window, not just a couple of animation
+                // frames - several contexts (weather fetch, cloud sync,
+                // audio init) commonly trigger a few quick re-renders in the
+                // moment right after the first mount, and transitions
+                // re-enabling in the middle of that could still show a
+                // brief flicker. 200ms is comfortably past all of that on a
+                // local dev server while still being imperceptible as a
+                // "delay".
+                setTimeout(removeGuard, 200);
+            };
+
+            if (appEl && window.MutationObserver) {
+                var observer = new MutationObserver(function () {
+                    if (appEl.childNodes.length > 0) {
+                        observer.disconnect();
+                        finish();
+                    }
+                });
+                observer.observe(appEl, { childList: true, subtree: true });
+            }
+            // Safety net: never leave transitions disabled indefinitely, even
+            // if the observer setup above didn't work for some reason.
+            setTimeout(finish, 1500);
+        })();
+    </script>
+</head>
+<body>
+    <!-- React Root Mounting Node -->
+    <div id="app"></div>
+
+    <!-- Vite React Entry Point -->
+    <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
