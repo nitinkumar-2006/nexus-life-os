@@ -3,7 +3,7 @@
 // Desktop-only. Mobile navigation is handled entirely by MobileTabBar.jsx -
 // this component is never rendered below the mobile breakpoint (see
 // DashboardLayout.jsx), so it carries no isMobile/drawer branches.
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import { ALL_NAV_ITEMS } from '../constants/navItems.jsx';

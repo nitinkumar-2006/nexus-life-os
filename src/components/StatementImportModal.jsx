@@ -11,8 +11,8 @@
 // human checkpoint in between, which is both more honest about what a
 // heuristic parser can promise and better UX than either silence or a
 // blind bulk write.
-import React, { useState, useRef } from 'react';
-import { Upload, FileText, X, AlertTriangle, CheckCircle2, Trash2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Upload, FileText, X, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { parseStatementFile } from '../utils/statementParser.js';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss.js';
 
@@ -97,7 +97,7 @@ const StatementImportModal = ({ onClose, accounts, onImport }) => {
                         <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)' }}>Drop a statement here, or click to browse</div>
                         <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Supports .csv and .pdf - SBI, HDFC, ICICI, Axis, and most other bank export formats</div>
                         <input
-                            ref={fileInputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" style={{ display: 'none' }}
+                            ref={fileInputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" aria-label="Upload statement file" style={{ display: 'none' }}
                             onChange={(e) => handleFile(e.target.files?.[0])}
                         />
                     </div>
@@ -135,8 +135,8 @@ const StatementImportModal = ({ onClose, accounts, onImport }) => {
                         )}
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>Import into account:</span>
-                            <select value={targetAccount} onChange={(e) => setTargetAccount(e.target.value)} style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', fontSize: '13px' }}>
+                            <label htmlFor="statement-import-target-account" style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>Import into account:</label>
+                            <select id="statement-import-target-account" value={targetAccount} onChange={(e) => setTargetAccount(e.target.value)} style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', fontSize: '13px' }}>
                                 {accounts.length === 0 && <option value="">No accounts - create one first</option>}
                                 {accounts.map((acc) => <option key={acc.name} value={acc.name} style={{ background: 'var(--surface-inset)' }}>{acc.name}</option>)}
                             </select>
@@ -147,7 +147,7 @@ const StatementImportModal = ({ onClose, accounts, onImport }) => {
                                 <thead style={{ position: 'sticky', top: 0, background: 'var(--widget-bg)' }}>
                                     <tr>
                                         <th style={{ padding: '10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: '700' }}>
-                                            <input type="checkbox" checked={allIncluded} onChange={toggleAll} title={allIncluded ? 'Deselect all' : 'Select all'} />
+                                            <input type="checkbox" checked={allIncluded} onChange={toggleAll} title={allIncluded ? 'Deselect all' : 'Select all'} aria-label={allIncluded ? 'Deselect all' : 'Select all'} />
                                         </th>
                                         <th style={{ padding: '10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: '700' }}>Date</th>
                                         <th style={{ padding: '10px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: '700' }}>Description</th>
@@ -160,7 +160,7 @@ const StatementImportModal = ({ onClose, accounts, onImport }) => {
                                     {parsedRows.map((row) => (
                                         <tr key={row.id} style={{ borderTop: '1px solid var(--border-premium)', opacity: row.included ? 1 : 0.4 }}>
                                             <td style={{ padding: '8px 10px' }}>
-                                                <input type="checkbox" checked={row.included} onChange={(e) => updateRow(row.id, { included: e.target.checked })} />
+                                                <input type="checkbox" checked={row.included} onChange={(e) => updateRow(row.id, { included: e.target.checked })} aria-label="Include this transaction" />
                                             </td>
                                             <td style={{ padding: '8px 10px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{row.date}</td>
                                             <td style={{ padding: '8px 10px', color: 'var(--text-primary)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.title}>{row.title}</td>
@@ -168,13 +168,13 @@ const StatementImportModal = ({ onClose, accounts, onImport }) => {
                                                 {row.type === 'Income' ? '+' : '-'}{row.amount.toLocaleString()}
                                             </td>
                                             <td style={{ padding: '8px 10px' }}>
-                                                <select value={row.type} onChange={(e) => updateRow(row.id, { type: e.target.value })} style={{ padding: '4px 6px', borderRadius: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', fontSize: '11px' }}>
+                                                <select value={row.type} onChange={(e) => updateRow(row.id, { type: e.target.value })} aria-label="Transaction type" style={{ padding: '4px 6px', borderRadius: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', fontSize: '11px' }}>
                                                     <option value="Expense" style={{ background: 'var(--surface-inset)' }}>Expense</option>
                                                     <option value="Income" style={{ background: 'var(--surface-inset)' }}>Income</option>
                                                 </select>
                                             </td>
                                             <td style={{ padding: '8px 10px' }}>
-                                                <select value={row.category} onChange={(e) => updateRow(row.id, { category: e.target.value })} style={{ padding: '4px 6px', borderRadius: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', fontSize: '11px' }}>
+                                                <select value={row.category} onChange={(e) => updateRow(row.id, { category: e.target.value })} aria-label="Transaction category" style={{ padding: '4px 6px', borderRadius: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', fontSize: '11px' }}>
                                                     {CATEGORY_OPTIONS.map((c) => <option key={c} value={c} style={{ background: 'var(--surface-inset)' }}>{c}</option>)}
                                                 </select>
                                             </td>

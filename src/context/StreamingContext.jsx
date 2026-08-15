@@ -17,7 +17,7 @@
 // gates every real network/SDK call, so an unconfigured service shows a
 // clear, honest "not connected - needs setup" state instead of crashing or
 // silently pretending to authenticate.
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
     getSpotifyClientId, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES,
     getAppleMusicToken, APPLE_MUSICKIT_APP_NAME, APPLE_MUSICKIT_APP_BUILD,

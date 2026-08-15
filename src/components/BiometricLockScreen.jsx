@@ -19,7 +19,7 @@
 // that actual failure mode - not something that can be fixed by
 // improving the WebAuthn call itself, since the underlying gap is in
 // the desktop wrapper's own environment, outside this app's control.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Fingerprint, AlertCircle, KeyRound } from 'lucide-react';
 import { verifyBiometric } from '../utils/biometricAuth.js';
 import { verifyPin, isPinConfigured } from '../utils/pinSecurity.js';

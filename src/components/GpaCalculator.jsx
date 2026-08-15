@@ -11,7 +11,7 @@
 // subject names for this specific calculator; the benefit is zero
 // risk to the existing Syllabus <-> StudyPage sync this session's
 // prior rounds already built and verified.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { GraduationCap, Percent, Plus, Trash2, TrendingUp } from 'lucide-react';
 
 const CGPA_STORAGE_KEY = 'nexus_study_cgpa_subjects';
@@ -145,9 +145,9 @@ const GpaCalculator = () => {
                     </div>
 
                     <form onSubmit={addCgpaSubject} style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px' }}>
-                        <input type="text" placeholder="Subject name" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} style={{ flex: '2 1 180px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
-                        <input type="number" min="1" placeholder="Credits" value={newSubjectCredits} onChange={(e) => setNewSubjectCredits(e.target.value)} style={{ flex: '1 1 100px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
-                        <select value={newSubjectGrade} onChange={(e) => setNewSubjectGrade(e.target.value)} style={{ flex: '1 1 100px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}>
+                        <input type="text" placeholder="Subject name" aria-label="Subject name" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} style={{ flex: '2 1 180px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+                        <input type="number" min="1" placeholder="Credits" aria-label="Credits" value={newSubjectCredits} onChange={(e) => setNewSubjectCredits(e.target.value)} style={{ flex: '1 1 100px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+                        <select value={newSubjectGrade} onChange={(e) => setNewSubjectGrade(e.target.value)} aria-label="Grade" style={{ flex: '1 1 100px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}>
                             {Object.keys(GRADE_POINTS).map((g) => <option key={g} value={g} style={{ background: 'var(--surface-inset)' }}>{g} ({GRADE_POINTS[g]})</option>)}
                         </select>
                         <button type="submit" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}><Plus size={15} /> Add</button>
@@ -177,14 +177,14 @@ const GpaCalculator = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 18px' }}>
                         <Percent size={16} color="var(--primary)" />
                         <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Required attendance:</span>
-                        <input type="number" min="1" max="100" value={attendanceThreshold} onChange={(e) => setAttendanceThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 0)))} style={{ width: '60px', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+                        <input type="number" min="1" max="100" value={attendanceThreshold} onChange={(e) => setAttendanceThreshold(Math.min(100, Math.max(1, Number(e.target.value) || 0)))} aria-label="Required attendance percentage" style={{ width: '60px', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
                         <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>%</span>
                     </div>
 
                     <form onSubmit={addAttendanceSubject} style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px' }}>
-                        <input type="text" placeholder="Subject name" value={newAttName} onChange={(e) => setNewAttName(e.target.value)} style={{ flex: '2 1 180px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
-                        <input type="number" min="1" placeholder="Total classes" value={newAttTotal} onChange={(e) => setNewAttTotal(e.target.value)} style={{ flex: '1 1 120px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
-                        <input type="number" min="0" placeholder="Classes attended" value={newAttAttended} onChange={(e) => setNewAttAttended(e.target.value)} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+                        <input type="text" placeholder="Subject name" aria-label="Subject name" value={newAttName} onChange={(e) => setNewAttName(e.target.value)} style={{ flex: '2 1 180px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+                        <input type="number" min="1" placeholder="Total classes" aria-label="Total classes" value={newAttTotal} onChange={(e) => setNewAttTotal(e.target.value)} style={{ flex: '1 1 120px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
+                        <input type="number" min="0" placeholder="Classes attended" aria-label="Classes attended" value={newAttAttended} onChange={(e) => setNewAttAttended(e.target.value)} style={{ flex: '1 1 130px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
                         <button type="submit" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}><Plus size={15} /> Add</button>
                     </form>
 

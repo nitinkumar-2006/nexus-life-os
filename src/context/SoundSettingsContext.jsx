@@ -36,7 +36,7 @@
 // useSoundSettings() still returns everything combined for callers that
 // need both - useSoundActions() is the opt-in fast path for callers that
 // only need to trigger a sound.
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'nexus_sound_settings';
 

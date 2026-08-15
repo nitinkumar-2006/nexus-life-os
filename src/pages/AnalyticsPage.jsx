@@ -1,6 +1,6 @@
 // src/pages/AnalyticsPage.jsx
-import React, { useState, useEffect, useMemo } from 'react';
-import { BarChart2, TrendingUp, PieChart, Activity, CheckCircle, DollarSign, Flame, Zap, Award, Sparkles, ShieldCheck, Target, Clock, Database } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Activity, DollarSign, Flame, Zap, Award, Sparkles, ShieldCheck, Clock, Database } from 'lucide-react';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 

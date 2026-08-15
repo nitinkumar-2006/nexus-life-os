@@ -15,7 +15,7 @@
 // .nexus-app-shell, not a descendant), so the existing motion-off/
 // battery-saver CSS scoping around that structural fact stays correct
 // without any special-casing for this new component.
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { WALLPAPER_OPTIONS } from '../constants/wallpaperOptions.js';
 
 const STAR_COUNT = 90;

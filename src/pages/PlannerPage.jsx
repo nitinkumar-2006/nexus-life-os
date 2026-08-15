@@ -1,8 +1,8 @@
 // src/pages/PlannerPage.jsx
-import React, { useState, useEffect } from 'react';
-import { 
-    CheckSquare, Circle, Plus, Trash2, Calendar, AlertCircle, CheckCircle2, 
-    Clock, Target, Layers, Filter, Sparkles, Flag, Tag, ArrowUpRight,
+import { useState, useEffect } from 'react';
+import {
+    CheckSquare, Circle, Plus, Trash2, Calendar,
+    Clock, Filter, ArrowUpRight,
     Search, List, Columns, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
@@ -229,6 +229,7 @@ const PlannerPage = ({ setActiveTab }) => {
                     <Search size={15} color="var(--text-muted)" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
                     <input
                         type="text"
+                        aria-label="Search tasks"
                         placeholder={isMobile ? 'Search tasks...' : 'Search tasks by title or keyword...'}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -445,11 +446,12 @@ const PlannerPage = ({ setActiveTab }) => {
                         <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Create New Task</h3>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Task Title</label>
-                            <input 
-                                type="text" 
-                                placeholder="e.g. Master Binary Search Trees" 
-                                value={title} 
+                            <label htmlFor="taskTitle" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Task Title</label>
+                            <input
+                                id="taskTitle"
+                                type="text"
+                                placeholder="e.g. Master Binary Search Trees"
+                                value={title}
                                 onChange={(e) => setTitle(e.target.value)}
                                 required
                                 style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
@@ -457,8 +459,9 @@ const PlannerPage = ({ setActiveTab }) => {
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Description <span style={{ fontWeight: '400', opacity: 0.7 }}>(optional)</span></label>
+                            <label htmlFor="taskDescription" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Description <span style={{ fontWeight: '400', opacity: 0.7 }}>(optional)</span></label>
                             <textarea
+                                id="taskDescription"
                                 placeholder="A few extra details about this task..."
                                 value={description}
                                 onChange={(e) => setDescription(e.target.value)}
@@ -469,9 +472,10 @@ const PlannerPage = ({ setActiveTab }) => {
 
                         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Project Domain</label>
-                                <select 
-                                    value={isCustomDomain ? '__custom__' : project} 
+                                <label htmlFor="taskProjectDomain" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Project Domain</label>
+                                <select
+                                    id="taskProjectDomain"
+                                    value={isCustomDomain ? '__custom__' : project}
                                     onChange={(e) => {
                                         if (e.target.value === '__custom__') {
                                             setIsCustomDomain(true);
@@ -499,6 +503,7 @@ const PlannerPage = ({ setActiveTab }) => {
                                 {isCustomDomain && (
                                     <input
                                         type="text"
+                                        aria-label="Custom project domain tag"
                                         autoFocus
                                         placeholder="#Hackathon, #Trip, or any tag"
                                         value={customDomain}
@@ -509,9 +514,10 @@ const PlannerPage = ({ setActiveTab }) => {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Priority</label>
-                                <select 
-                                    value={priority} 
+                                <label htmlFor="taskPriority" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Priority</label>
+                                <select
+                                    id="taskPriority"
+                                    value={priority}
                                     onChange={(e) => setPriority(e.target.value)}
                                     style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}
                                 >
@@ -524,20 +530,22 @@ const PlannerPage = ({ setActiveTab }) => {
 
                         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Due Date</label>
-                                <input 
-                                    type="date" 
-                                    value={dueDate} 
+                                <label htmlFor="taskDueDate" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Due Date</label>
+                                <input
+                                    id="taskDueDate"
+                                    type="date"
+                                    value={dueDate}
                                     onChange={(e) => setDueDate(e.target.value)}
                                     style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}
                                 />
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Estimated Time (Mins)</label>
-                                <input 
-                                    type="number" 
-                                    value={estimatedMins} 
+                                <label htmlFor="taskEstimatedMins" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Estimated Time (Mins)</label>
+                                <input
+                                    id="taskEstimatedMins"
+                                    type="number"
+                                    value={estimatedMins}
                                     onChange={(e) => setEstimatedMins(sanitizeNumberInput(e.target.value, estimatedMins))}
                                     style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                                 />

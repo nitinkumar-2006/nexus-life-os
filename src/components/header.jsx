@@ -1,8 +1,8 @@
 // src/components/header.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-    Search, Bell, Moon, Sun, Cpu, Command, CheckSquare, BookOpen, 
-    Dumbbell, Apple, Wallet, Calendar, BarChart2, FileText, User, 
+import { useState, useEffect, useRef } from 'react';
+import {
+    Search, Bell, Moon, Sun, Cpu, CheckSquare, BookOpen,
+    Dumbbell, Apple, Wallet, Calendar, BarChart2, FileText, User,
     Plus, Headphones, Sparkles, Flame, Zap, Cloud, Settings as SettingsIcon, X, Play, Pause, SkipForward, SkipBack, ListMusic, StickyNote
 } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
@@ -331,11 +331,12 @@ const Header = ({ setActiveTab, isMobile }) => {
                         boxShadow: '0 6px 20px rgba(0,0,0,0.12)'
                     }}>
                         <Search size={15} color="var(--text-muted)" />
-                        <input 
+                        <input
                             ref={searchInputRef}
-                            id="nexus-global-search" 
-                            name="nexus-global-search" 
-                            type="text" 
+                            id="nexus-global-search"
+                            name="nexus-global-search"
+                            type="text"
+                            aria-label="Search"
                             value={searchQuery}
                             onChange={(e) => { setSearchQuery(e.target.value); setIsSearchOpen(true); setSelectedIndex(-1); }}
                             onFocus={() => setIsSearchOpen(true)}
@@ -483,8 +484,8 @@ const Header = ({ setActiveTab, isMobile }) => {
                                 <X size={14} style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setIsQuickAddOpen(false)} />
                             </div>
                             <form onSubmit={handleQuickSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <input type="text" placeholder="Enter title..." value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} autoFocus />
-                                <select value={quickCategory} onChange={(e) => setQuickCategory(e.target.value)} style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}>
+                                <input type="text" placeholder="Enter title..." aria-label="Quick add title" value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} autoFocus />
+                                <select value={quickCategory} onChange={(e) => setQuickCategory(e.target.value)} aria-label="Quick add category" style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}>
                                     <option value="Planner" style={{ background: 'var(--surface-inset)' }}>Planner Task</option>
                                     <option value="Study" style={{ background: 'var(--surface-inset)' }}>Study Item</option>
                                 </select>

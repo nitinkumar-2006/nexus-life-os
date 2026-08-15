@@ -100,8 +100,7 @@ export const useDailyBriefing = () => {
         const totalSpent = txList.filter((t) => t.type === 'Expense').reduce((acc, t) => acc + (t.amount || 0), 0);
         const monthlyBudgetCap = settings?.monthlyBudgetCap || 0;
         const budgetRemaining = Math.max(0, monthlyBudgetCap - totalSpent);
-        const financeProfile = readJson('nexus_finance_profile', {});
-        const currency = financeProfile.currency || '₹';
+        const currency = settings?.currencySymbol || '₹';
 
         // A real, composed natural-language summary - genuinely built
         // from the real numbers above, not a fixed template with blanks

@@ -15,7 +15,7 @@
 // not here - so switching between two protected tabs doesn't force a
 // fresh challenge every single time, matching how AppRoot.jsx's own
 // app-level biometric gate already behaves for the whole app.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Lock, AlertCircle, Fingerprint, KeyRound } from 'lucide-react';
 import { verifyPin, isPinConfigured } from '../utils/pinSecurity.js';
 import { verifyBiometric, isBiometricLockEnabled, isBiometricSupported } from '../utils/biometricAuth.js';

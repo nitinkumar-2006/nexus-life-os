@@ -24,7 +24,7 @@
 // window.dispatchEvent(new Event('storage')) convention already used
 // elsewhere in this app (header.jsx, ProfilePage.jsx, CloudSyncContext.jsx)
 // after a save, which the four source modules now also do.
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const STORAGE_KEYS = {
     planner: 'nexus_planner_tasks',

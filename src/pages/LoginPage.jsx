@@ -15,7 +15,7 @@
 // without retyping the password - see AppRoot.jsx's QuickPinUnlockScreen.
 // A PIN can't stand in for the very first sign-in itself, since there's no
 // live session yet for it to unlock.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Mail, Phone, Lock, User as UserIcon, LogIn, UserPlus, AlertCircle, KeyRound, X, CheckCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getAuthErrorMessage } from '../utils/authErrorMessages.js';

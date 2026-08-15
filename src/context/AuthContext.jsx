@@ -6,7 +6,7 @@
 // is skipped entirely and everything works exactly as it did before, just
 // without cross-device cloud sync. This is what keeps a missing/placeholder
 // Firebase config from ever breaking the app.
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import {
     onAuthStateChanged,
     signInWithEmailAndPassword,

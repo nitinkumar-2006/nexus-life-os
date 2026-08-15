@@ -9,7 +9,7 @@
 // out of both the bar and the sheet - paused for this mobile pass per
 // explicit instruction; the desktop Sidebar/AI tab are completely
 // unaffected.
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Headphones, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss.js';

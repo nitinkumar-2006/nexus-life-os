@@ -14,7 +14,7 @@
 // any changes, and nothing here touches routing, app logic, or any card/
 // glass/header/sidebar styling (all of that lives entirely outside this
 // file, in variables.css / style.css / the component files themselves).
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 // ---------------------------------------------------------------------------
 // TIME-OF-DAY ENGINE (unchanged from the previous, verified-correct version)

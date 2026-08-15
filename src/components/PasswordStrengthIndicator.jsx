@@ -7,7 +7,6 @@
 // own change-password form, so the same real logic and visual language
 // is used everywhere a person sets a new password in this app, rather
 // than two independently-drifting copies.
-import React from 'react';
 
 // Exported on its own so a caller can gate a submit button on genuine
 // strength (e.g. "require at least Fair") without re-deriving the same

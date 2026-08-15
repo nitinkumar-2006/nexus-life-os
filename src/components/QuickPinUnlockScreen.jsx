@@ -9,7 +9,7 @@
 // landing on LoginPage's actual email/phone + password form - this screen
 // never tries to verify identity against Firebase itself, only against
 // the local PIN hash.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { KeyRound, AlertCircle, LogOut } from 'lucide-react';
 import { verifyQuickPin } from '../utils/quickPin.js';
 

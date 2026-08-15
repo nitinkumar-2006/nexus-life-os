@@ -1,5 +1,5 @@
 // src/pages/TimetablePage.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Clock, BookOpen, Dumbbell, Apple, Cpu, CheckCircle, Calendar, Plus, Trash2, DollarSign, Copy, X, Circle, GraduationCap, FileText, CheckSquare, Activity, BarChart3, Sparkles, RotateCcw } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -334,17 +334,17 @@ const TimetablePage = () => {
                 <div style={{ flex: isMobile ? '1 1 100%' : '0 1 240px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Start Time</label>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                        <select value={startHour} onChange={(e) => setStartHour(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                        <select aria-label="Start hour" value={startHour} onChange={(e) => setStartHour(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                             {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
                                 <option key={h} value={h} style={{ background: 'var(--surface-inset)' }}>{h}</option>
                             ))}
                         </select>
-                        <select value={startMinute} onChange={(e) => setStartMinute(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                        <select aria-label="Start minute" value={startMinute} onChange={(e) => setStartMinute(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                             {['00', '15', '30', '45'].map((m) => (
                                 <option key={m} value={m} style={{ background: 'var(--surface-inset)' }}>{m}</option>
                             ))}
                         </select>
-                        <select value={startPeriod} onChange={(e) => setStartPeriod(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                        <select aria-label="Start AM or PM" value={startPeriod} onChange={(e) => setStartPeriod(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                             <option value="AM" style={{ background: 'var(--surface-inset)' }}>AM</option>
                             <option value="PM" style={{ background: 'var(--surface-inset)' }}>PM</option>
                         </select>
@@ -354,17 +354,17 @@ const TimetablePage = () => {
                 <div style={{ flex: isMobile ? '1 1 100%' : '0 1 240px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>End Time</label>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                        <select value={endHour} onChange={(e) => setEndHour(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                        <select aria-label="End hour" value={endHour} onChange={(e) => setEndHour(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                             {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
                                 <option key={h} value={h} style={{ background: 'var(--surface-inset)' }}>{h}</option>
                             ))}
                         </select>
-                        <select value={endMinute} onChange={(e) => setEndMinute(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                        <select aria-label="End minute" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                             {['00', '15', '30', '45'].map((m) => (
                                 <option key={m} value={m} style={{ background: 'var(--surface-inset)' }}>{m}</option>
                             ))}
                         </select>
-                        <select value={endPeriod} onChange={(e) => setEndPeriod(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                        <select aria-label="End AM or PM" value={endPeriod} onChange={(e) => setEndPeriod(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                             <option value="AM" style={{ background: 'var(--surface-inset)' }}>AM</option>
                             <option value="PM" style={{ background: 'var(--surface-inset)' }}>PM</option>
                         </select>
@@ -373,10 +373,11 @@ const TimetablePage = () => {
                 </div>
 
                 <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Task / Activity Title</label>
-                    <input 
-                        type="text" 
-                        placeholder="e.g. Java Programming Core Study" 
+                    <label htmlFor="timetableTaskTitle" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Task / Activity Title</label>
+                    <input
+                        id="timetableTaskTitle"
+                        type="text"
+                        placeholder="e.g. Java Programming Core Study"
                         value={titleInput}
                         onChange={(e) => setTitleInput(e.target.value)}
                         style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '12px 16px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
@@ -384,8 +385,9 @@ const TimetablePage = () => {
                 </div>
 
                 <div style={{ flex: '0 1 180px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Category</label>
-                    <select 
+                    <label htmlFor="timetableCategory" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Category</label>
+                    <select
+                        id="timetableCategory"
                         value={isCustomCategory ? '__custom__' : categoryInput}
                         onChange={(e) => {
                             if (e.target.value === '__custom__') {
@@ -415,6 +417,7 @@ const TimetablePage = () => {
                     {isCustomCategory && (
                         <input
                             type="text"
+                            aria-label="Custom category tag"
                             autoFocus
                             placeholder="#Hackathon, #Trip, or any tag"
                             value={customCategory}

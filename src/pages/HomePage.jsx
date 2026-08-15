@@ -503,6 +503,7 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                                 value={noteDraft}
                                 onChange={(e) => setNoteDraft(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') handleNoteSave(e); }}
+                                aria-label="Quick note"
                                 placeholder='Quick status, e.g. "Half done"'
                                 style={{
                                     flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px',

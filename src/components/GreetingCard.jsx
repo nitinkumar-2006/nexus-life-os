@@ -1,8 +1,9 @@
 // src/components/GreetingCard.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Clock, Calendar, Hand, Sun, Play, Pause, SkipForward, SkipBack, Music, ListMusic } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useWeather } from '../context/WeatherContext.jsx';
+import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 
 const GreetingCard = ({ setActiveTab }) => {
@@ -51,6 +52,15 @@ const GreetingCard = ({ setActiveTab }) => {
     // hardcoded city) - shared with DynamicBackground's sky/rain/cloud
     // visuals via the same context, so they can never disagree.
     const { temperature } = useWeather();
+    // WeatherContext always fetches/stores Celsius (Open-Meteo's own
+    // default unit) - this is the one and only place it's converted to
+    // Fahrenheit for display, per Settings' own Temperature Unit
+    // preference, which previously had no reader anywhere in the app.
+    const { settings: globalSettings } = useGlobalSettings();
+    const useFahrenheit = globalSettings.temperatureUnit === '°F';
+    const displayTemperature = temperature !== null
+        ? Math.round(useFahrenheit ? (temperature * 9) / 5 + 32 : temperature)
+        : null;
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -129,7 +139,7 @@ const GreetingCard = ({ setActiveTab }) => {
                         <Calendar size={15} /> {formatDate(currentTime)}
                     </p>
                     <span style={{ fontSize: '14px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
-                        <Sun size={15} color="var(--accent)" /> {temperature !== null ? `${temperature}°C` : '--°C'}
+                        <Sun size={15} color="var(--accent)" /> {displayTemperature !== null ? `${displayTemperature}${useFahrenheit ? '°F' : '°C'}` : `--${useFahrenheit ? '°F' : '°C'}`}
                     </span>
                 </div>
             </div>

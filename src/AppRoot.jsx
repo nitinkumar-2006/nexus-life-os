@@ -4,7 +4,7 @@
 // state. When Firebase isn't configured (see src/firebase/config.js), this
 // renders DashboardLayout directly - byte-for-byte the same behavior the
 // app always had, no login screen, nothing changes for local-only users.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { CloudSyncProvider } from './context/CloudSyncContext.jsx';
 import DashboardLayout from './layouts/DashboardLayout.jsx';

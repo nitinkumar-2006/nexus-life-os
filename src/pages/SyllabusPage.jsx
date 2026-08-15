@@ -4,9 +4,10 @@
 // full subject CRUD. Real, persisted data (nexus_syllabus_subjects), zero
 // dummy/hardcoded curriculum - a new install starts genuinely empty per
 // semester until the user actually adds their own subjects.
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileText, Plus, Pencil, Trash2, X, BookOpen, GraduationCap, CheckSquare, Square, ChevronDown, ChevronRight } from 'lucide-react';
 import { sanitizeNumberInput } from '../utils/smartNumberInput.js';
+import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 
 const STORAGE_KEY = 'nexus_syllabus_subjects';
@@ -55,7 +56,7 @@ const SubjectModal = ({ initialSubject, defaultSemester, onSave, onCancel }) => 
         const parsedCredits = Math.max(0, Math.min(20, parseInt(credits, 10) || 0));
         onSave({
             id: initialSubject?.id ?? `subject_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
-            name: name.trim(),
+            name: toTitleCase(name.trim()),
             credits: parsedCredits,
             semester,
             units: initialSubject?.units || [],
@@ -83,8 +84,9 @@ const SubjectModal = ({ initialSubject, defaultSemester, onSave, onCancel }) => 
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Subject Name</label>
+                    <label htmlFor="syllabusSubjectName" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Subject Name</label>
                     <input
+                        id="syllabusSubjectName" name="subjectName"
                         type="text" autoFocus placeholder="e.g. Java Programming, AI/ML, React"
                         value={name} onChange={(e) => setName(e.target.value)}
                         style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
@@ -93,16 +95,18 @@ const SubjectModal = ({ initialSubject, defaultSemester, onSave, onCancel }) => 
 
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Credits</label>
+                        <label htmlFor="syllabusSubjectCredits" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Credits</label>
                         <input
+                            id="syllabusSubjectCredits" name="credits"
                             type="number" min="0" max="20" value={credits}
                             onChange={(e) => setCredits(sanitizeNumberInput(e.target.value, credits))}
                             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                         />
                     </div>
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Semester</label>
+                        <label htmlFor="syllabusSubjectSemester" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Semester</label>
                         <select
+                            id="syllabusSubjectSemester" name="semester"
                             value={semester} onChange={(e) => setSemester(parseInt(e.target.value, 10))}
                             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}
                         >
@@ -176,7 +180,7 @@ const TopicRow = ({ topic, onToggle, onRename, onDelete }) => {
 
     const commitRename = () => {
         setIsEditing(false);
-        if (draftName.trim() && draftName.trim() !== topic.name) onRename(draftName.trim());
+        if (draftName.trim() && draftName.trim() !== topic.name) onRename(toTitleCase(draftName.trim()));
         else setDraftName(topic.name);
     };
 
@@ -187,7 +191,7 @@ const TopicRow = ({ topic, onToggle, onRename, onDelete }) => {
             </button>
             {isEditing ? (
                 <input
-                    autoFocus value={draftName}
+                    autoFocus value={draftName} aria-label="Topic name"
                     onChange={(e) => setDraftName(e.target.value)}
                     onBlur={commitRename}
                     onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setDraftName(topic.name); setIsEditing(false); } }}
@@ -223,14 +227,14 @@ const UnitBlock = ({ unit, onRenameUnit, onDeleteUnit, onAddTopic, onToggleTopic
 
     const commitUnitRename = () => {
         setIsRenamingUnit(false);
-        if (unitDraftName.trim() && unitDraftName.trim() !== unit.name) onRenameUnit(unitDraftName.trim());
+        if (unitDraftName.trim() && unitDraftName.trim() !== unit.name) onRenameUnit(toTitleCase(unitDraftName.trim()));
         else setUnitDraftName(unit.name);
     };
 
     const submitNewTopic = (e) => {
         e.preventDefault();
         if (!newTopicName.trim()) return;
-        onAddTopic(newTopicName.trim());
+        onAddTopic(toTitleCase(newTopicName.trim()));
         setNewTopicName('');
         setIsAddingTopic(false);
     };
@@ -243,7 +247,7 @@ const UnitBlock = ({ unit, onRenameUnit, onDeleteUnit, onAddTopic, onToggleTopic
                 </button>
                 {isRenamingUnit ? (
                     <input
-                        autoFocus value={unitDraftName}
+                        autoFocus value={unitDraftName} aria-label="Unit name"
                         onChange={(e) => setUnitDraftName(e.target.value)}
                         onBlur={commitUnitRename}
                         onKeyDown={(e) => { if (e.key === 'Enter') commitUnitRename(); if (e.key === 'Escape') { setUnitDraftName(unit.name); setIsRenamingUnit(false); } }}
@@ -282,7 +286,7 @@ const UnitBlock = ({ unit, onRenameUnit, onDeleteUnit, onAddTopic, onToggleTopic
                     {isAddingTopic ? (
                         <form onSubmit={submitNewTopic} style={{ display: 'flex', gap: '6px' }}>
                             <input
-                                autoFocus type="text" placeholder="Topic name" value={newTopicName}
+                                autoFocus type="text" placeholder="Topic name" aria-label="New topic name" value={newTopicName}
                                 onChange={(e) => setNewTopicName(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Escape') { setIsAddingTopic(false); setNewTopicName(''); } }}
                                 style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '8px', padding: '7px 10px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
@@ -329,7 +333,7 @@ const SubjectDetailModal = ({ subject, onUpdate, onClose }) => {
     const addUnit = (e) => {
         e.preventDefault();
         if (!newUnitName.trim()) return;
-        const newUnit = { id: `unit_${Date.now()}_${Math.floor(Math.random() * 100000)}`, name: newUnitName.trim(), topics: [] };
+        const newUnit = { id: `unit_${Date.now()}_${Math.floor(Math.random() * 100000)}`, name: toTitleCase(newUnitName.trim()), topics: [] };
         updateUnits([...subject.units, newUnit]);
         setNewUnitName('');
         setIsAddingUnit(false);
@@ -395,7 +399,7 @@ const SubjectDetailModal = ({ subject, onUpdate, onClose }) => {
                 {isAddingUnit ? (
                     <form onSubmit={addUnit} style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                         <input
-                            autoFocus type="text" placeholder="e.g. Unit 1, CT1, PL" value={newUnitName}
+                            autoFocus type="text" placeholder="e.g. Unit 1, CT1, PL" aria-label="New unit name" value={newUnitName}
                             onChange={(e) => setNewUnitName(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Escape') { setIsAddingUnit(false); setNewUnitName(''); } }}
                             style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}

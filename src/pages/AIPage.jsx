@@ -640,8 +640,9 @@ const AIPage = () => {
                                 )}
 
                                 <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '12px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-premium)' }}>
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
+                                        aria-label="Chat message"
                                         placeholder="Ask your AI coach about your budget, gym consistency, or request code..."
                                         value={inputPrompt} onChange={(e) => setInputPrompt(e.target.value)}
                                         style={{ flex: 1, padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}

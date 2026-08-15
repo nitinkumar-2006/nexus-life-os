@@ -10,7 +10,7 @@
 // (nexus_current_route - just "which tab was open"; nexus_current_song_index
 // and the actual bytes of locally-imported audio files, which live in
 // IndexedDB) is intentionally excluded from cloud sync.
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from './AuthContext.jsx';

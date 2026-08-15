@@ -4,7 +4,7 @@
 // is used - this is plain React + a <canvas> export step, so it works with
 // zero new dependencies. Supports a circular crop frame (avatars) or a wide
 // rectangular one (cover banners) via the `shape` prop.
-import React, { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { X, ZoomIn, Check, Move } from 'lucide-react';
 
 const ImageCropModal = ({ imageSrc, shape = 'circle', onSave, onCancel }) => {
@@ -139,6 +139,7 @@ const ImageCropModal = ({ imageSrc, shape = 'circle', onSave, onCancel }) => {
                     <input
                         type="range" min="1" max="3" step="0.01" value={scale}
                         onChange={(e) => setScale(parseFloat(e.target.value))}
+                        aria-label="Zoom"
                         style={{ flex: 1, accentColor: '#6366F1' }}
                     />
                 </div>

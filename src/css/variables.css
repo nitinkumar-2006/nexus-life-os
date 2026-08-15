@@ -172,6 +172,28 @@
     --surface-inset: rgba(255, 255, 255, 0.14);
 }
 
+/* DAWN-ONLY CONTRAST FLOOR - a real, confirmed gap the rule above doesn't
+   cover. Dawn's own sky gradient (DynamicBackground.jsx's PHASE_PALETTE.dawn)
+   spans a bright amber/gold bottom down to a genuinely dark navy top
+   (#1e3a8a) - unlike Day, whose top color is a much lighter blue. This
+   theme's dark text (--text-primary above) reads fine against the bright
+   bottom, but a card sitting near the top of the viewport (the header, the
+   upper part of the sidebar) can land against that dark navy top with real,
+   measurable near-1:1 contrast - confirmed by computing WCAG contrast
+   between #0F172A and #1E3A8A directly (1.72:1, far under the 4.5:1
+   minimum). max() only ever raises the user's own live Blur/Transparency
+   slider value, never replaces it, exactly matching the same, already-
+   proven floor pattern used for custom wallpapers and mobile below -
+   this is that same idiom, extended to the one phase that actually needs
+   it. Day is deliberately left untouched: its own top color is already
+   light enough that this gap doesn't exist there.
+   Scoped to --bg-surface/--widget-bg only (not sidebar/header), matching
+   the existing custom-wallpaper/mobile precedent below exactly. */
+:root[data-theme="dynamic"][data-sky-phase="dawn"] {
+    --bg-surface: rgba(255, 255, 255, max(var(--nexus-user-glass-alpha, 0.03), 0.14));
+    --widget-bg: rgba(255, 255, 255, max(var(--nexus-user-glass-alpha, 0.03), 0.12));
+}
+
 /* 4c. DYNAMIC MODE — Dark sky phases (Dusk & Night).
    Light text and deeper glass tinting to match the darker parts of the sky. */
 :root[data-theme="dynamic"][data-sky-phase="dusk"],
@@ -189,6 +211,24 @@
     --text-main: #FFFFFF;
 
     --surface-inset: rgba(15, 23, 42, 0.18);
+}
+
+/* DUSK-ONLY CONTRAST FLOOR - the mirror image of the dawn fix above.
+   Dusk's own sky gradient (PHASE_PALETTE.dusk) spans a genuinely bright
+   pink/red bottom (#fb7185) down to a dark navy top - unlike Night, whose
+   whole gradient stays uniformly dark. This theme's light text
+   (--text-primary above) is correct against the dark top, but a card
+   sitting near the bottom of the viewport can land against that bright
+   pink bottom with real, measurable near-1:1 contrast - confirmed by
+   computing WCAG contrast between #94A3B8 (--text-muted, used for small
+   subtext throughout the app) and #FB7185 directly (~1.05:1, essentially
+   invisible without the text-shadow defense in style.css alone). Night is
+   deliberately left untouched - its own bottom color is already dark
+   enough that this gap doesn't exist there. Same max()-floor idiom as
+   dawn above and the existing custom-wallpaper/mobile rules below. */
+:root[data-theme="dynamic"][data-sky-phase="dusk"] {
+    --bg-surface: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.14));
+    --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.12));
 }
 
 /* Global fallback to prevent pitch-black rendering bugs */

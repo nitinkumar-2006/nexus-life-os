@@ -6,7 +6,7 @@
 // before ever being offered), and real "dismissed today only"
 // persistence so the card genuinely reappears the next day rather
 // than being suppressed forever after one dismissal.
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sparkles, Volume2, VolumeX, X } from 'lucide-react';
 import { useDailyBriefing } from '../hooks/useDailyBriefing.js';
 

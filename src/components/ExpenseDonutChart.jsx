@@ -8,7 +8,6 @@
 // breakdown (which stays exactly as it already worked) with an
 // at-a-glance proportional view a bar chart doesn't convey as
 // intuitively - relative share of the whole.
-import React from 'react';
 
 const RADIUS = 70;
 const STROKE_WIDTH = 26;

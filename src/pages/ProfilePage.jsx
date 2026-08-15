@@ -1,5 +1,5 @@
 // src/pages/ProfilePage.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import ImageCropModal from '../components/ImageCropModal.jsx';
 import { useStreaming } from '../context/StreamingContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -7,12 +7,13 @@ import { useCloudSync } from '../context/CloudSyncContext.jsx';
 import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumberInput.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { 
-    User, Mail, BookOpen, Flame, DollarSign, Award, Shield, Save, 
-    CheckCircle, Sparkles, Edit3, ChevronDown, ChevronUp, Dumbbell, 
-    Wallet, Trophy, Activity, Terminal, Code, Star, Cpu, Database, 
-    BarChart, Globe, ExternalLink, GitBranch, Camera, Image as ImageIcon, 
-    X, Quote, Calendar, Clock, Target, ArrowUpRight, CheckSquare, Apple, Disc, Cloud, LogOut
+import {
+    User, BookOpen, Flame, Save,
+    CheckCircle, Sparkles, Edit3, Dumbbell,
+    Wallet, Trophy, Activity, Terminal, Code, Star, Cpu, Database,
+    BarChart, Globe, GitBranch, Camera, Image as ImageIcon,
+    X, Quote, Calendar, Clock, Target, ArrowUpRight, CheckSquare, Apple, Disc, Cloud, LogOut,
+    Briefcase, GraduationCap
 } from 'lucide-react';
 
 // Sleek connection status widget - shows whether Apple Music/Spotify is
@@ -126,6 +127,11 @@ const ProfilePage = () => {
     });
 
     const [isSaved, setIsSaved] = useState(false);
+    // Surfaces a genuine write failure (e.g. QuotaExceededError from the
+    // embedded avatar/cover base64 images added via ImageCropModal) rather
+    // than leaving Save silently do nothing - previously an uncaught throw
+    // here meant the form just sat there with no feedback at all.
+    const [saveError, setSaveError] = useState('');
     const [isEditing, setIsEditing] = useState(false);
     const [activeTab, setActiveTabState] = useState('overview');
     const [completionPercentage, setCompletionPercentage] = useState(0);
@@ -258,12 +264,21 @@ const ProfilePage = () => {
 
     const handleSave = (e) => {
         e.preventDefault();
-        localStorage.setItem('nexus_user_profile', JSON.stringify(profile));
-        
+        try {
+            localStorage.setItem('nexus_user_profile', JSON.stringify(profile));
+        } catch (err) {
+            setSaveError(err && err.name === 'QuotaExceededError'
+                ? 'Storage is full - try a smaller photo, or clear some data in Settings.'
+                : 'Could not save your profile. Please try again.');
+            setTimeout(() => setSaveError(''), 5000);
+            return;
+        }
+
         // ⚡ INSTANT LIVE SYNC: Broadcast events so Header and GreetingCard update immediately
         window.dispatchEvent(new Event('nexus_profile_updated'));
         window.dispatchEvent(new Event('storage'));
 
+        setSaveError('');
         setIsSaved(true);
         setIsEditing(false);
         setTimeout(() => setIsSaved(false), 3000);
@@ -284,7 +299,15 @@ const ProfilePage = () => {
     // consistent with how live counters elsewhere in the app work.
     const persistProfile = (updated) => {
         setProfile(updated);
-        localStorage.setItem('nexus_user_profile', JSON.stringify(updated));
+        try {
+            localStorage.setItem('nexus_user_profile', JSON.stringify(updated));
+        } catch (err) {
+            setSaveError(err && err.name === 'QuotaExceededError'
+                ? 'Storage is full - try a smaller photo, or clear some data in Settings.'
+                : 'Could not save your profile. Please try again.');
+            setTimeout(() => setSaveError(''), 5000);
+            return;
+        }
         window.dispatchEvent(new Event('nexus_profile_updated'));
         window.dispatchEvent(new Event('storage'));
     };
@@ -338,6 +361,12 @@ const ProfilePage = () => {
             {isSaved && (
                 <div style={{ position: 'absolute', top: '0', left: '50%', transform: 'translateX(-50%)', zIndex: 100, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 24px', background: '#059669', color: '#fff', borderRadius: '12px', fontWeight: '700', fontSize: '14px', boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)', animation: 'slideDown 0.3s ease' }}>
                     <CheckCircle size={20} /> Identity successfully synchronized with Header & Greeting!
+                </div>
+            )}
+
+            {saveError && (
+                <div style={{ position: 'absolute', top: '0', left: '50%', transform: 'translateX(-50%)', zIndex: 100, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 24px', background: '#DC2626', color: '#fff', borderRadius: '12px', fontWeight: '700', fontSize: '14px', boxShadow: '0 10px 30px rgba(220, 38, 38, 0.3)', animation: 'slideDown 0.3s ease' }}>
+                    <X size={20} /> {saveError}
                 </div>
             )}
 
@@ -677,6 +706,7 @@ const ProfilePage = () => {
                                                     </div>
                                                     <input
                                                         type="range" min="0" max="100" value={skill.progress}
+                                                        aria-label={`${skill.name} progress`}
                                                         onChange={(e) => updateSkillProgress(skill.id, Number(e.target.value))}
                                                         style={{ width: '100%', accentColor: 'var(--primary)' }}
                                                     />
@@ -778,12 +808,12 @@ const ProfilePage = () => {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px' }}>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><User size={14}/> Full Name</label>
-                            <input type="text" placeholder="e.g. Nitin Kumar" value={profile.name} onChange={(e) => setProfile({...profile, name: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileName" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><User size={14}/> Full Name</label>
+                            <input id="profileName" name="name" type="text" placeholder="e.g. Nitin Kumar" value={profile.name} onChange={(e) => setProfile({...profile, name: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Activity size={14}/> Current Status</label>
-                            <select value={profile.currentStatus} onChange={(e) => setProfile({...profile, currentStatus: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                            <label htmlFor="profileCurrentStatus" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Activity size={14}/> Current Status</label>
+                            <select id="profileCurrentStatus" name="currentStatus" value={profile.currentStatus} onChange={(e) => setProfile({...profile, currentStatus: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                                 <option value="Not Set" style={{ background: 'var(--surface-inset)' }}>Not Set</option>
                                 <option value="🟢 Active OS Session" style={{ background: 'var(--surface-inset)' }}>🟢 Active OS Session</option>
                                 <option value="🔴 Deep Work Mode" style={{ background: 'var(--surface-inset)' }}>🔴 Deep Work Mode</option>
@@ -792,41 +822,49 @@ const ProfilePage = () => {
                             </select>
                         </div>
                         <div style={{ gridColumn: '1 / -1' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Quote size={14}/> Quote of the Day / Focus</label>
-                            <input type="text" placeholder="Your daily motivation..." value={profile.quoteOfDay} onChange={(e) => setProfile({...profile, quoteOfDay: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileQuoteOfDay" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Quote size={14}/> Quote of the Day / Focus</label>
+                            <input id="profileQuoteOfDay" name="quoteOfDay" type="text" placeholder="Your daily motivation..." value={profile.quoteOfDay} onChange={(e) => setProfile({...profile, quoteOfDay: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div style={{ gridColumn: '1 / -1' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Terminal size={14}/> Bio / Tagline</label>
-                            <input type="text" placeholder="Short bio..." value={profile.bio} onChange={(e) => setProfile({...profile, bio: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileBio" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Terminal size={14}/> Bio / Tagline</label>
+                            <input id="profileBio" name="bio" type="text" placeholder="Short bio..." value={profile.bio} onChange={(e) => setProfile({...profile, bio: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div style={{ gridColumn: '1 / -1' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Target size={14}/> Live Focus / What I'm Learning</label>
-                            <input type="text" placeholder="e.g. Building a distributed systems project in Go" value={profile.currentFocus} onChange={(e) => setProfile({...profile, currentFocus: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileCurrentFocus" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Target size={14}/> Live Focus / What I'm Learning</label>
+                            <input id="profileCurrentFocus" name="currentFocus" type="text" placeholder="e.g. Building a distributed systems project in Go" value={profile.currentFocus} onChange={(e) => setProfile({...profile, currentFocus: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><GitBranch size={14}/> GitHub URL</label>
-                            <input type="text" value={profile.githubUrl} onChange={(e) => setProfile({...profile, githubUrl: e.target.value})} placeholder="https://github.com/..." style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileGithubUrl" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><GitBranch size={14}/> GitHub URL</label>
+                            <input id="profileGithubUrl" name="githubUrl" type="text" value={profile.githubUrl} onChange={(e) => setProfile({...profile, githubUrl: e.target.value})} placeholder="https://github.com/..." style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Globe size={14}/> LinkedIn URL</label>
-                            <input type="text" value={profile.linkedinUrl} onChange={(e) => setProfile({...profile, linkedinUrl: e.target.value})} placeholder="https://linkedin.com/in/..." style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileLinkedinUrl" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Globe size={14}/> LinkedIn URL</label>
+                            <input id="profileLinkedinUrl" name="linkedinUrl" type="text" value={profile.linkedinUrl} onChange={(e) => setProfile({...profile, linkedinUrl: e.target.value})} placeholder="https://linkedin.com/in/..." style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Code size={14}/> Portfolio URL</label>
-                            <input type="text" value={profile.portfolioUrl} onChange={(e) => setProfile({...profile, portfolioUrl: e.target.value})} placeholder="https://yourportfolio.com" style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profilePortfolioUrl" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Code size={14}/> Portfolio URL</label>
+                            <input id="profilePortfolioUrl" name="portfolioUrl" type="text" value={profile.portfolioUrl} onChange={(e) => setProfile({...profile, portfolioUrl: e.target.value})} placeholder="https://yourportfolio.com" style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><BookOpen size={14}/> Semester / Year / Role</label>
-                            <input type="text" placeholder="e.g. 6th Semester" value={profile.semester} onChange={(e) => setProfile({...profile, semester: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileRole" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Briefcase size={14}/> Role</label>
+                            <input id="profileRole" name="role" type="text" placeholder="e.g. Computer Science Student" value={profile.role} onChange={(e) => setProfile({...profile, role: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Wallet size={14}/> Monthly Budget Cap (₹)</label>
-                            <input type="number" placeholder="0" value={settings.monthlyBudgetCap} onChange={(e) => updateSetting('monthlyBudgetCap', sanitizeNumberInput(e.target.value, settings.monthlyBudgetCap))} onBlur={(e) => updateSetting('monthlyBudgetCap', normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileCollege" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><GraduationCap size={14}/> Institution</label>
+                            <input id="profileCollege" name="college" type="text" placeholder="e.g. IIT Delhi" value={profile.college} onChange={(e) => setProfile({...profile, college: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                         <div>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Dumbbell size={14}/> Daily Water Target (L)</label>
-                            <input type="number" step="0.1" placeholder="e.g. 4.0" value={settings.dailyHydrationGoal} onChange={(e) => updateSetting('dailyHydrationGoal', sanitizeNumberInput(e.target.value, settings.dailyHydrationGoal))} onBlur={(e) => updateSetting('dailyHydrationGoal', normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                            <label htmlFor="profileSemester" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><BookOpen size={14}/> Semester / Year</label>
+                            <input id="profileSemester" name="semester" type="text" placeholder="e.g. 6th Semester" value={profile.semester} onChange={(e) => setProfile({...profile, semester: e.target.value})} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                        </div>
+                        <div>
+                            <label htmlFor="profileMonthlyBudget" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Wallet size={14}/> Monthly Budget Cap ({settings.currencySymbol})</label>
+                            <input id="profileMonthlyBudget" name="monthlyBudgetCap" type="number" placeholder="0" value={settings.monthlyBudgetCap} onChange={(e) => updateSetting('monthlyBudgetCap', sanitizeNumberInput(e.target.value, settings.monthlyBudgetCap))} onBlur={(e) => updateSetting('monthlyBudgetCap', normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                        </div>
+                        <div>
+                            <label htmlFor="profileHydrationGoal" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}><Dumbbell size={14}/> Daily Water Target (L)</label>
+                            <input id="profileHydrationGoal" name="dailyHydrationGoal" type="number" step="0.1" placeholder="e.g. 4.0" value={settings.dailyHydrationGoal} onChange={(e) => updateSetting('dailyHydrationGoal', sanitizeNumberInput(e.target.value, settings.dailyHydrationGoal))} onBlur={(e) => updateSetting('dailyHydrationGoal', normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                         </div>
                     </div>
 

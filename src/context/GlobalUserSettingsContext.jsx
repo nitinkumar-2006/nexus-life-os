@@ -31,7 +31,27 @@
 // provider's own shape is built to extend cleanly (see updateSetting
 // convention below) the moment a genuine cross-module duplicate like
 // this is found there too.
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+//
+// currencySymbol is exactly that: a second, genuine, confirmed silo -
+// SettingsPage.jsx's own Currency dropdown (₹ INR/$ USD/€ EUR) wrote to
+// settings.currency, while every real place a currency actually gets
+// displayed (FinancePage's own cards/modals, the AI daily briefing,
+// exported reports, the expense donut chart) all read a completely
+// separate profile.currency under 'nexus_finance_profile' instead -
+// changing the Settings dropdown had zero visible effect anywhere.
+// Migrated the same way as the other two fields below.
+//
+// weightUnit/temperatureUnit are a simpler case - not a duplicate-value
+// silo (only Settings ever writes them), just genuinely dead: nothing
+// ever read them back. GymPage now converts every real weight
+// display/input by this value; GreetingCard now converts the live
+// temperature the same way. Settings' own handleChange writes the full
+// settings object directly and dispatches 'nexus_settings_updated'
+// (not 'storage'), so this provider listens for both below - otherwise
+// a weight/temperature unit change here would only reach GymPage/
+// GreetingCard on the next unrelated 'storage' event or a reload,
+// contradicting this page's own "Changes save instantly" promise.
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const GLOBAL_SETTINGS_KEY = 'nexus_global_settings';
 
@@ -64,10 +84,21 @@ const parseLeadingNumber = (raw) => {
 // user has had the most direct, functional reason to keep accurate;
 // falls back to Profile's own copy only if the module-owned value is
 // still at its own untouched default.
+// Extracts the real leading currency-symbol portion of a Settings-style
+// value like "₹ INR" or "$ USD" - used only once, to seed the new shared
+// value from Settings' own pre-existing 'currency' field on first
+// migration, in the same "bare symbol, no code" shape FinancePage
+// already renders directly next to every amount.
+const parseLeadingSymbol = (raw) => {
+    if (typeof raw !== 'string' || !raw.trim()) return null;
+    return raw.trim().split(' ')[0];
+};
+
 const buildInitialSettings = () => {
     const financeProfile = readJson('nexus_finance_profile', null);
     const dietProfile = readJson('nexus_diet_profile', null);
     const userProfile = readJson('nexus_user_profile', null);
+    const legacySettings = readJson(GLOBAL_SETTINGS_KEY, null);
 
     const financeBudget = financeProfile?.monthlyBudget;
     const profileBudget = userProfile?.monthlyBudget;
@@ -81,7 +112,18 @@ const buildInitialSettings = () => {
         ? dietWater
         : parseLeadingNumber(profileWaterRaw);
 
-    return { monthlyBudgetCap, dailyHydrationGoal };
+    // Prefers Finance's own currency (the value actually used everywhere
+    // real amounts are displayed) since that's the value the user has had
+    // the most direct, functional reason to keep accurate; falls back to
+    // Settings' own pre-existing dropdown value, then a plain default.
+    const currencySymbol = (typeof financeProfile?.currency === 'string' && financeProfile.currency.trim())
+        ? financeProfile.currency.trim()
+        : (parseLeadingSymbol(legacySettings?.currency) || '₹');
+
+    const weightUnit = legacySettings?.weightUnit === 'lbs' ? 'lbs' : 'kg';
+    const temperatureUnit = legacySettings?.temperatureUnit === '°F' ? '°F' : '°C';
+
+    return { monthlyBudgetCap, dailyHydrationGoal, currencySymbol, weightUnit, temperatureUnit };
 };
 
 // Validates each field individually against its own real, safe
@@ -102,6 +144,11 @@ const sanitizeSettings = (raw, fallback) => {
         dailyHydrationGoal: typeof safeRaw.dailyHydrationGoal === 'number' && !Number.isNaN(safeRaw.dailyHydrationGoal)
             ? safeRaw.dailyHydrationGoal
             : fallback.dailyHydrationGoal,
+        currencySymbol: typeof safeRaw.currencySymbol === 'string' && safeRaw.currencySymbol.trim()
+            ? safeRaw.currencySymbol
+            : fallback.currencySymbol,
+        weightUnit: safeRaw.weightUnit === 'lbs' ? 'lbs' : (safeRaw.weightUnit === 'kg' ? 'kg' : fallback.weightUnit),
+        temperatureUnit: safeRaw.temperatureUnit === '°F' ? '°F' : (safeRaw.temperatureUnit === '°C' ? '°C' : fallback.temperatureUnit),
     };
 };
 
@@ -120,8 +167,26 @@ export const GlobalUserSettingsProvider = ({ children }) => {
     // makes same-tab consumers (Profile, Finance, Diet, all mounted at
     // once within DashboardLayout's own tab system) pick up a change
     // immediately, with no page reload.
+    //
+    // MERGE, never replace: 'nexus_global_settings' is the same real
+    // localStorage key SettingsPage.jsx also reads/writes directly for
+    // dozens of unrelated fields (theme, wallpaper, PIN, weight/temp
+    // units, API tokens, widget visibility, ...) - this provider only
+    // ever owns monthlyBudgetCap/dailyHydrationGoal within that shared
+    // object. A confirmed, real, reproducible bug: writing this effect's
+    // own `settings` object directly as the ENTIRE key (the previous
+    // version) silently deleted every one of those other fields the
+    // instant this provider mounted, since it always runs at least once
+    // on mount - verified live by setting a full settings object,
+    // reloading, and finding only these two keys survived. Reading the
+    // real, current, full object first and spreading this provider's own
+    // fields over it is what makes this genuinely additive instead of
+    // destructive, without this provider needing to know or care what
+    // else SettingsPage happens to store here.
     useEffect(() => {
-        localStorage.setItem(GLOBAL_SETTINGS_KEY, JSON.stringify(settings));
+        const existing = readJson(GLOBAL_SETTINGS_KEY, {});
+        const safeExisting = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {};
+        localStorage.setItem(GLOBAL_SETTINGS_KEY, JSON.stringify({ ...safeExisting, ...settings }));
         window.dispatchEvent(new Event('storage'));
     }, [settings]);
 
@@ -142,7 +207,11 @@ export const GlobalUserSettingsProvider = ({ children }) => {
             });
         };
         window.addEventListener('storage', handleExternalChange);
-        return () => window.removeEventListener('storage', handleExternalChange);
+        window.addEventListener('nexus_settings_updated', handleExternalChange);
+        return () => {
+            window.removeEventListener('storage', handleExternalChange);
+            window.removeEventListener('nexus_settings_updated', handleExternalChange);
+        };
     }, []);
 
     // A single, atomic setter every consuming module calls the same
@@ -166,7 +235,7 @@ export const useGlobalSettings = () => {
         // provider degrades to a real, honest empty/zeroed shape
         // rather than throwing - matching useTaskRegistry's own
         // established fallback convention.
-        return { settings: { monthlyBudgetCap: 0, dailyHydrationGoal: 0 }, updateSetting: () => {} };
+        return { settings: { monthlyBudgetCap: 0, dailyHydrationGoal: 0, currencySymbol: '₹', weightUnit: 'kg', temperatureUnit: '°C' }, updateSetting: () => {} };
     }
     return ctx;
 };

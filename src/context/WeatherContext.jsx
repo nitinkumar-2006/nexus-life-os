@@ -5,7 +5,7 @@
 // visuals in DynamicBackground read from the exact same fetch, so they can
 // never show mismatched conditions - e.g. a temperature from one city while
 // the sky depicts a completely different location's weather.
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 
 // Used only if BOTH the browser's Geolocation API and the IP-based
 // fallback below fail - the last-resort tier, not the primary behavior.

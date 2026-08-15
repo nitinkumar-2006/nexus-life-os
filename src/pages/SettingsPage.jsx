@@ -1,5 +1,5 @@
 // src/pages/SettingsPage.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
     Sliders, Save, 
     CheckCircle, AlertTriangle, Shield, Download, Upload, Bell, 
@@ -23,6 +23,7 @@ import { doc, deleteDoc } from 'firebase/firestore';
 import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { WALLPAPER_OPTIONS } from '../constants/wallpaperOptions.js';
+import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 
 // Real wallpaper presets - each preview gradient genuinely matches its
 // actual, corresponding component in AlternateBackgrounds.jsx, not an
@@ -549,7 +550,6 @@ const SettingsPage = () => {
         spotifyCredConfirmed: false,
         performanceMode: false,
         autoBackupFreq: 'Weekly',
-        currency: '₹ INR',
         weightUnit: 'kg',
         temperatureUnit: '°C',
         liquidUnit: 'L',
@@ -579,6 +579,15 @@ const SettingsPage = () => {
         }
         return defaultSettings;
     });
+    // The real, shared currency value - GlobalUserSettingsContext now owns
+    // this the same way it already owns monthlyBudgetCap/dailyHydrationGoal
+    // (see that file's own comment on the real, confirmed silo this fixes:
+    // this page's own dropdown used to write settings.currency here, but
+    // every actual place a currency is displayed - Finance, the AI daily
+    // briefing, exported reports - read a completely separate value and
+    // never saw it change). The dropdown below now reads/writes this
+    // shared value directly instead.
+    const { settings: globalSettings, updateSetting: updateGlobalSetting } = useGlobalSettings();
 
     // Applies the real glass customization settings as live CSS custom
     // properties - this is what makes the sliders/toggle genuinely
@@ -1184,6 +1193,7 @@ const SettingsPage = () => {
                 // no reload required.
                 document.documentElement.setAttribute('data-theme', 'night');
                 setSettings(defaultSettings);
+                calculateCache();
                 setSettingsToast({ message: 'Factory reset complete. The OS has returned to a blank state.', type: 'success' });
                 window.dispatchEvent(new Event('nexus_profile_updated'));
                 window.dispatchEvent(new Event('nexus_settings_updated'));
@@ -1229,6 +1239,14 @@ const SettingsPage = () => {
                     setSettingsToast({ message: 'Invalid backup file format!', type: 'error' });
                 }
             };
+            // A genuine OS/permissions-level read failure (not a bad JSON
+            // body - onload's own try/catch above already handles that)
+            // previously left the user with zero feedback at all: no
+            // toast, nothing selected, nothing to explain why the import
+            // silently did nothing.
+            fileReader.onerror = () => {
+                setSettingsToast({ message: 'Could not read that file. Please try again.', type: 'error' });
+            };
         }
         e.target.value = ''; // allow re-selecting the same filename later
     };
@@ -1250,6 +1268,7 @@ const SettingsPage = () => {
         // wholesale import that just happened underneath it otherwise.
         const savedSettings = JSON.parse(importedData['nexus_global_settings'] || 'null');
         if (savedSettings) setSettings({ ...defaultSettings, ...savedSettings, themeMode: restoredTheme });
+        calculateCache();
         setSettingsToast({ message: 'System Backup restored!', type: 'success' });
         // Same, already-proven pattern pullFromCloud uses for the exact
         // same kind of operation (a bulk localStorage overwrite) - every
@@ -1435,6 +1454,7 @@ const SettingsPage = () => {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                     <input
                                         id="quickPin" name="quickPin" type="password" inputMode="numeric" maxLength="4"
+                                        aria-label="Quick Sign-In PIN"
                                         placeholder="Enter a 4-digit PIN"
                                         value={quickPinDraft}
                                         onChange={(e) => { setQuickPinDraft(e.target.value.replace(/\D/g, '').slice(0, 4)); setQuickPinError(''); }}
@@ -1575,7 +1595,7 @@ const SettingsPage = () => {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <input
-                                    id="spotifyClientId" name="spotifyClientId" type="password" placeholder="Client ID"
+                                    id="spotifyClientId" name="spotifyClientId" type="password" placeholder="Client ID" aria-label="Spotify Client ID"
                                     value={settings.spotifyClientId} onChange={(e) => handleChange('spotifyClientId', e.target.value)}
                                     style={{
                                         width: '100%', padding: '12px 16px', borderRadius: '12px',
@@ -1584,7 +1604,7 @@ const SettingsPage = () => {
                                     }}
                                 />
                                 <input
-                                    id="spotifyClientSecret" name="spotifyClientSecret" type="password" placeholder="Client Secret"
+                                    id="spotifyClientSecret" name="spotifyClientSecret" type="password" placeholder="Client Secret" aria-label="Spotify Client Secret"
                                     value={settings.spotifyClientSecret} onChange={(e) => handleChange('spotifyClientSecret', e.target.value)}
                                     style={{
                                         width: '100%', padding: '12px 16px', borderRadius: '12px',
@@ -1628,7 +1648,7 @@ const SettingsPage = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Monitor size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Display & Environment</h3></div>
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>System Theme</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose your visual environment</span></div>
-                        <select id="themeMode" name="themeMode" value={settings.themeMode} onChange={(e) => handleChange('themeMode', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
+                        <select id="themeMode" name="themeMode" aria-label="System Theme" value={settings.themeMode} onChange={(e) => handleChange('themeMode', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
                             <option value="night" style={{ background: 'var(--surface-inset)' }}>🌙 Dark Mode</option>
                             <option value="comfort" style={{ background: 'var(--surface-inset)' }}>👁️ Eye Comfort</option>
                             <option value="day" style={{ background: 'var(--surface-inset)' }}>☀️ Light Mode</option>
@@ -1637,13 +1657,13 @@ const SettingsPage = () => {
                     </div>
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Startup Launchpad</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Default screen on boot</span></div>
-                        <select id="landingPage" name="landingPage" value={settings.landingPage} onChange={(e) => handleChange('landingPage', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
+                        <select id="landingPage" name="landingPage" aria-label="Startup Launchpad" value={settings.landingPage} onChange={(e) => handleChange('landingPage', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
                             <option value="Home Dashboard" style={{ background: 'var(--surface-inset)' }}>Home Dashboard</option><option value="Planner" style={{ background: 'var(--surface-inset)' }}>Planner Matrix</option><option value="Study Hub" style={{ background: 'var(--surface-inset)' }}>Study Hub</option>
                         </select>
                     </div>
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Time Format</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Clock display setting</span></div>
-                        <select id="timeFormat" name="timeFormat" value={settings.timeFormat} onChange={(e) => handleChange('timeFormat', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
+                        <select id="timeFormat" name="timeFormat" aria-label="Time Format" value={settings.timeFormat} onChange={(e) => handleChange('timeFormat', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
                             <option value="12 Hour (AM/PM)" style={{ background: 'var(--surface-inset)' }}>12 Hour (AM/PM)</option><option value="24 Hour" style={{ background: 'var(--surface-inset)' }}>24 Hour</option>
                         </select>
                     </div>
@@ -1691,7 +1711,7 @@ const SettingsPage = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Sliders size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>System Defaults</h3></div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '16px' }}>
                         <div><label htmlFor="currency" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><DollarSign size={14}/> Currency</label>
-                            <select id="currency" name="currency" value={settings.currency} onChange={(e) => handleChange('currency', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="₹ INR" style={{ background: 'var(--surface-inset)' }}>₹ INR</option><option value="$ USD" style={{ background: 'var(--surface-inset)' }}>$ USD</option><option value="€ EUR" style={{ background: 'var(--surface-inset)' }}>€ EUR</option></select>
+                            <select id="currency" name="currency" value={globalSettings.currencySymbol} onChange={(e) => updateGlobalSetting('currencySymbol', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="₹" style={{ background: 'var(--surface-inset)' }}>₹ INR</option><option value="$" style={{ background: 'var(--surface-inset)' }}>$ USD</option><option value="€" style={{ background: 'var(--surface-inset)' }}>€ EUR</option></select>
                         </div>
                         <div><label htmlFor="weightUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Activity size={14}/> Weight Unit</label>
                             <select id="weightUnit" name="weightUnit" value={settings.weightUnit} onChange={(e) => handleChange('weightUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="kg" style={{ background: 'var(--surface-inset)' }}>Kilograms (kg)</option><option value="lbs" style={{ background: 'var(--surface-inset)' }}>Pounds (lbs)</option></select>
@@ -1706,7 +1726,7 @@ const SettingsPage = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cloud size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Automation & Backup</h3></div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Auto-Backup Frequency</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Automatically back up to the cloud this often while the app is open</span></div>
-                        <select id="autoBackupFreq" name="autoBackupFreq" value={settings.autoBackupFreq} onChange={(e) => handleChange('autoBackupFreq', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: 'border-box' }}>
+                        <select id="autoBackupFreq" name="autoBackupFreq" aria-label="Auto-Backup Frequency" value={settings.autoBackupFreq} onChange={(e) => handleChange('autoBackupFreq', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: 'border-box' }}>
                             <option value="Daily" style={{ background: 'var(--surface-inset)' }}>Daily</option><option value="Weekly" style={{ background: 'var(--surface-inset)' }}>Weekly</option><option value="Monthly" style={{ background: 'var(--surface-inset)' }}>Monthly</option>
                         </select>
                     </div>
@@ -2199,7 +2219,12 @@ const SettingsPage = () => {
                                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '700' }}>{cacheSize} KB</span>
                             </div>
                             <div style={{ width: '100%', height: '8px', background: 'var(--surface-inset)', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--border-premium)' }}>
-                                <div style={{ width: cacheSize === '0.0' ? '0%' : '15%', height: '100%', background: 'var(--accent)' }}></div>
+                                {/* Genuinely proportional now - was previously a fixed 15% width
+                                    regardless of the real byte count above it. 5120 KB (5MB) is the
+                                    conservative, commonly-enforced localStorage quota most browsers
+                                    apply per origin, so this reads as "how full is my actual quota"
+                                    rather than an arbitrary scale. */}
+                                <div style={{ width: `${Math.min(100, (parseFloat(cacheSize) / 5120) * 100)}%`, height: '100%', background: 'var(--accent)' }}></div>
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>

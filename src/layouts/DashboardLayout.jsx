@@ -1,5 +1,5 @@
 // src/layouts/DashboardLayout.jsx
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar.jsx';
 import MobileTabBar from '../components/MobileTabBar.jsx';
 import Header from '../components/header.jsx';

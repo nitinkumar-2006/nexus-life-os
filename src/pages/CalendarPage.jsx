@@ -1,6 +1,6 @@
 // src/pages/CalendarPage.jsx
-import React, { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Tag, MapPin, AlertCircle, Filter, Check, Trash2, ChevronRight, ChevronLeft, Sparkles, Bell, Cpu, ShieldCheck } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, Sparkles, Bell, Cpu, ShieldCheck } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 
@@ -399,7 +399,7 @@ const CalendarPage = () => {
                                 ))}
                             </div>
                             <div style={{ position: 'relative' }}>
-                                <input type="text" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', width: '200px' }} />
+                                <input type="text" aria-label="Search events" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', width: '200px' }} />
                             </div>
                         </div>
 
@@ -515,36 +515,36 @@ const CalendarPage = () => {
                         
                         <form onSubmit={handleAddEvent} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Event Title</label>
-                                <input type="text" required autoFocus value={newEvent.title} onChange={(e) => setNewEvent({...newEvent, title: e.target.value})} placeholder="e.g. Machine Learning Revision" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                                <label htmlFor="eventTitle" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Event Title</label>
+                                <input id="eventTitle" type="text" required autoFocus value={newEvent.title} onChange={(e) => setNewEvent({...newEvent, title: e.target.value})} placeholder="e.g. Machine Learning Revision" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Category</label>
-                                    <select value={newEvent.category} onChange={(e) => setNewEvent({...newEvent, category: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                                    <label htmlFor="eventCategory" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Category</label>
+                                    <select id="eventCategory" value={newEvent.category} onChange={(e) => setNewEvent({...newEvent, category: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                                         <option value="Study" style={{ background: 'var(--surface-inset)' }}>Study</option><option value="Fitness" style={{ background: 'var(--surface-inset)' }}>Fitness</option><option value="Nutrition" style={{ background: 'var(--surface-inset)' }}>Nutrition</option><option value="Productivity" style={{ background: 'var(--surface-inset)' }}>Productivity</option><option value="Finance" style={{ background: 'var(--surface-inset)' }}>Finance</option><option value="Personal" style={{ background: 'var(--surface-inset)' }}>Personal</option>
                                     </select>
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Priority</label>
-                                    <select value={newEvent.priority} onChange={(e) => setNewEvent({...newEvent, priority: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                                    <label htmlFor="eventPriority" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Priority</label>
+                                    <select id="eventPriority" value={newEvent.priority} onChange={(e) => setNewEvent({...newEvent, priority: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                                         <option value="High" style={{ background: 'var(--surface-inset)' }}>High</option><option value="Medium" style={{ background: 'var(--surface-inset)' }}>Medium</option><option value="Low" style={{ background: 'var(--surface-inset)' }}>Low</option>
                                     </select>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Date</label>
-                                    <input type="date" required value={newEvent.date} onChange={(e) => setNewEvent({...newEvent, date: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', colorScheme: 'dark' }} />
+                                    <label htmlFor="eventDate" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Date</label>
+                                    <input id="eventDate" type="date" required value={newEvent.date} onChange={(e) => setNewEvent({...newEvent, date: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', colorScheme: 'dark' }} />
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Time Slot</label>
-                                    <input type="text" required value={newEvent.time} onChange={(e) => setNewEvent({...newEvent, time: e.target.value})} placeholder="04:00 PM" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                                    <label htmlFor="eventTime" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Time Slot</label>
+                                    <input id="eventTime" type="text" required value={newEvent.time} onChange={(e) => setNewEvent({...newEvent, time: e.target.value})} placeholder="04:00 PM" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                                 </div>
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Location / Venue</label>
-                                <input type="text" value={newEvent.location} onChange={(e) => setNewEvent({...newEvent, location: e.target.value})} placeholder="e.g. College Lab 2" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                                <label htmlFor="eventLocation" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Location / Venue</label>
+                                <input id="eventLocation" type="text" value={newEvent.location} onChange={(e) => setNewEvent({...newEvent, location: e.target.value})} placeholder="e.g. College Lab 2" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
                                 <button type="button" onClick={() => setIsAddModalOpen(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>

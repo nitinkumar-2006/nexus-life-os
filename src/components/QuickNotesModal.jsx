@@ -4,7 +4,7 @@
 // user-named sections, each holding its own notes), full CRUD on both
 // sections and notes, and a clean, distraction-free writing panel - all
 // persisted to localStorage so notes survive reloads.
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Plus, Trash2, FolderPlus, StickyNote, Check } from 'lucide-react';
 
@@ -76,6 +76,7 @@ const TextPromptModal = ({ title, initialValue, onConfirm, onCancel }) => {
                 <h3 style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{title}</h3>
                 <input
                     type="text" autoFocus value={value} onChange={(e) => setValue(e.target.value)}
+                    aria-label={title}
                     style={{ width: '100%', padding: '11px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                 />
                 <div style={{ display: 'flex', gap: '10px' }}>
@@ -465,6 +466,7 @@ const QuickNotesModal = ({ onClose }) => {
                                 onChange={(e) => setDraftTitle(e.target.value)}
                                 onBlur={saveActiveNote}
                                 placeholder="Note title..."
+                                aria-label="Note title"
                                 style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '14px', padding: 0 }}
                             />
                             <textarea
@@ -472,6 +474,7 @@ const QuickNotesModal = ({ onClose }) => {
                                 onChange={(e) => setDraftContent(e.target.value)}
                                 onBlur={saveActiveNote}
                                 placeholder="Start writing - a clean, distraction-free space..."
+                                aria-label="Note content"
                                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: '14px', lineHeight: 1.7, color: 'var(--text-secondary)', fontFamily: 'inherit' }}
                             />
                         </>

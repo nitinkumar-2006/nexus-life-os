@@ -10,7 +10,7 @@
 // top of audioLibraryMock.js for exactly what that swap would touch.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Headphones, Play, Pause, SkipForward, SkipBack, Music, Trash2, Volume2, VolumeX,
+    Play, Pause, SkipForward, SkipBack, Music, Trash2, Volume2, VolumeX,
     ArrowLeft, Disc, ArrowUp, ArrowDown, UploadCloud, CloudRain, TreePine, Coffee, Wind,
     Search, Shuffle, Heart, Library, ListMusic, FolderOpen, X, ChevronLeft, Radio,
     Repeat, Repeat1, Apple, Check, Loader2, CheckCircle2,
@@ -562,6 +562,7 @@ const GlobalSearchTab = React.memo(({ playlist: queue, playTrackNow }) => {
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
+                    aria-label="Search all tracks and playlists"
                     placeholder="Search all tracks and playlists..."
                     style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                 />
@@ -679,7 +680,7 @@ const LocalFilesTab = React.memo(({ addSong, cloudUploadStatus, playlist }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
-            <input ref={fileInputRef} type="file" accept=".mp3,.wav,.m4a,.flac,.aac,.ogg,audio/*" multiple onChange={handleFileInputChange} style={{ display: 'none' }} />
+            <input ref={fileInputRef} type="file" accept=".mp3,.wav,.m4a,.flac,.aac,.ogg,audio/*" multiple onChange={handleFileInputChange} aria-label="Upload audio files" style={{ display: 'none' }} />
             <div
                 onClick={() => fileInputRef.current && fileInputRef.current.click()}
                 onDrop={handleDrop} onDragEnter={handleDragEnter} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
@@ -754,6 +755,7 @@ const QueueManager = React.memo(({ playlist, currentSongIndex, isPlaying, toggle
                 <Search size={14} color="var(--text-muted)" />
                 <input
                     type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                    aria-label="Search your queue"
                     placeholder="Search your queue..."
                     style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
                 />
@@ -887,6 +889,7 @@ const AudioHubPage = ({ setActiveTab }) => {
                             type="range" min={0} max={duration && isFinite(duration) ? duration : 0} step="0.1"
                             value={Math.min(currentTime, duration && isFinite(duration) ? duration : 0)}
                             onChange={(e) => seek(parseFloat(e.target.value))}
+                            aria-label="Seek"
                             style={{ flex: 1, accentColor: 'var(--primary)', cursor: 'pointer' }}
                         />
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', minWidth: '34px', textAlign: 'right' }}>{formatTime(duration)}</span>
@@ -917,7 +920,7 @@ const AudioHubPage = ({ setActiveTab }) => {
                             <button onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex' }}>
                                 {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
                             </button>
-                            <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} style={{ width: '80px', accentColor: 'var(--primary)' }} />
+                            <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} aria-label="Volume" style={{ width: '80px', accentColor: 'var(--primary)' }} />
                         </div>
                     </div>
                 </div>

@@ -1,13 +1,25 @@
 // src/pages/GymPage.jsx
-import React, { useState, useEffect } from 'react';
-import { Dumbbell, Flame, Trophy, TrendingUp, User, Target, Plus, Calendar, Activity, CheckCircle, Search, Layers, Shield, Play, Square, Check, Trash2, ArrowLeft, Ruler, HeartPulse, Sparkles, Cpu, ShieldCheck } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Dumbbell, Flame, TrendingUp, User, Target, Plus, Search, Play, Check, Trash2, ArrowLeft, Ruler, Sparkles, Cpu } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumberInput.js';
+import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
+
+const KG_PER_LB = 0.45359237;
+// All weight data is stored in kilograms internally regardless of the
+// user's display preference - these two helpers are the only place a
+// kg<->lbs conversion happens, applied purely at the display/input
+// boundary so the underlying stored numbers (and history already saved)
+// never drift from repeated round-tripping.
+const kgToDisplay = (kg, unit) => (unit === 'lbs' ? (Number(kg) || 0) / KG_PER_LB : Number(kg) || 0);
+const displayToKg = (value, unit) => (unit === 'lbs' ? (Number(value) || 0) * KG_PER_LB : Number(value) || 0);
 
 const GymPage = () => {
     const isMobile = useIsMobile();
+    const { settings } = useGlobalSettings();
+    const weightUnit = settings.weightUnit === 'lbs' ? 'lbs' : 'kg';
     // 1. Fitness Profile
     const [profile, setProfile] = useState(() => {
         const saved = localStorage.getItem('nexus_gym_profile');
@@ -82,10 +94,22 @@ const GymPage = () => {
     // Modals States
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [tempProfile, setTempProfile] = useState(profile);
+    // profile.weight/targetWeight are always stored in kg - these hold the
+    // same two values converted into whatever unit is currently displayed,
+    // so the Edit Profile weight fields can be typed in that unit directly
+    // (kept as separate string-friendly state, not converted inline on
+    // every keystroke, so sanitizeNumberInput's own "stay empty while
+    // typing" behavior isn't broken by a live unit conversion).
+    const [tempWeightDisplay, setTempWeightDisplay] = useState(kgToDisplay(profile.weight, weightUnit));
+    const [tempTargetWeightDisplay, setTempTargetWeightDisplay] = useState(kgToDisplay(profile.targetWeight, weightUnit));
     const [isAddExerciseModal, setIsAddExerciseModal] = useState(false);
     const [newExercise, setNewExercise] = useState({ name: '', muscle: 'Chest', equipment: 'Barbell', difficulty: 'Beginner', type: 'Compound' });
     const [isAddMeasurementModal, setIsAddMeasurementModal] = useState(false);
-    const [newMeasurement, setNewMeasurement] = useState({ weight: profile.weight, chest: 0, waist: 0, biceps: 0 });
+    const [newMeasurement, setNewMeasurement] = useState({ chest: 0, waist: 0, biceps: 0 });
+    // Same "separate display-unit state" pattern as tempWeightDisplay above
+    // - keeps the field typeable in whatever unit is currently selected
+    // without converting through kg on every keystroke.
+    const [measurementWeightDisplay, setMeasurementWeightDisplay] = useState(kgToDisplay(profile.weight, weightUnit));
     
     // NEW: Add Plan Modal State
     const [isAddPlanModal, setIsAddPlanModal] = useState(false);
@@ -152,7 +176,15 @@ const GymPage = () => {
     }, []);
 
     // Handlers
-    const handleSaveProfile = (e) => { e.preventDefault(); setProfile(tempProfile); setIsEditingProfile(false); };
+    const handleSaveProfile = (e) => {
+        e.preventDefault();
+        setProfile({
+            ...tempProfile,
+            weight: displayToKg(tempWeightDisplay, weightUnit),
+            targetWeight: displayToKg(tempTargetWeightDisplay, weightUnit),
+        });
+        setIsEditingProfile(false);
+    };
     
     const handleAddExercise = (e) => {
         e.preventDefault();
@@ -167,7 +199,7 @@ const GymPage = () => {
         e.preventDefault();
         const item = {
             id: Date.now().toString(), date: new Date().toISOString().split('T')[0],
-            weight: parseFloat(newMeasurement.weight) || profile.weight,
+            weight: displayToKg(measurementWeightDisplay, weightUnit) || profile.weight,
             chest: parseFloat(newMeasurement.chest) || 0, waist: parseFloat(newMeasurement.waist) || 0, biceps: parseFloat(newMeasurement.biceps) || 0
         };
         setMeasurements([item, ...measurements]);
@@ -260,7 +292,7 @@ const GymPage = () => {
         // the previous hardcoded '45 mins', which never reflected how
         // long the session genuinely took.
         const elapsedMinutes = activeSession.startTimestamp ? Math.max(1, Math.round((Date.now() - activeSession.startTimestamp) / 60000)) : null;
-        const newSessionRecord = { id: Date.now().toString(), title: activeSession.planName, date: new Date().toISOString().split('T')[0], duration: elapsedMinutes ? `${elapsedMinutes} min${elapsedMinutes === 1 ? '' : 's'}` : 'Unknown', volume: `${totalVolume.toLocaleString()} kg`, setsCompleted: totalSets };
+        const newSessionRecord = { id: Date.now().toString(), title: activeSession.planName, date: new Date().toISOString().split('T')[0], duration: elapsedMinutes ? `${elapsedMinutes} min${elapsedMinutes === 1 ? '' : 's'}` : 'Unknown', volume: `${Math.round(kgToDisplay(totalVolume, weightUnit)).toLocaleString()} ${weightUnit}`, setsCompleted: totalSets };
         setWorkoutHistory([newSessionRecord, ...workoutHistory]);
         setProfile(prev => ({ ...prev, streak: prev.streak + 1 }));
         if (workedMuscles.size > 0) {
@@ -342,8 +374,8 @@ const GymPage = () => {
                                 {ex.sets.map((set, setIndex) => (
                                     <div key={set.id} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 80px', gap: '12px', alignItems: 'center', background: set.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)' }}>
                                         <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>#{setIndex + 1}</span>
-                                        <input type="number" step="0.5" value={set.weight} onChange={(e) => updateSetValue(exIndex, setIndex, 'weight', sanitizeNumberInput(e.target.value, set.weight))} onBlur={(e) => updateSetValue(exIndex, setIndex, 'weight', normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: isMobile ? '12px 8px' : '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', outline: 'none' }} />
-                                        <input type="number" value={set.reps} onChange={(e) => updateSetValue(exIndex, setIndex, 'reps', sanitizeNumberInput(e.target.value, set.reps))} onBlur={(e) => updateSetValue(exIndex, setIndex, 'reps', normalizeNumberOnBlur(e.target.value, false))} style={{ width: '100%', padding: isMobile ? '12px 8px' : '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', outline: 'none' }} />
+                                        <input id={`gymSetWeight_${exIndex}_${setIndex}`} name={`setWeight_${exIndex}_${setIndex}`} type="number" step="0.5" aria-label={`Set ${setIndex + 1} weight (${weightUnit})`} value={kgToDisplay(set.weight, weightUnit)} onChange={(e) => updateSetValue(exIndex, setIndex, 'weight', displayToKg(sanitizeNumberInput(e.target.value, kgToDisplay(set.weight, weightUnit)), weightUnit))} onBlur={(e) => updateSetValue(exIndex, setIndex, 'weight', displayToKg(normalizeNumberOnBlur(e.target.value, true), weightUnit))} style={{ width: '100%', padding: isMobile ? '12px 8px' : '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', outline: 'none' }} />
+                                        <input id={`gymSetReps_${exIndex}_${setIndex}`} name={`setReps_${exIndex}_${setIndex}`} type="number" aria-label={`Set ${setIndex + 1} reps`} value={set.reps} onChange={(e) => updateSetValue(exIndex, setIndex, 'reps', sanitizeNumberInput(e.target.value, set.reps))} onBlur={(e) => updateSetValue(exIndex, setIndex, 'reps', normalizeNumberOnBlur(e.target.value, false))} style={{ width: '100%', padding: isMobile ? '12px 8px' : '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', outline: 'none' }} />
                                         <button onClick={() => toggleSetCompletion(exIndex, setIndex)} style={{ width: '100%', padding: isMobile ? '12px 8px' : '8px', background: set.completed ? '#10B981' : 'var(--surface-inset)', color: set.completed ? '#fff' : 'var(--text-muted)', border: '1px solid var(--border-premium)', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' }}>{set.completed ? '✓' : '○'}</button>
                                     </div>
                                 ))}
@@ -380,11 +412,11 @@ const GymPage = () => {
                         </button>
                     )}
                     {activeTab === 'Recovery' && (
-                        <button onClick={() => setIsAddMeasurementModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
+                        <button onClick={() => { setMeasurementWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setIsAddMeasurementModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
                             <Ruler size={18} /> Log Measurements
                         </button>
                     )}
-                    <button onClick={() => { setTempProfile(profile); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
+                    <button onClick={() => { setTempProfile(profile); setTempWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setTempTargetWeightDisplay(kgToDisplay(profile.targetWeight, weightUnit)); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
                         <User size={18} /> Profile
                     </button>
                 </div>
@@ -398,7 +430,7 @@ const GymPage = () => {
                 </div>
                 <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981' }}><TrendingUp size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Current / Target Weight</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.weight} kg <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>/ {profile.targetWeight} kg</span></h2></div>
+                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Current / Target Weight</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{kgToDisplay(profile.weight, weightUnit).toFixed(1)} {weightUnit} <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>/ {kgToDisplay(profile.targetWeight, weightUnit).toFixed(1)} {weightUnit}</span></h2></div>
                 </div>
                 <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#F59E0B' }}><Flame size={24} /></div>
@@ -460,7 +492,7 @@ const GymPage = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div style={{ position: 'relative', width: '100%' }}>
                         <Search size={18} style={{ position: 'absolute', top: '14px', left: '14px', color: 'var(--text-muted)' }} />
-                        <input type="text" placeholder="Search exercises..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ width: '100%', padding: '12px 12px 12px 44px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', outline: 'none' }} />
+                        <input type="text" aria-label="Search exercises" placeholder="Search exercises..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ width: '100%', padding: '12px 12px 12px 44px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', outline: 'none' }} />
                     </div>
                     {filteredExercises.length > 0 ? (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
@@ -522,7 +554,7 @@ const GymPage = () => {
                                 <div key={m.id} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '10px', background: 'var(--widget-bg)', padding: '16px 20px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
                                     <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--primary)' }}>{m.date}</span>
                                     <div style={{ display: 'flex', gap: '24px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>⚖️ {m.weight} kg</span>
+                                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>⚖️ {kgToDisplay(m.weight, weightUnit).toFixed(1)} {weightUnit}</span>
                                         {m.chest > 0 && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Chest {m.chest}cm</span>}
                                         {m.waist > 0 && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Waist {m.waist}cm</span>}
                                         {m.biceps > 0 && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Biceps {m.biceps}cm</span>}
@@ -565,16 +597,16 @@ const GymPage = () => {
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Workout Plan</h2>
                         <form onSubmit={handleAddPlan} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="text" required placeholder="Plan Name (e.g., Push Day)" value={newPlan.name} onChange={e => setNewPlan({...newPlan, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <input type="text" required aria-label="Plan name" placeholder="Plan Name (e.g., Push Day)" value={newPlan.name} onChange={e => setNewPlan({...newPlan, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <select value={newPlan.split} onChange={e => setNewPlan({...newPlan, split: e.target.value})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
+                                <select aria-label="Plan split" value={newPlan.split} onChange={e => setNewPlan({...newPlan, split: e.target.value})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
                                     <option value="Full Body" style={{ background: 'var(--surface-inset)' }}>Full Body</option>
                                     <option value="3 Days / Week" style={{ background: 'var(--surface-inset)' }}>3 Days / Week</option>
                                     <option value="4 Days / Week" style={{ background: 'var(--surface-inset)' }}>4 Days / Week</option>
                                     <option value="5 Days / Week" style={{ background: 'var(--surface-inset)' }}>5 Days / Week</option>
                                     <option value="6 Days / Week" style={{ background: 'var(--surface-inset)' }}>6 Days / Week</option>
                                 </select>
-                                <select value={newPlan.focus} onChange={e => setNewPlan({...newPlan, focus: e.target.value})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
+                                <select aria-label="Plan focus" value={newPlan.focus} onChange={e => setNewPlan({...newPlan, focus: e.target.value})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
                                     <option value="Hypertrophy" style={{ background: 'var(--surface-inset)' }}>Hypertrophy</option>
                                     <option value="Strength" style={{ background: 'var(--surface-inset)' }}>Strength</option>
                                     <option value="Endurance" style={{ background: 'var(--surface-inset)' }}>Endurance</option>
@@ -628,8 +660,8 @@ const GymPage = () => {
                                 <input type="text" placeholder="Height (e.g. 175 cm)" value={tempProfile.height} onChange={(e) => setTempProfile({...tempProfile, height: e.target.value})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <input type="number" step="0.1" required placeholder="Current Weight" value={tempProfile.weight} onChange={(e) => setTempProfile({...tempProfile, weight: sanitizeNumberInput(e.target.value, tempProfile.weight)})} onBlur={(e) => setTempProfile({...tempProfile, weight: normalizeNumberOnBlur(e.target.value, true)})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none' }} />
-                                <input type="number" step="0.1" required placeholder="Target Weight" value={tempProfile.targetWeight} onChange={(e) => setTempProfile({...tempProfile, targetWeight: sanitizeNumberInput(e.target.value, tempProfile.targetWeight)})} onBlur={(e) => setTempProfile({...tempProfile, targetWeight: normalizeNumberOnBlur(e.target.value, true)})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none' }} />
+                                <input id="gymCurrentWeight" name="currentWeight" type="number" step="0.1" required aria-label={`Current weight (${weightUnit})`} placeholder={`Current Weight (${weightUnit})`} value={tempWeightDisplay} onChange={(e) => setTempWeightDisplay(sanitizeNumberInput(e.target.value, tempWeightDisplay))} onBlur={(e) => setTempWeightDisplay(normalizeNumberOnBlur(e.target.value, true))} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none' }} />
+                                <input id="gymTargetWeight" name="targetWeight" type="number" step="0.1" required aria-label={`Target weight (${weightUnit})`} placeholder={`Target Weight (${weightUnit})`} value={tempTargetWeightDisplay} onChange={(e) => setTempTargetWeightDisplay(sanitizeNumberInput(e.target.value, tempTargetWeightDisplay))} onBlur={(e) => setTempTargetWeightDisplay(normalizeNumberOnBlur(e.target.value, true))} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none' }} />
                             </div>
                             <select value={tempProfile.goal} onChange={(e) => setTempProfile({...tempProfile, goal: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }}>
                                 <option value="Not Set" style={{ background: 'var(--surface-inset)' }}>Select Goal</option>
@@ -658,7 +690,7 @@ const GymPage = () => {
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Log Measurement</h2>
                         <form onSubmit={handleAddMeasurement} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="number" step="0.1" placeholder="Weight (kg)" value={newMeasurement.weight} onChange={(e) => setNewMeasurement({...newMeasurement, weight: sanitizeNumberInput(e.target.value, newMeasurement.weight)})} onBlur={(e) => setNewMeasurement({...newMeasurement, weight: normalizeNumberOnBlur(e.target.value, true)})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
+                            <input id="gymMeasurementWeight" name="measurementWeight" type="number" step="0.1" aria-label={`Weight (${weightUnit})`} placeholder={`Weight (${weightUnit})`} value={measurementWeightDisplay} onChange={(e) => setMeasurementWeightDisplay(sanitizeNumberInput(e.target.value, measurementWeightDisplay))} onBlur={(e) => setMeasurementWeightDisplay(normalizeNumberOnBlur(e.target.value, true))} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <input type="number" step="0.1" placeholder="Chest (cm)" value={newMeasurement.chest || ''} onChange={(e) => setNewMeasurement({...newMeasurement, chest: sanitizeNumberInput(e.target.value, newMeasurement.chest)})} onBlur={(e) => setNewMeasurement({...newMeasurement, chest: normalizeNumberOnBlur(e.target.value, true)})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
                                 <input type="number" step="0.1" placeholder="Waist (cm)" value={newMeasurement.waist || ''} onChange={(e) => setNewMeasurement({...newMeasurement, waist: sanitizeNumberInput(e.target.value, newMeasurement.waist)})} onBlur={(e) => setNewMeasurement({...newMeasurement, waist: normalizeNumberOnBlur(e.target.value, true)})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
@@ -678,8 +710,8 @@ const GymPage = () => {
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Exercise</h2>
                         <form onSubmit={handleAddExercise} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="text" required placeholder="Exercise Name" value={newExercise.name} onChange={(e) => setNewExercise({...newExercise, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
-                            <select value={newExercise.muscle} onChange={(e) => setNewExercise({...newExercise, muscle: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }}>
+                            <input type="text" required aria-label="Exercise name" placeholder="Exercise Name" value={newExercise.name} onChange={(e) => setNewExercise({...newExercise, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
+                            <select aria-label="Target muscle" value={newExercise.muscle} onChange={(e) => setNewExercise({...newExercise, muscle: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }}>
                                 <option value="Chest" style={{ background: 'var(--surface-inset)' }}>Chest</option>
                                 <option value="Back" style={{ background: 'var(--surface-inset)' }}>Back</option>
                                 <option value="Legs" style={{ background: 'var(--surface-inset)' }}>Legs</option>

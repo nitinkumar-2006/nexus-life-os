@@ -1,6 +1,6 @@
 // src/pages/FinancePage.jsx
-import React, { useState, useEffect } from 'react';
-import { Wallet, DollarSign, TrendingUp, CreditCard, Shield, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, Tag, CheckCircle, Clock, Award, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { exportFinanceReportCsv, exportFinanceReportText } from '../utils/reportExport.js';
 import StatementImportModal from '../components/StatementImportModal.jsx';
@@ -17,7 +17,7 @@ const FinancePage = () => {
     // 1. FIXED: Zeroed out Financial Profile
     const [profile, setProfile] = useState(() => {
         const saved = localStorage.getItem('nexus_finance_profile');
-        const defaultProfile = { monthlyIncome: 0, monthlySavingsGoal: 0, currency: '₹', emergencyFund: 0 };
+        const defaultProfile = { monthlyIncome: 0, monthlySavingsGoal: 0, emergencyFund: 0 };
         if (saved) {
             try { return { ...defaultProfile, ...JSON.parse(saved) }; } catch (e) { return defaultProfile; }
         }
@@ -74,6 +74,7 @@ const FinancePage = () => {
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [tempProfile, setTempProfile] = useState(profile);
     const [tempMonthlyBudget, setTempMonthlyBudget] = useState(settings.monthlyBudgetCap || 0);
+    const [tempCurrencySymbol, setTempCurrencySymbol] = useState(settings.currencySymbol || '₹');
     
     const [isAddAccountModal, setIsAddAccountModal] = useState(false);
     const [newAccount, setNewAccount] = useState({ name: '', type: 'Savings Account', balance: '', institution: '' });
@@ -139,7 +140,7 @@ const FinancePage = () => {
         return () => window.removeEventListener('storage', handleExternalChange);
     }, []);
 
-    const handleSaveProfile = (e) => { e.preventDefault(); setProfile(tempProfile); updateSetting('monthlyBudgetCap', tempMonthlyBudget); setIsEditingProfile(false); };
+    const handleSaveProfile = (e) => { e.preventDefault(); setProfile(tempProfile); updateSetting('monthlyBudgetCap', tempMonthlyBudget); updateSetting('currencySymbol', tempCurrencySymbol.trim() || '₹'); setIsEditingProfile(false); };
 
     const handleAddAccount = (e) => {
         e.preventDefault();
@@ -313,7 +314,7 @@ const FinancePage = () => {
     // honestly whether it's good or lagging - never assumed positive.
     const generateFinanceBriefing = () => {
         if ((settings.monthlyBudgetCap || 0) === 0) return "Set up your financial profile and add transactions to receive AI insights.";
-        const parts = [`Your monthly budget utilization is currently at ${budgetProgress}%. You have ${profile.currency}${budgetRemaining.toLocaleString()} remaining for the rest of the month.`];
+        const parts = [`Your monthly budget utilization is currently at ${budgetProgress}%. You have ${settings.currencySymbol}${budgetRemaining.toLocaleString()} remaining for the rest of the month.`];
 
         if (savingsGoals.length > 0) {
             const avgProgress = Math.round(savingsGoals.reduce((acc, g) => acc + (g.target > 0 ? Math.min(100, (g.current / g.target) * 100) : 0), 0) / savingsGoals.length);
@@ -325,7 +326,7 @@ const FinancePage = () => {
         const unpaidBills = bills.filter((b) => !b.paid);
         if (unpaidBills.length > 0) {
             const totalUnpaid = unpaidBills.reduce((acc, b) => acc + b.amount, 0);
-            parts.push(`You have ${unpaidBills.length} unpaid bill${unpaidBills.length === 1 ? '' : 's'} totaling ${profile.currency}${totalUnpaid.toLocaleString()}.`);
+            parts.push(`You have ${unpaidBills.length} unpaid bill${unpaidBills.length === 1 ? '' : 's'} totaling ${settings.currencySymbol}${totalUnpaid.toLocaleString()}.`);
         }
 
         return parts.join(' ');
@@ -405,7 +406,7 @@ const FinancePage = () => {
                                     boxShadow: '0 10px 25px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: '4px',
                                 }}>
                                     <button
-                                        onClick={() => { exportFinanceReportText({ ...(profile || {}), monthlyBudget: settings.monthlyBudgetCap || 0 }, transactions || []); setIsExportMenuOpen(false); }}
+                                        onClick={() => { exportFinanceReportText({ ...(profile || {}), monthlyBudget: settings.monthlyBudgetCap || 0, currency: settings.currencySymbol }, transactions || []); setIsExportMenuOpen(false); }}
                                         style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left' }}
                                     >
                                         <FileText size={15} color="var(--accent)" /> Monthly Summary (.txt)
@@ -420,7 +421,7 @@ const FinancePage = () => {
                             </>
                         )}
                     </div>
-                    <button onClick={() => { setTempProfile(profile); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}>
+                    <button onClick={() => { setTempProfile(profile); setTempMonthlyBudget(settings.monthlyBudgetCap || 0); setTempCurrencySymbol(settings.currencySymbol || '₹'); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}>
                         <User size={18} /> Profile
                     </button>
                 </div>
@@ -432,7 +433,7 @@ const FinancePage = () => {
                     <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981' }}><Wallet size={24} /></div>
                     <div>
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Available Balance</span>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.currency} {totalBalance.toLocaleString()}</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {totalBalance.toLocaleString()}</h2>
                     </div>
                 </div>
 
@@ -440,7 +441,7 @@ const FinancePage = () => {
                     <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><Target size={24} /></div>
                     <div>
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Budget Remaining</span>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.currency} {budgetRemaining.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>/ {profile.currency}{(settings.monthlyBudgetCap || 0).toLocaleString()}</span></h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {budgetRemaining.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>/ {settings.currencySymbol}{(settings.monthlyBudgetCap || 0).toLocaleString()}</span></h2>
                     </div>
                 </div>
 
@@ -448,7 +449,7 @@ const FinancePage = () => {
                     <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#EF4444' }}><ArrowDownLeft size={24} /></div>
                     <div>
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Total Spent (Month)</span>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.currency} {totalSpent.toLocaleString()}</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
                     </div>
                 </div>
             </div>
@@ -485,8 +486,8 @@ const FinancePage = () => {
                             <div style={{ width: `${budgetProgress}%`, height: '100%', background: budgetProgress > 85 ? '#EF4444' : 'var(--primary)', borderRadius: '5px', transition: 'width 0.4s ease' }}></div>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
-                            <span>Spent: {profile.currency} {totalSpent.toLocaleString()}</span>
-                            <span>Monthly Limit: {profile.currency} {(settings.monthlyBudgetCap || 0).toLocaleString()}</span>
+                            <span>Spent: {settings.currencySymbol} {totalSpent.toLocaleString()}</span>
+                            <span>Monthly Limit: {settings.currencySymbol} {(settings.monthlyBudgetCap || 0).toLocaleString()}</span>
                         </div>
                     </div>
 
@@ -503,13 +504,13 @@ const FinancePage = () => {
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                <ExpenseDonutChart categoryBreakdown={categoryBreakdown} currency={profile.currency} totalSpent={totalSpent} colorForCategory={getCategoryBarColor} />
+                                <ExpenseDonutChart categoryBreakdown={categoryBreakdown} currency={settings.currencySymbol} totalSpent={totalSpent} colorForCategory={getCategoryBarColor} />
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {categoryBreakdown.map((row) => (
                                     <div key={row.category} style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                                             <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{row.category}</span>
-                                            <span style={{ color: 'var(--text-muted)' }}>{profile.currency}{row.amount.toLocaleString()} · {row.pct}%</span>
+                                            <span style={{ color: 'var(--text-muted)' }}>{settings.currencySymbol}{row.amount.toLocaleString()} · {row.pct}%</span>
                                         </div>
                                         <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
                                             <div style={{ width: `${row.pct}%`, height: '100%', background: getCategoryBarColor(row.category), borderRadius: '4px', transition: 'width 0.4s ease' }} />
@@ -541,7 +542,7 @@ const FinancePage = () => {
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', gap: '10px' }}>
                                             <span style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: 0, overflowWrap: 'break-word' }}>{acc.institution}</span>
-                                            <span style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', flexShrink: 0 }}>{profile.currency} {(acc.balance || 0).toLocaleString()}</span>
+                                            <span style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', flexShrink: 0 }}>{settings.currencySymbol} {(acc.balance || 0).toLocaleString()}</span>
                                         </div>
                                     </div>
                                 ))}
@@ -562,8 +563,8 @@ const FinancePage = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div style={{ position: 'relative', width: '100%' }}>
                         <Search size={18} style={{ position: 'absolute', top: '14px', left: '14px', color: 'var(--text-muted)' }} />
-                        <input 
-                            type="text" placeholder="Search transactions..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                        <input
+                            type="text" placeholder="Search transactions..." aria-label="Search transactions" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                             style={{ width: '100%', padding: isMobile ? '10px 12px 10px 44px' : '12px 12px 12px 44px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: isMobile ? 'border-box' : 'content-box' }}
                         />
                     </div>
@@ -584,7 +585,7 @@ const FinancePage = () => {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '16px' }}>
                                     <span style={{ fontSize: '18px', fontWeight: '800', color: tx.type === 'Income' ? '#10B981' : '#EF4444' }}>
-                                        {tx.type === 'Income' ? '+' : '-'}{profile.currency} {(tx.amount || 0).toLocaleString()}
+                                        {tx.type === 'Income' ? '+' : '-'}{settings.currencySymbol} {(tx.amount || 0).toLocaleString()}
                                     </span>
                                     <button onClick={() => deleteTransaction(tx.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
                                 </div>
@@ -627,8 +628,8 @@ const FinancePage = () => {
                                                 <div style={{ width: `${progress}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px' }}></div>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                                <span>Saved: {profile.currency} {goalCurrent.toLocaleString()}</span>
-                                                <span>Target: {profile.currency} {goalTarget.toLocaleString()}</span>
+                                                <span>Saved: {settings.currencySymbol} {goalCurrent.toLocaleString()}</span>
+                                                <span>Target: {settings.currencySymbol} {goalTarget.toLocaleString()}</span>
                                             </div>
                                         </div>
                                     );
@@ -656,7 +657,7 @@ const FinancePage = () => {
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '16px' }}>
-                                        <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.currency} {(bill.amount || 0).toLocaleString()}</span>
+                                        <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {(bill.amount || 0).toLocaleString()}</span>
                                         <button onClick={() => deleteBill(bill.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
                                     </div>
                                 </div>
@@ -684,7 +685,7 @@ const FinancePage = () => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700' }}>
                                 <TrendingUp size={18} color="var(--primary)" /> Estimated Net Worth
                             </div>
-                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.currency} {estimatedNetWorth.toLocaleString()}</h2>
+                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {estimatedNetWorth.toLocaleString()}</h2>
                             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Calculated from liquid balances + savings goals.</span>
                         </div>
 
@@ -716,27 +717,27 @@ const FinancePage = () => {
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Edit Financial Profile</h2>
                         <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Currency Symbol</label>
-                                <input type="text" required maxLength={3} value={tempProfile.currency} onChange={(e) => setTempProfile({...tempProfile, currency: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                <label htmlFor="financeCurrencySymbol" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Currency Symbol</label>
+                                <input id="financeCurrencySymbol" name="currencySymbol" type="text" required maxLength={3} value={tempCurrencySymbol} onChange={(e) => setTempCurrencySymbol(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Monthly Income</label>
-                                    <input type="number" required value={tempProfile.monthlyIncome} onChange={(e) => setTempProfile({...tempProfile, monthlyIncome: sanitizeNumberInput(e.target.value, tempProfile.monthlyIncome)})} onBlur={(e) => setTempProfile({...tempProfile, monthlyIncome: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                    <label htmlFor="financeMonthlyIncome" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Monthly Income</label>
+                                    <input id="financeMonthlyIncome" name="monthlyIncome" type="number" required value={tempProfile.monthlyIncome} onChange={(e) => setTempProfile({...tempProfile, monthlyIncome: sanitizeNumberInput(e.target.value, tempProfile.monthlyIncome)})} onBlur={(e) => setTempProfile({...tempProfile, monthlyIncome: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Monthly Budget Limit</label>
-                                    <input type="number" required value={tempMonthlyBudget} onChange={(e) => setTempMonthlyBudget(sanitizeNumberInput(e.target.value, tempMonthlyBudget))} onBlur={(e) => setTempMonthlyBudget(normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                    <label htmlFor="financeMonthlyBudgetLimit" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Monthly Budget Limit</label>
+                                    <input id="financeMonthlyBudgetLimit" name="monthlyBudgetLimit" type="number" required value={tempMonthlyBudget} onChange={(e) => setTempMonthlyBudget(sanitizeNumberInput(e.target.value, tempMonthlyBudget))} onBlur={(e) => setTempMonthlyBudget(normalizeNumberOnBlur(e.target.value, true))} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Monthly Savings Goal</label>
-                                    <input type="number" value={tempProfile.monthlySavingsGoal} onChange={(e) => setTempProfile({...tempProfile, monthlySavingsGoal: sanitizeNumberInput(e.target.value, tempProfile.monthlySavingsGoal)})} onBlur={(e) => setTempProfile({...tempProfile, monthlySavingsGoal: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                    <label htmlFor="financeMonthlySavingsGoal" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Monthly Savings Goal</label>
+                                    <input id="financeMonthlySavingsGoal" name="monthlySavingsGoal" type="number" value={tempProfile.monthlySavingsGoal} onChange={(e) => setTempProfile({...tempProfile, monthlySavingsGoal: sanitizeNumberInput(e.target.value, tempProfile.monthlySavingsGoal)})} onBlur={(e) => setTempProfile({...tempProfile, monthlySavingsGoal: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Emergency Fund</label>
-                                    <input type="number" value={tempProfile.emergencyFund} onChange={(e) => setTempProfile({...tempProfile, emergencyFund: sanitizeNumberInput(e.target.value, tempProfile.emergencyFund)})} onBlur={(e) => setTempProfile({...tempProfile, emergencyFund: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                    <label htmlFor="financeEmergencyFund" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Emergency Fund</label>
+                                    <input id="financeEmergencyFund" name="emergencyFund" type="number" value={tempProfile.emergencyFund} onChange={(e) => setTempProfile({...tempProfile, emergencyFund: sanitizeNumberInput(e.target.value, tempProfile.emergencyFund)})} onBlur={(e) => setTempProfile({...tempProfile, emergencyFund: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
@@ -754,15 +755,15 @@ const FinancePage = () => {
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Account or Wallet</h2>
                         <form onSubmit={handleAddAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="text" required placeholder="Account Name (e.g. ICICI)" value={newAccount.name} onChange={(e) => setNewAccount({...newAccount, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
-                            <select value={newAccount.type} onChange={(e) => setNewAccount({...newAccount, type: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
+                            <input type="text" required placeholder="Account Name (e.g. ICICI)" aria-label="Account name" value={newAccount.name} onChange={(e) => setNewAccount({...newAccount, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <select aria-label="Account type" value={newAccount.type} onChange={(e) => setNewAccount({...newAccount, type: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
                                 <option value="Savings Account" style={{ background: 'var(--surface-inset)' }}>Savings Account</option>
                                 <option value="Current Account" style={{ background: 'var(--surface-inset)' }}>Current Account</option>
                                 <option value="Cash" style={{ background: 'var(--surface-inset)' }}>Cash</option>
                                 <option value="Digital Wallet" style={{ background: 'var(--surface-inset)' }}>Digital Wallet</option>
                                 <option value="Credit Card" style={{ background: 'var(--surface-inset)' }}>Credit Card</option>
                             </select>
-                            <input type="number" required placeholder="Initial Balance" value={newAccount.balance} onChange={(e) => setNewAccount({...newAccount, balance: sanitizeNumberInput(e.target.value, newAccount.balance)})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <input type="number" required placeholder="Initial Balance" aria-label="Initial balance" value={newAccount.balance} onChange={(e) => setNewAccount({...newAccount, balance: sanitizeNumberInput(e.target.value, newAccount.balance)})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <button type="button" onClick={() => setIsAddAccountModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
                                 <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>Save Account</button>
@@ -793,18 +794,18 @@ const FinancePage = () => {
                             <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Transaction</h2>
                         </div>
                         <form onSubmit={handleAddTransaction} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="text" required placeholder="Title (e.g. Groceries)" value={newTx.title} onChange={(e) => setNewTx({...newTx, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <input type="text" required placeholder="Title (e.g. Groceries)" aria-label="Transaction title" value={newTx.title} onChange={(e) => setNewTx({...newTx, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '12px' }}>
-                                <select value={newTx.type} onChange={(e) => setNewTx({...newTx, type: e.target.value})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
+                                <select aria-label="Transaction type" value={newTx.type} onChange={(e) => setNewTx({...newTx, type: e.target.value})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
                                     <option value="Expense" style={{ background: 'var(--surface-inset)' }}>Expense</option><option value="Income" style={{ background: 'var(--surface-inset)' }}>Income</option>
                                 </select>
-                                <input type="number" required placeholder="Amount" value={newTx.amount} onChange={(e) => setNewTx({...newTx, amount: sanitizeNumberInput(e.target.value, newTx.amount)})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                                <input type="number" required placeholder="Amount" aria-label="Transaction amount" value={newTx.amount} onChange={(e) => setNewTx({...newTx, amount: sanitizeNumberInput(e.target.value, newTx.amount)})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             </div>
                             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '12px' }}>
-                                <select value={newTx.category} onChange={(e) => setNewTx({...newTx, category: e.target.value})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
+                                <select aria-label="Transaction category" value={newTx.category} onChange={(e) => setNewTx({...newTx, category: e.target.value})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
                                     <option value="Food" style={{ background: 'var(--surface-inset)' }}>Food</option><option value="Shopping" style={{ background: 'var(--surface-inset)' }}>Shopping</option><option value="Salary" style={{ background: 'var(--surface-inset)' }}>Salary</option><option value="Others" style={{ background: 'var(--surface-inset)' }}>Others</option>
                                 </select>
-                                <select required value={newTx.account} onChange={(e) => setNewTx({...newTx, account: e.target.value})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
+                                <select required aria-label="Account" value={newTx.account} onChange={(e) => setNewTx({...newTx, account: e.target.value})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
                                     {accounts.map(a => <option key={a.id} value={a.name} style={{ background: 'var(--surface-inset)' }}>{a.name}</option>)}
                                 </select>
                             </div>
@@ -823,14 +824,14 @@ const FinancePage = () => {
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Savings Goal</h2>
                         <form onSubmit={handleAddGoal} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="text" required placeholder="Goal Title" value={newGoal.title} onChange={(e) => setNewGoal({...newGoal, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <input type="text" required placeholder="Goal Title" aria-label="Goal title" value={newGoal.title} onChange={(e) => setNewGoal({...newGoal, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '12px' }}>
-                                <input type="number" required placeholder="Target Amount" value={newGoal.target} onChange={(e) => setNewGoal({...newGoal, target: sanitizeNumberInput(e.target.value, newGoal.target)})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
-                                <input type="number" placeholder="Current Saved" value={newGoal.current} onChange={(e) => setNewGoal({...newGoal, current: sanitizeNumberInput(e.target.value, newGoal.current)})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                                <input type="number" required placeholder="Target Amount" aria-label="Target amount" value={newGoal.target} onChange={(e) => setNewGoal({...newGoal, target: sanitizeNumberInput(e.target.value, newGoal.target)})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                                <input type="number" placeholder="Current Saved" aria-label="Current saved amount" value={newGoal.current} onChange={(e) => setNewGoal({...newGoal, current: sanitizeNumberInput(e.target.value, newGoal.current)})} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Target Deadline</label>
-                                <input type="date" required value={newGoal.deadline} onChange={(e) => setNewGoal({...newGoal, deadline: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                <label htmlFor="financeGoalDeadline" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Target Deadline</label>
+                                <input id="financeGoalDeadline" name="goalDeadline" type="date" required value={newGoal.deadline} onChange={(e) => setNewGoal({...newGoal, deadline: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <button type="button" onClick={() => setIsAddGoalModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
@@ -847,11 +848,11 @@ const FinancePage = () => {
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Bill / Subscription</h2>
                         <form onSubmit={handleAddBill} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <input type="text" required placeholder="Bill Title" value={newBill.title} onChange={(e) => setNewBill({...newBill, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
-                            <input type="number" required placeholder="Amount" value={newBill.amount} onChange={(e) => setNewBill({...newBill, amount: sanitizeNumberInput(e.target.value, newBill.amount)})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <input type="text" required placeholder="Bill Title" aria-label="Bill title" value={newBill.title} onChange={(e) => setNewBill({...newBill, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
+                            <input type="number" required placeholder="Amount" aria-label="Bill amount" value={newBill.amount} onChange={(e) => setNewBill({...newBill, amount: sanitizeNumberInput(e.target.value, newBill.amount)})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Due Date</label>
-                                <input type="date" required value={newBill.dueDate} onChange={(e) => setNewBill({...newBill, dueDate: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
+                                <label htmlFor="financeBillDueDate" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Due Date</label>
+                                <input id="financeBillDueDate" name="billDueDate" type="date" required value={newBill.dueDate} onChange={(e) => setNewBill({...newBill, dueDate: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <button type="button" onClick={() => setIsAddBillModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>

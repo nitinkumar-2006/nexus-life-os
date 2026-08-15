@@ -13,8 +13,8 @@
 // `persona` is that module's own, fixed domain (e.g. 'fitness' for the
 // Gym module), so an ambiguous question ("how am I doing?") genuinely,
 // correctly defaults to that module's own domain.
-import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Sparkles, RefreshCw } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Send, Sparkles, RefreshCw } from 'lucide-react';
 import { generateNexusAIResponse } from '../utils/nexusAIEngine.js';
 
 const AIQueryBox = ({ context, persona, title = 'AI Coach', placeholder = 'Ask a question about your real data...' }) => {
@@ -96,6 +96,7 @@ const AIQueryBox = ({ context, persona, title = 'AI Coach', placeholder = 'Ask a
             <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '10px' }}>
                 <input
                     type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}
+                    aria-label="Ask AI"
                     style={{ flex: 1, padding: '11px 14px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
                 />
                 <button

@@ -1,5 +1,5 @@
 // src/pages/StudyPage.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { BookOpen, Plus, Award, CheckCircle, Circle, Trash2, Layers, Calendar, FileText, FileCode, HelpCircle, RefreshCw, Sparkles, Send, Clock, Download } from 'lucide-react';
 import { useTaskRegistry } from '../context/TaskRegistryContext.jsx';
 import { generateNexusAIResponse, hasKnownDomainMatch } from '../utils/nexusAIEngine.js';
@@ -571,7 +571,7 @@ const StudyPage = ({ setActiveTab }) => {
 
                 <form onSubmit={handleDoubtSubmit} style={{ display: 'flex', gap: '8px' }}>
                     <input
-                        type="text" value={doubtPrompt} onChange={(e) => setDoubtPrompt(e.target.value)}
+                        type="text" aria-label="Ask a question about your progress" value={doubtPrompt} onChange={(e) => setDoubtPrompt(e.target.value)}
                         placeholder="Ask about your progress, e.g. &quot;How am I doing in Data Structures?&quot; or &quot;What's due soon?&quot;"
                         style={{ flex: 1, minWidth: 0, padding: '11px 14px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
                     />
@@ -795,18 +795,18 @@ const StudyPage = ({ setActiveTab }) => {
                         {modalType === 'assignment' ? (
                             <form onSubmit={handleAddAssignment} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Assignment Title</label>
-                                    <input type="text" required autoFocus value={newAssignment.title} onChange={(e) => setNewAssignment({...newAssignment, title: e.target.value})} placeholder="e.g. Python Project Milestone 1" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                                    <label htmlFor="assignmentTitle" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Assignment Title</label>
+                                    <input id="assignmentTitle" type="text" required autoFocus value={newAssignment.title} onChange={(e) => setNewAssignment({...newAssignment, title: e.target.value})} placeholder="e.g. Python Project Milestone 1" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
-                                    <select value={newAssignment.subject} onChange={(e) => setNewAssignment({...newAssignment, subject: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                                    <label htmlFor="assignmentSubject" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
+                                    <select id="assignmentSubject" value={newAssignment.subject} onChange={(e) => setNewAssignment({...newAssignment, subject: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                                         {subjects.length > 0 ? subjects.map(sub => <option key={sub.id} value={sub.name} style={{ background: 'var(--surface-inset)' }}>{sub.name}</option>) : <option value="General" style={{ background: 'var(--surface-inset)' }}>General</option>}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Due Date</label>
-                                    <input type="date" value={newAssignment.dueDate} onChange={(e) => setNewAssignment({...newAssignment, dueDate: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer', colorScheme: 'dark' }} />
+                                    <label htmlFor="assignmentDueDate" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Due Date</label>
+                                    <input id="assignmentDueDate" type="date" value={newAssignment.dueDate} onChange={(e) => setNewAssignment({...newAssignment, dueDate: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer', colorScheme: 'dark' }} />
                                 </div>
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
                                     <button type="button" onClick={() => setIsAddModalOpen(false)} style={{ flex: '1', padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
@@ -816,18 +816,18 @@ const StudyPage = ({ setActiveTab }) => {
                         ) : modalType === 'note' ? (
                             <form onSubmit={handleAddNote} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Note Title</label>
-                                    <input type="text" required autoFocus value={newNote.title} onChange={(e) => setNewNote({...newNote, title: e.target.value})} placeholder="e.g. Binary Search Trees Summary" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                                    <label htmlFor="noteTitle" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Note Title</label>
+                                    <input id="noteTitle" type="text" required autoFocus value={newNote.title} onChange={(e) => setNewNote({...newNote, title: e.target.value})} placeholder="e.g. Binary Search Trees Summary" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
-                                    <select value={newNote.subject} onChange={(e) => setNewNote({...newNote, subject: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                                    <label htmlFor="noteSubject" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
+                                    <select id="noteSubject" value={newNote.subject} onChange={(e) => setNewNote({...newNote, subject: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                                         {subjects.length > 0 ? subjects.map(sub => <option key={sub.id} value={sub.name} style={{ background: 'var(--surface-inset)' }}>{sub.name}</option>) : <option value="General" style={{ background: 'var(--surface-inset)' }}>General</option>}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Note Content</label>
-                                    <textarea rows="4" value={newNote.content} onChange={(e) => setNewNote({...newNote, content: e.target.value})} placeholder="Write your study notes or code logic here..." style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical' }} />
+                                    <label htmlFor="noteContent" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Note Content</label>
+                                    <textarea id="noteContent" rows="4" value={newNote.content} onChange={(e) => setNewNote({...newNote, content: e.target.value})} placeholder="Write your study notes or code logic here..." style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical' }} />
                                 </div>
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
                                     <button type="button" onClick={() => setIsAddModalOpen(false)} style={{ flex: '1', padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
@@ -837,18 +837,18 @@ const StudyPage = ({ setActiveTab }) => {
                         ) : (
                             <form onSubmit={handleAddFlashcard} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
-                                    <select value={newFlashcard.subject} onChange={(e) => setNewFlashcard({...newFlashcard, subject: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                                    <label htmlFor="flashcardSubject" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Subject</label>
+                                    <select id="flashcardSubject" value={newFlashcard.subject} onChange={(e) => setNewFlashcard({...newFlashcard, subject: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                                         {subjects.length > 0 ? subjects.map(sub => <option key={sub.id} value={sub.name} style={{ background: 'var(--surface-inset)' }}>{sub.name}</option>) : <option value="General" style={{ background: 'var(--surface-inset)' }}>General</option>}
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Question (Front)</label>
-                                    <input type="text" required autoFocus value={newFlashcard.question} onChange={(e) => setNewFlashcard({...newFlashcard, question: e.target.value})} placeholder="e.g. What is a pointer in C?" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
+                                    <label htmlFor="flashcardQuestion" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Question (Front)</label>
+                                    <input id="flashcardQuestion" type="text" required autoFocus value={newFlashcard.question} onChange={(e) => setNewFlashcard({...newFlashcard, question: e.target.value})} placeholder="e.g. What is a pointer in C?" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer (Back)</label>
-                                    <textarea rows="3" required value={newFlashcard.answer} onChange={(e) => setNewFlashcard({...newFlashcard, answer: e.target.value})} placeholder="e.g. A variable that stores the memory address of another variable." style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical' }} />
+                                    <label htmlFor="flashcardAnswer" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Answer (Back)</label>
+                                    <textarea id="flashcardAnswer" rows="3" required value={newFlashcard.answer} onChange={(e) => setNewFlashcard({...newFlashcard, answer: e.target.value})} placeholder="e.g. A variable that stores the memory address of another variable." style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', resize: 'vertical' }} />
                                 </div>
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
                                     <button type="button" onClick={() => setIsAddModalOpen(false)} style={{ flex: '1', padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>

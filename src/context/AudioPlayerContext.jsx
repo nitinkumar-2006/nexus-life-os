@@ -6,7 +6,7 @@
 // rendered here, and it must be mounted once at the persistent app root
 // (DashboardLayout / App) so it is never unmounted just because the visible
 // page changed - that's what makes playback survive navigation.
-import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
 import { useStreaming } from './StreamingContext.jsx';
 import { useAuth } from './AuthContext.jsx';
 import { buildAudioTrackCloudMetadata, AUDIO_SYNC_STATUS } from '../utils/audioCloudSchema.js';
