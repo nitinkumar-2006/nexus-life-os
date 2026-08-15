@@ -1,0 +1,202 @@
+/**
+ * NEXUS DESIGN SYSTEM - BULLETPROOF THEME MATRIX
+ */
+
+/* 1. NIGHT MODE (Original & Untouched - Zero Changes) */
+:root, :root[data-theme="night"] {
+    --bg-main: #0F0F17;
+    --sidebar-bg: #141423;
+    --bg-surface: #1B1B2F;
+    --bg-surface-hover: #252542;
+    --widget-bg: rgba(255, 255, 255, 0.05);
+    --border-premium: rgba(255, 255, 255, 0.12);
+    
+    --text-primary: #FFFFFF;
+    --text-secondary: #CBD5E1;
+    --text-muted: #94A3B8;
+    --text-main: #FFFFFF;
+
+    --primary: #6366F1;
+    --primary-rgb: 99, 102, 241;
+    --primary-muted: rgba(99, 102, 241, 0.2);
+    --accent: #6366F1;
+    --accent-study: #6366F1;
+    
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+
+    --glass-blur: 20px;
+    --premium-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+
+    /* Text sitting on a --primary/--accent colored surface (buttons, active
+       tabs/chips). Real, computed contrast against this theme's own #6366F1
+       primary: dark text here was only 4.27:1 (below the 4.5:1 WCAG AA
+       minimum) - the actual, measurable reason blue/indigo buttons read as
+       washed-out, not a blur/layering issue. White improves this to 4.47:1. */
+    --text-on-primary: #FFFFFF;
+    /* Recessed/inset surface for inputs, selects, and small badges that sit
+       inside a --bg-surface card. Identical to --bg-main here - no change. */
+    --surface-inset: #0F0F17;
+}
+
+/* 2. COMFORT MODE (Original & Untouched - Zero Changes) */
+:root[data-theme="comfort"] {
+    --bg-main: #1C1817;
+    --sidebar-bg: #241F1E;
+    --bg-surface: #2E2725;
+    --bg-surface-hover: #3C3330;
+    --widget-bg: rgba(245, 158, 11, 0.08);
+    --border-premium: rgba(245, 158, 11, 0.2);
+    
+    --text-primary: #FDF6E2;
+    --text-secondary: #E3D5C0;
+    --text-muted: #A89F91;
+    --text-main: #FDF6E2;
+
+    --primary: #F59E0B;
+    --primary-rgb: 245, 158, 11;
+    --primary-muted: rgba(245, 158, 11, 0.2);
+    --accent: #F59E0B;
+    --accent-study: #F59E0B;
+    
+    --success: #2ED573;
+    --warning: #FFA502;
+    --danger: #FF4757;
+
+    --glass-blur: 24px;
+    --premium-shadow: 0 10px 30px rgba(10, 5, 0, 0.6);
+
+    --text-on-primary: #1C1817;
+    --surface-inset: #1C1817;
+}
+
+/* 3. LIGHT MODE / DAY MODE (Original & Untouched - Zero Changes) */
+:root[data-theme="day"], :root[data-theme="light"] {
+    --bg-main: #F4F4F6;
+    --sidebar-bg: #FFFFFF;
+    --bg-surface: #FFFFFF;
+    --bg-surface-hover: #EAEAEF;
+    --widget-bg: #FFFFFF;
+    --border-premium: rgba(0, 0, 0, 0.12);
+    
+    --text-primary: #111111;
+    --text-secondary: #444444;
+    --text-muted: #666666;
+    --text-main: #111111;
+
+    --primary: #0066CC;
+    --primary-rgb: 0, 102, 204;
+    --primary-muted: rgba(0, 102, 204, 0.1);
+    --accent: #0066CC;
+    --accent-study: #0066CC;
+    
+    --success: #28A745;
+    --warning: #FD7E14;
+    --danger: #DC3545;
+
+    --glass-blur: 20px;
+    --premium-shadow: 0 8px 25px rgba(0, 0, 0, 0.06);
+
+    --text-on-primary: #F4F4F6;
+    --surface-inset: #F4F4F6;
+}
+
+/* 4. DYNAMIC MODE (Glassmorphism & Transparent - PERFECT FOR WEATHER) */
+:root[data-theme="dynamic"] {
+    --bg-main: transparent; /* Completely transparent so the weather shows through */
+    /* ============================================================
+       UPDATED to 0.03 per explicit, repeated user request (asked
+       consistently across multiple rounds). Previously locked at 0.02 -
+       raising this again requires a new, explicit instruction, same as
+       the last change. blur(16px) saturate(105%) brightness(1.02)
+       unchanged.
+       ============================================================ */
+    --sidebar-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --bg-surface: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --bg-surface-hover: rgba(30, 41, 59, 0.08);
+    --widget-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03)); /* Brought down to match sidebar/cards per explicit request - the 16px blur (reduced last round) is what actually needs to obscure scrolling content, not extra tint; a header-specific higher value is no longer needed at this blur strength. */
+    --border-premium: rgba(255, 255, 255, 0.12); /* Thin, quiet glass border - bumped from 0.1 to 0.12 for sharper separation from the live sky behind it */
+    
+    --text-primary: #FFFFFF;
+    --text-secondary: #E2E8F0;
+    --text-muted: #94A3B8;
+    --text-main: #FFFFFF;
+
+    --primary: #38BDF8; 
+    --primary-rgb: 56, 189, 248;
+    --primary-muted: rgba(56, 189, 248, 0.25);
+    --accent: #38BDF8;
+    --accent-study: #38BDF8;
+    
+    --success: #34D399;
+    --warning: #FBBF24;
+    --danger: #F87171;
+
+    --glass-blur: 16px; /* Slightly reduced from 20px for a touch more clarity, per explicit request */
+    --premium-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); /* Matches the Quick Add pop-up's exact shadow - was previously darker/larger (0 10px 40px 0.3) and made cards read as visually heavier even with identical fill+blur */
+
+    /* --primary/--accent stay the same bright sky-blue in every phase, so the
+       text that sits on top of them can stay constant too - this is the
+       actual fix for the "solid blue block with invisible text" bug: those
+       buttons/chips previously used var(--bg-main) for this, which is
+       `transparent` in this theme, making the label vanish. */
+    --text-on-primary: #0F172A;
+    /* Base/fallback recessed surface (used for a brief moment before
+       JavaScript sets data-sky-phase); matches the dark-phase value below. */
+    --surface-inset: rgba(15, 23, 42, 0.2);
+}
+
+/* 4b. DYNAMIC MODE — Bright sky phases (Dawn & Day).
+   Dark, readable text and lighter glass tinting so panels stay legible
+   against a bright sky. These attribute selectors are more specific than
+   the base [data-theme="dynamic"] rule above, so they win once JavaScript
+   sets data-sky-phase - no !important needed anywhere. */
+:root[data-theme="dynamic"][data-sky-phase="dawn"],
+:root[data-theme="dynamic"][data-sky-phase="day"] {
+    --sidebar-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
+    --bg-surface: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
+    --bg-surface-hover: rgba(255, 255, 255, 0.09);
+    --widget-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
+    --header-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
+    --border-premium: rgba(255, 255, 255, 0.24);
+
+    --text-primary: #0F172A;
+    --text-secondary: #1E293B;
+    --text-muted: #475569;
+    --text-main: #0F172A;
+
+    /* Slightly more opaque/subdued than --widget-bg so inputs and small
+       badges read as "recessed" relative to the card they sit inside. */
+    --surface-inset: rgba(255, 255, 255, 0.14);
+}
+
+/* 4c. DYNAMIC MODE — Dark sky phases (Dusk & Night).
+   Light text and deeper glass tinting to match the darker parts of the sky. */
+:root[data-theme="dynamic"][data-sky-phase="dusk"],
+:root[data-theme="dynamic"][data-sky-phase="night"] {
+    --sidebar-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --bg-surface: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --bg-surface-hover: rgba(30, 41, 59, 0.08);
+    --widget-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    --border-premium: rgba(255, 255, 255, 0.12);
+
+    --text-primary: #FFFFFF;
+    --text-secondary: #E2E8F0;
+    --text-muted: #94A3B8;
+    --text-main: #FFFFFF;
+
+    --surface-inset: rgba(15, 23, 42, 0.18);
+}
+
+/* Global fallback to prevent pitch-black rendering bugs */
+body {
+    background-color: var(--bg-main, #0F0F17);
+    color: var(--text-main, #FFFFFF);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    padding: 0;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}

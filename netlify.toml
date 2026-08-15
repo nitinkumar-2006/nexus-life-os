@@ -1,0 +1,19 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback - serves index.html for any path that isn't a real,
+# existing static file, so React can handle it client-side instead of
+# Netlify's own static server returning a 404. This app currently stays
+# on a single URL (state-based navigation, not React Router), so this
+# isn't fixing a "broken refresh on a sub-route" bug today - but it's a
+# genuine, standard defensive baseline for any SPA on Netlify, and
+# covers the app's own real manifest.json start_url and any future
+# direct/deep link without requiring a second deployment change later.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.environment]
+  NODE_VERSION = "20"

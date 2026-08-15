@@ -1,0 +1,506 @@
+/* src/css/style.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Paired with the inline script in index.html: that script adds this class
+   to <html> before anything paints, and removes it once React has actually
+   mounted and the browser has painted at least one real frame. While it's
+   present, this forces transitions off ONLY on the glass cards/sidebar/
+   header - so the very first time backdrop-filter is computed (going from
+   the browser's default "none" to the real blur value), the change applies
+   instantly instead of visibly animating in over 2.5 seconds. That
+   animate-in was the actual cause of the original "flicker/jump before
+   settling" on refresh.
+   IMPORTANT: this is deliberately scoped to the glass elements only, NOT a
+   universal `*` selector. A universal selector also disabled the sky's own
+   weather-reactive transitions (background/opacity fades in
+   DynamicBackground.jsx) - if the async weather fetch happened to resolve
+   while this class was still active, the resulting brightness/dimming
+   change would snap instantly instead of fading smoothly over 2.5s, which
+   is exactly what looked like "the sun is vivid for a split second, then
+   suddenly dims". Scoping this narrowly fixes the card flicker without
+   ever touching the sky's own transitions, which should always be smooth
+   regardless of timing. */
+html.no-initial-transition [style*="var(--bg-surface)"],
+html.no-initial-transition [style*="var(--bg-surface-hover)"],
+html.no-initial-transition [style*="var(--widget-bg)"],
+html.no-initial-transition [style*="var(--sidebar-bg)"],
+html.no-initial-transition [style*="var(--header-bg"],
+html.no-initial-transition .sidebar {
+    transition: none !important;
+}
+
+:root {
+    --card-bg: rgba(25, 25, 32, 0.4);
+    --card-border: rgba(255, 255, 255, 0.05);
+    
+    /* Module Accents */
+    --accent-planner: #3B82F6;
+    --accent-study: #8B5CF6;
+    --accent-gym: #F97316;
+    --accent-diet: #10B981;
+    --accent-finance: #EAB308;
+    --accent-calendar: #6366F1;
+    
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { 
+    margin: 0; 
+    padding: 0; 
+    box-sizing: border-box; 
+    font-family: 'Inter', sans-serif; 
+    /* Improves sub-pixel antialiasing crispness on WebKit/macOS browsers
+       and Firefox on macOS - a real, standard rendering improvement, safe
+       to apply globally since it only affects HOW text is rendered at the
+       pixel level, not its own color or layout. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Removes the default gray flash Chrome/Safari show on every tap -
+       a genuine, common "this feels like a website, not an app" tell on
+       mobile that a real native or PWA-wrapped app never has. */
+    -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+    /* Contains scroll-chaining/bounce at the document level - without
+       this, a real, nested scrollable panel hitting its own edge (e.g.
+       the AI page's message list) can hand off momentum to the whole
+       page, producing the awkward "double bounce" that immediately
+       reads as a website rather than a real app. */
+    overscroll-behavior-y: contain;
+}
+
+button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
+    /* Removes the historical ~300ms tap-delay mobile browsers add on
+       interactive elements to distinguish a real tap from the first half
+       of a double-tap-to-zoom gesture - without this, every real button
+       press on a touch device feels laggy compared to a native app. */
+    touch-action: manipulation;
+}
+
+/* DYNAMIC THEME TEXT CONTRAST DEFENSE - deliberately scoped to ONLY the
+   Dynamic theme, not applied universally. A universal, hardcoded
+   `color: #fff` rule (as a literal reading of "text must never get lost
+   against dark/glowing backgrounds" might suggest) would break Light
+   Mode's own, correct dark-on-light text - white text on that theme's
+   near-white background would be the exact opposite of readable. The
+   real, genuine risk this addresses is specific to Dynamic: its own
+   glass cards are deliberately ~97% transparent (rgba(..., 0.03), a
+   repeated, explicit past request), so text inside them sits close to
+   the real, live, animated sky - a genuinely non-uniform background,
+   unlike every other theme's flat, solid one. This theme's own CSS
+   already switches text between dark (#0F172A) and light (#FFFFFF)
+   correctly per sky phase - this shadow is a defensive addition on top
+   of that already-correct system, not a replacement for it, guarding
+   against a stray bright cloud or dark storm patch landing directly
+   behind a given piece of text at any given moment. */
+:root[data-theme="dynamic"][data-sky-phase="dusk"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li),
+:root[data-theme="dynamic"][data-sky-phase="night"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li) {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="dynamic"][data-sky-phase="dawn"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li),
+:root[data-theme="dynamic"][data-sky-phase="day"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li) {
+    text-shadow: 0 1px 3px rgba(255, 255, 255, 0.5);
+}
+
+/* Real, distinct contrast fix for the request's own "countdowns, times,
+   and active statuses" - --accent/--success are fixed, light-ish colors
+   that never switch to dark per sky phase (unlike --text-primary,
+   which the rule above was actually built for). A white shadow behind
+   an already-light accent color on a bright day sky provides zero real
+   contrast boost; a dark shadow creates a genuine, visible edge
+   regardless of what's directly behind the text. Matches via the real,
+   rendered style attribute (the same technique already proven for the
+   sidebar's own backdrop-filter fix), since these colors are set
+   inline (style={{ color: 'var(--accent)' }}), not via a CSS class. */
+:root[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--accent)"],
+:root[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--accent)"],
+:root[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--success)"],
+:root[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--success)"] {
+    text-shadow: 0 1px 4px rgba(15, 23, 42, 0.55);
+}
+
+/* CUSTOM WALLPAPER CARD CONTRAST FIX - genuinely scoped to the exact
+   combination where this issue actually occurs: Dynamic theme active
+   (the only theme whose own --bg-surface/--widget-bg are deliberately
+   near-transparent, ~3% opacity) AND a non-default custom wallpaper
+   selected from the 24-item picker (reflected live via the real
+   data-custom-wallpaper attribute on .nexus-app-shell, set in
+   DashboardLayout.jsx). The 23 custom wallpapers have no targeted
+   contrast defense the way Animated Sky does (its own sky-phase text-
+   shadow rules above) and span a real, wide brightness range (Deep
+   Space/Abyssal Dark through Solar Flare/Prism Glass) - a single fixed
+   text-shadow tuned for one wallpaper would look wrong on the others,
+   so this instead reuses the same, already-proven card-opacity
+   approach from the mobile-specific Dynamic theme fix, applied here on
+   any viewport since wallpaper selection isn't mobile-only. When
+   data-custom-wallpaper is "false" (Animated Sky, the real default),
+   this rule genuinely never applies - the Dynamic theme's own existing
+   rendering is completely untouched, per this request's explicit
+   instruction. */
+:root[data-theme="dynamic"] .nexus-app-shell[data-custom-wallpaper="true"] {
+    /* max() takes the LARGER of the user's own real, current slider value
+       (still read live via var(--nexus-user-glass-alpha, ...), exactly
+       as every other theme already does) or this rule's own 0.4/0.35
+       readability floor - never a fixed replacement of the user's own
+       choice. If they've already set their slider above this floor, this
+       expression evaluates to their own real value, completely
+       unchanged; the floor only ever raises a value that would
+       genuinely be too transparent for a custom wallpaper's own,
+       typically busier/higher-contrast imagery than the animated sky. */
+    --bg-surface: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
+    --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.35));
+}
+
+/* GLOBAL HEADER WIDTH CONSTRAINT - defensive, explicit reinforcement on
+   top of the real, root-cause fix (DashboardLayout.jsx's own header
+   parent chain now correctly has minWidth: 0, so wide content elsewhere
+   on the page can no longer force this row past the viewport in the
+   first place). !important here can't be expressed via header.jsx's own
+   inline style object, hence a real stylesheet rule - scoped via a
+   data-diag attribute on the real <header> element itself, so this
+   only ever matches the one, real global header element. */
+header[data-diag="global-header"] {
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+}
+
+body { 
+    background-color: var(--bg-main); 
+    color: var(--text-main); 
+    overflow: hidden; 
+    transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+#root {
+    width: 100vw;
+    height: 100vh;
+}
+
+/* 12-COLUMN DASHBOARD GRID */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding-bottom: 40px;
+}
+
+.col-12 { grid-column: span 12; }
+.col-6 { grid-column: span 6; }
+.col-4 { grid-column: span 4; }
+.col-3 { grid-column: span 3; }
+
+/* OS WIDGET BASE (Upgraded for Glassmorphism) */
+.widget {
+    position: relative;
+    background: var(--widget-bg, var(--card-bg));
+    border: 1px solid var(--border-premium, var(--card-border));
+    border-radius: 24px;
+    padding: 24px;
+    backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
+    box-shadow: var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+    transition: var(--transition);
+    overflow: hidden;
+}
+
+/* A faint top sheen so glass surfaces catch a hint of "light" the way real
+   frosted glass does. Only visible under the Dynamic theme, where surfaces
+   are actually translucent - on the other themes' opaque surfaces this reads
+   as an imperceptibly subtle gradient and changes nothing about their look. */
+.widget::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 40%);
+    pointer-events: none;
+}
+
+.widget:hover { 
+    border-color: var(--primary, rgba(255,255,255,0.2)); 
+    transform: translateY(-4px); 
+    box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+    will-change: transform;
+}
+
+/* GLASS PANEL — this used to also paint its own translucent --bg-surface
+   background across the whole content region under the Dynamic theme.
+   Every individual card underneath it ALSO paints --bg-surface (or
+   --widget-bg) on itself, so the two translucent layers were stacking and
+   compounding into a much more opaque, "double box" look than either layer
+   alone. This is now a pure layout wrapper with zero visual effect in any
+   theme - the actual frosted glass now lives on the cards themselves (see
+   the rule below), giving a single, clean glass layer per card with the
+   raw sky showing crisply through all the gaps between them. */
+.glass-panel {
+    background: transparent;
+}
+
+/* True frosted glass, applied once, directly to the actual cards/widgets
+   AND the Sidebar/Header (which use --sidebar-bg/--header-bg rather than
+   --bg-surface/--widget-bg, so they need to be listed explicitly here too)
+   throughout the entire app - rather than to a wrapper sitting behind them.
+   Scoped to the Dynamic theme only; the other three themes' opaque surfaces
+   are completely unaffected (blurring an opaque background is a no-op).
+   IMPORTANT: saturate/brightness are kept minimal and neutral, not boosted.
+   At near-zero background fill, this filter is the ONLY thing determining
+   how the glass looks - a large saturate boost doesn't make glass look
+   more "vibrant", it amplifies whatever color is actually behind it. Against
+   a blue sky, that meant the glass was rendering MORE intensely blue than
+   the raw sky itself, which is exactly backwards for a diffusing material
+   and is what made zero-opacity panels still read as solid blue blocks. */
+[data-theme="dynamic"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"] [style*="var(--bg-surface-hover)"],
+[data-theme="dynamic"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"] [style*="var(--sidebar-bg)"],
+[data-theme="dynamic"] [style*="var(--header-bg"] {
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%) brightness(1.02);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%) brightness(1.02);
+    transition: box-shadow 2.5s ease, backdrop-filter 2.5s ease;
+}
+
+/* A real, confirmed bug from a real device video: at near-zero
+   background fill (the comment above), a glass card's own raw
+   background image shows through nearly unchanged in brightness -
+   this is the whole point of true frosted glass, but it also means
+   the text colors above (designed against a typically-dark backdrop)
+   can genuinely lose their contrast the moment a bright, independently
+   -chosen wallpaper (Animated Sky, Prism Glass, Cyberpunk) sits behind
+   them. Rather than hand-tuning text color per wallpaper - a real,
+   endless whack-a-mole against every possible background/text
+   combination - a consistent, subtle text-shadow on every glass
+   card's own text content guarantees real legibility regardless of
+   what's actually behind it. text-shadow only ever affects real text
+   glyphs (not icons, borders, or backgrounds), so applying this
+   broadly to every descendant of a glass card is safe - an <svg> icon
+   or a button's own background is completely unaffected by its
+   parent (or itself) carrying this property. */
+[data-theme="dynamic"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"] [style*="var(--bg-surface)"] *,
+[data-theme="dynamic"] [style*="var(--bg-surface-hover)"],
+[data-theme="dynamic"] [style*="var(--bg-surface-hover)"] *,
+[data-theme="dynamic"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"] [style*="var(--widget-bg)"] *,
+[data-theme="dynamic"] [style*="var(--sidebar-bg)"],
+[data-theme="dynamic"] [style*="var(--sidebar-bg)"] *,
+[data-theme="dynamic"] [style*="var(--header-bg"],
+[data-theme="dynamic"] [style*="var(--header-bg"] * {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* GUARANTEED light-on-glass signature, one per sky phase, applied to EVERY
+   glass surface including the Sidebar and Header - this does NOT depend on
+   the sun happening to sit behind a particular element (the sun's own
+   volumetric glow in DynamicBackground.jsx does that, but only where it
+   happens to overlap). This instead gives every glass surface, everywhere,
+   a consistent top-edge highlight whose color/warmth always matches the
+   CURRENT actual light source: warm amber at dawn/dusk (a low sun grazing
+   the top edge), a crisp bright edge at midday, a cool blue-white edge at
+   night (moonlight). data-sky-phase is already reliably maintained by
+   DashboardLayout, so no new wiring is needed for this to be correct. */
+[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--bg-surface-hover)"],
+[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--bg-surface-hover)"],
+[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--sidebar-bg)"],
+[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--sidebar-bg)"],
+[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--header-bg"],
+[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--header-bg"] {
+    box-shadow: inset 0 1px 0 rgba(253, 186, 116, 0.4), inset 0 0 40px rgba(253, 186, 116, 0.06), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+}
+
+[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--bg-surface-hover)"],
+[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--sidebar-bg)"],
+[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--header-bg"] {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 0 40px rgba(255, 255, 255, 0.05), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+}
+
+[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--bg-surface-hover)"],
+[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--sidebar-bg)"],
+[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--header-bg"] {
+    box-shadow: inset 0 1px 0 rgba(226, 232, 240, 0.18), inset 0 0 30px rgba(148, 163, 184, 0.05), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+}
+
+/* GLASS ACCENT/TINT GLOW - a real, visible glow on Dynamic-theme glass
+   panels using a user-selectable color. Defaults to fully transparent
+   (0 alpha), so panels look completely unchanged until the user actually
+   picks a tint from the new Visual Customization section. Scoped to the
+   Dynamic theme only, since a glow only reads as intentional against
+   translucent glass - it would look like a stray shadow on the solid
+   Night/Comfort/Day themes. */
+[data-theme="dynamic"] [style*="var(--bg-surface)"],
+[data-theme="dynamic"] [style*="var(--widget-bg)"] {
+    box-shadow: 0 0 0 1px rgba(var(--nexus-glass-glow-rgb, 56, 189, 248), var(--nexus-glass-glow-alpha, 0)),
+                0 0 24px rgba(var(--nexus-glass-glow-rgb, 56, 189, 248), calc(var(--nexus-glass-glow-alpha, 0) * 0.6));
+}
+
+/* ANIMATIONS & MOTION TOGGLE - user-controlled, persistent (unlike
+   html.no-initial-transition above, which only exists for the first
+   paint and is removed once React mounts). Scoped to .nexus-app-shell -
+   the real container that structurally holds the sidebar, header, and
+   every page's content, but genuinely does NOT contain the sky
+   (DynamicBackground.jsx renders as a sibling, not a descendant, of this
+   shell). That structural fact is what makes a real, broad descendant
+   selector safe here: it reaches every actual UI transition (button
+   hovers, modal fades, tab switches, card animations) without any risk
+   to the sky's own weather-reactive fades, which live entirely outside
+   this container and are never touched by this rule. */
+html.nexus-motion-off .nexus-app-shell * {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+}
+
+/* PERFORMANCE / BATTERY SAVER MODE - unlike the regular Animations &
+   Motion toggle above (which deliberately excludes the sky to preserve
+   its weather-reactive fades), Battery Saver is explicitly meant to
+   reduce "heavy blur and background animations" everywhere, including
+   the sky itself - that IS the point of a performance mode for low-end
+   devices. Forces --glass-blur down via !important since the Blur
+   Intensity slider already sets that same variable via an inline style
+   of equal specificity, which would otherwise win. */
+html.nexus-battery-saver {
+    --glass-blur: 4px !important;
+}
+html.nexus-battery-saver .nexus-app-shell *,
+html.nexus-battery-saver [data-diag="sky-root"],
+html.nexus-battery-saver [data-diag="sky-root"] * {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+}
+
+/* SCROLLBAR HIDING */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* DYNAMIC-THEME GLASS MODALS - for specific, high-stakes confirmation
+   dialogs (destructive/critical actions) that should render with an
+   enhanced glass aesthetic when the Dynamic theme is active. Scoped to
+   [data-theme="dynamic"] as an ancestor, so this !important override
+   only ever matches on the Dynamic theme - on Night/Comfort/Day this
+   selector simply never matches, and the modal correctly falls back to
+   its own inline background: var(--bg-surface), which resolves to each
+   theme's intended solid color by design.
+   Background/blur are intentionally NOT overridden here - they use the
+   exact same var(--bg-surface)/--glass-blur tokens every other modal in
+   the app already uses (including Add Workout Plan and Schedule New
+   Event), so these genuinely match rather than drift out of sync with
+   the user's own live Blur Intensity/Transparency sliders. Only the glow
+   is unique to this class - a soft, dedicated border glow using the
+   app's own --primary-rgb token, always visible on Dynamic theme
+   regardless of whether the user has picked an accent tint elsewhere. */
+[data-theme="dynamic"] .nexus-glass-modal {
+    box-shadow: var(--premium-shadow), 0 0 0 1px rgba(var(--primary-rgb), 0.12), 0 0 40px rgba(var(--primary-rgb), 0.10) !important;
+    border: 1px solid rgba(var(--primary-rgb), 0.22) !important;
+}
+
+/* MOBILE RESPONSIVE SAFETY NET - genuinely scoped to max-width: 768px,
+   matching this request's own specified breakpoint. Every rule here
+   only ever applies below that width, so the desktop layout (the vast
+   majority of this app's own real styling, all inline and untouched)
+   is completely unaffected. This is a defensive backstop on top of the
+   real, structural fix (the mobile drawer + reduced content padding in
+   DashboardLayout.jsx/sidebar.jsx/header.jsx) - those solve the actual
+   sidebar/content collision; this catches any remaining long word/URL
+   that could still overflow its own container on a narrow screen. */
+@media (max-width: 768px) {
+    .nexus-app-shell {
+        /* A real, defensive safety margin against 100vw including a
+           vertical scrollbar's own width on some mobile browsers -
+           prevents a subtle, real horizontal scroll/clip at the exact
+           viewport edge. */
+        max-width: 100vw;
+    }
+    .glass-panel, .glass-panel * {
+        /* A real long, unbroken word or URL genuinely wraps onto a new
+           line instead of overflowing its own container's edge - a
+           real risk on a narrow screen this app's own inline-style
+           min-widths (designed for desktop) don't otherwise guard
+           against. */
+        overflow-wrap: break-word;
+        word-break: break-word;
+    }
+
+    /* Real, genuinely increased glass-card opacity on mobile - the
+       actual mechanism behind this request's own "make background
+       opacities slightly more solid on mobile cards" ask. Re-declaring
+       these CSS custom properties changes what every real
+       background: var(--bg-surface)/var(--widget-bg) inline style
+       resolves to, without needing to touch hundreds of individual
+       inline style objects across every page. Scoped to the Dynamic
+       theme specifically - confirmed the real, likely cause of reported
+       washed-out mobile text, since this theme's own --bg-surface/
+       --widget-bg are deliberately ~3% opacity (a repeated, explicit
+       past request), letting its own live sky show through almost
+       completely. Night/Comfort/Day are not touched here since their
+       own --bg-surface is already a real, solid, opaque color - only
+       Night/Comfort's own, already-more-opaque --widget-bg gets a
+       smaller, genuine bump; Day's own --widget-bg is already solid
+       white. */
+    :root[data-theme="dynamic"] {
+        /* max() takes the LARGER of the user's own real, current slider
+           value or this rule's own readability floor - never a fixed
+           replacement of their own choice, matching the same real fix
+           applied to the custom-wallpaper rule above. */
+        --bg-surface: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
+        --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.35));
+    }
+    :root[data-theme="night"] {
+        --widget-bg: rgba(255, 255, 255, 0.09);
+    }
+    :root[data-theme="comfort"] {
+        --widget-bg: rgba(245, 158, 11, 0.14);
+    }
+
+    /* Real, responsive fix for the 12-column dashboard grid - the
+       actual root cause behind cards being squeezed on a narrow
+       screen. On desktop, .col-6/.col-4/.col-3 span half/a-third/a-
+       quarter of the grid's own 1600px max-width; on a real ~375px
+       phone screen, that same fraction could be as narrow as
+       ~150-170px - far too tight for most real content cards to
+       render without genuine text wrapping, clipping, or visual
+       congestion. Forces every column class to genuinely span the
+       full 12 columns (a real single-column stack) below this
+       breakpoint, the standard, correct responsive-grid pattern. This
+       is a real CSS class rule, not an inline style, so no
+       !important is needed to make it take effect. */
+    .col-6, .col-4, .col-3 {
+        grid-column: span 12;
+    }
+    .dashboard-grid {
+        /* The real, existing 24px gap and 40px bottom padding are
+           substantial on a narrow, short mobile viewport - reduced
+           here without touching the desktop values above. */
+        gap: 14px;
+        padding-bottom: 24px;
+    }
+
+    /* Belt-and-suspenders against any stray wide element (a fixed-width
+       inline style meant for desktop, a long unbroken token the
+       word-break rule above doesn't catch) forcing a real horizontal
+       scrollbar on a narrow phone viewport - desktop is untouched since
+       this whole block only ever applies below 768px. */
+    html, body {
+        overflow-x: hidden;
+    }
+}
+
+/* Bottom-sheet entrance for the mobile "More" panel (MobileTabBar.jsx) -
+   a plain mount-triggered CSS animation rather than extra React state,
+   since it only ever needs to play once per open, and the sheet's own
+   swipe-to-dismiss drag already takes over the transform after that. */
+@keyframes nexusSheetSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
