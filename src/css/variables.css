@@ -38,6 +38,16 @@
     /* Recessed/inset surface for inputs, selects, and small badges that sit
        inside a --bg-surface card. Identical to --bg-main here - no change. */
     --surface-inset: #0F0F17;
+    /* Genuinely solid, theme-appropriate surface for the one element that
+       must never pick up the automatic Dynamic-theme glass/blur treatment
+       (see the [style*="var(--bg-surface)"] rules in style.css) - the
+       persistent audio mini-player bar. A real Spotify-style mini-player
+       is always fully opaque regardless of any glass/wallpaper setting
+       elsewhere in the app, so this is deliberately its own token instead
+       of reusing --bg-surface/--sidebar-bg (both of which those Dynamic-
+       theme selectors specifically match on). Same solid value as
+       --sidebar-bg here since night mode's own sidebar is already opaque. */
+    --player-bar-bg: #141423;
 }
 
 /* 2. COMFORT MODE (Original & Untouched - Zero Changes) */
@@ -69,6 +79,7 @@
 
     --text-on-primary: #1C1817;
     --surface-inset: #1C1817;
+    --player-bar-bg: #241F1E;
 }
 
 /* 3. LIGHT MODE / DAY MODE (Original & Untouched - Zero Changes) */
@@ -100,6 +111,7 @@
 
     --text-on-primary: #F4F4F6;
     --surface-inset: #F4F4F6;
+    --player-bar-bg: #FFFFFF;
 }
 
 /* 4. DYNAMIC MODE (Glassmorphism & Transparent - PERFECT FOR WEATHER) */
@@ -146,6 +158,9 @@
     /* Base/fallback recessed surface (used for a brief moment before
        JavaScript sets data-sky-phase); matches the dark-phase value below. */
     --surface-inset: rgba(15, 23, 42, 0.2);
+    /* Base/fallback solid mini-player surface, same reasoning as
+       --surface-inset above - overridden per sky-phase immediately below. */
+    --player-bar-bg: #0F172A;
 }
 
 /* 4b. DYNAMIC MODE — Bright sky phases (Dawn & Day).
@@ -170,6 +185,9 @@
     /* Slightly more opaque/subdued than --widget-bg so inputs and small
        badges read as "recessed" relative to the card they sit inside. */
     --surface-inset: rgba(255, 255, 255, 0.14);
+    /* Solid white to match this phase's own dark text - the mini-player
+       must never go transparent/blurred regardless of glass settings. */
+    --player-bar-bg: #FFFFFF;
 }
 
 /* DAWN-ONLY CONTRAST FLOOR - a real, confirmed gap the rule above doesn't
@@ -211,6 +229,10 @@
     --text-main: #FFFFFF;
 
     --surface-inset: rgba(15, 23, 42, 0.18);
+    /* Solid dark navy to match this phase's own light text - the
+       mini-player must never go transparent/blurred regardless of glass
+       settings. */
+    --player-bar-bg: #0F172A;
 }
 
 /* DUSK-ONLY CONTRAST FLOOR - the mirror image of the dawn fix above.

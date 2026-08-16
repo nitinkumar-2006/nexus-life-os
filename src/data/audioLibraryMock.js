@@ -44,13 +44,15 @@
 
 import { getSynthPresetUrl } from '../utils/noiseSynth.js';
 
-// The only two verified-reliable remote tracks in the whole app (Pixabay
-// CDN links confirmed working across many rounds of testing) - reused
-// across multiple mock playlists rather than introducing new unverified
-// hotlinks, which have repeatedly turned out to be unreliable.
-const LOFI_URL = 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf7f6.mp3?filename=lofi-study-112191.mp3';
-const RAIN_URL = 'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=gentle-rain-16167.mp3';
-
+// Both "real" catalog tracks used to hotlink Pixabay's CDN directly. That
+// turned out to be exactly the unreliable pattern noiseSynth.js's own
+// header comment already warned about (Pixabay doesn't expose stable,
+// crawlable direct-download links without an authenticated API call) -
+// hotlinking them from an arbitrary origin is what produced the real
+// console 403/429s and the "Couldn't play" state on the mini-player.
+// Swapped for the same 100%-reliable, zero-network synth approach every
+// ambient preset in this catalog already uses - genuinely never 403s,
+// 429s, or goes dead, unlike a remote CDN link.
 const track = (id, title, artist, url, source) => ({
     id, title, artist, url, artworkUrl: '', durationSec: null, source,
 });
@@ -62,7 +64,7 @@ export const AUDIO_LIBRARY = [
         description: 'Steady, low-distraction tracks for deep work sessions.',
         artworkUrl: '',
         trackRefs: () => [
-            track('lib-lofi', 'Lofi Focus Beats', 'Nexus Sessions', LOFI_URL, 'catalog'),
+            track('lib-lofi', 'Lofi Focus Beats', 'Nexus Sessions', getSynthPresetUrl('lofi'), 'synth'),
             track('lib-whitenoise-1', 'White Noise', 'Ambient Generator', getSynthPresetUrl('whiteNoise'), 'synth'),
         ],
     },
@@ -72,9 +74,9 @@ export const AUDIO_LIBRARY = [
         description: 'Minimal, repetitive textures to hold long focus blocks.',
         artworkUrl: '',
         trackRefs: () => [
-            track('lib-lofi-2', 'Lofi Focus Beats', 'Nexus Sessions', LOFI_URL, 'catalog'),
+            track('lib-lofi-2', 'Lofi Focus Beats', 'Nexus Sessions', getSynthPresetUrl('lofi'), 'synth'),
             track('lib-whitenoise-2', 'White Noise', 'Ambient Generator', getSynthPresetUrl('whiteNoise'), 'synth'),
-            track('lib-rain-1', 'Ambient Rain', 'Nexus Sessions', RAIN_URL, 'catalog'),
+            track('lib-rain-1', 'Ambient Rain', 'Nexus Sessions', getSynthPresetUrl('rain'), 'synth'),
         ],
     },
     {
@@ -83,8 +85,7 @@ export const AUDIO_LIBRARY = [
         description: 'Rain-forward atmospheres for reading and revision.',
         artworkUrl: '',
         trackRefs: () => [
-            track('lib-rain-2', 'Ambient Rain', 'Nexus Sessions', RAIN_URL, 'catalog'),
-            track('lib-rain-synth', 'Rain (Generated)', 'Ambient Generator', getSynthPresetUrl('rain'), 'synth'),
+            track('lib-rain-2', 'Ambient Rain', 'Nexus Sessions', getSynthPresetUrl('rain'), 'synth'),
             track('lib-forest-1', 'Forest', 'Ambient Generator', getSynthPresetUrl('forest'), 'synth'),
         ],
     },
@@ -95,7 +96,7 @@ export const AUDIO_LIBRARY = [
         artworkUrl: '',
         trackRefs: () => [
             track('lib-coffee-1', 'Coffee Shop', 'Ambient Generator', getSynthPresetUrl('coffeeShop'), 'synth'),
-            track('lib-lofi-3', 'Lofi Focus Beats', 'Nexus Sessions', LOFI_URL, 'catalog'),
+            track('lib-lofi-3', 'Lofi Focus Beats', 'Nexus Sessions', getSynthPresetUrl('lofi'), 'synth'),
         ],
     },
     {
@@ -105,7 +106,7 @@ export const AUDIO_LIBRARY = [
         artworkUrl: '',
         trackRefs: () => [
             track('lib-forest-2', 'Forest', 'Ambient Generator', getSynthPresetUrl('forest'), 'synth'),
-            track('lib-rain-3', 'Ambient Rain', 'Nexus Sessions', RAIN_URL, 'catalog'),
+            track('lib-rain-3', 'Ambient Rain', 'Nexus Sessions', getSynthPresetUrl('rain'), 'synth'),
         ],
     },
 ];

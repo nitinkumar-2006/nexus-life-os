@@ -490,22 +490,33 @@ const SyllabusPage = () => {
     };
 
     return (
-        <div className="dashboard-grid">
-            <div className="widget col-12" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <FileText size={24} color="var(--accent)" />
-                        <div>
-                            <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Syllabus Command Center</h2>
-                            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>Track your curriculum, semester by semester.</p>
-                        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease' }}>
+            {/* background: var(--bg-surface) alone is what gives this card
+                its real, theme-aware glassmorphism - it's automatically
+                blurred/translucent under the Dynamic theme's own selector
+                system and cleanly opaque under the other three. The old
+                .widget class this page used to render with ALSO forced a
+                flat backdrop-filter: blur(12px) unconditionally in every
+                theme, including onto an already fully-opaque background on
+                night/comfort/day - blurring nothing while still costing a
+                compositing layer, which is exactly what read as "blurry
+                edges / uneven color rendering" on the semester tabs and
+                action bar sitting on top of it. Every other page in this
+                app already uses this same plain convention; this page was
+                simply the one left behind on the older system. */}
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '24px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', boxSizing: 'border-box' }}>
+                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', gap: isMobile ? '12px' : '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <FileText size={isMobile ? 20 : 24} color="var(--accent)" style={{ flexShrink: 0 }} />
+                        <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Syllabus Hub</h2>
                     </div>
                     <button
                         type="button"
                         onClick={() => setModalMode('add')}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 20px', borderRadius: '12px',
-                            background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                            padding: isMobile ? '12px 18px' : '11px 20px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box',
+                            borderRadius: '9999px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
                             fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
                         }}
                     >
@@ -529,8 +540,8 @@ const SyllabusPage = () => {
                             type="button"
                             onClick={() => setSelectedSemester(sem)}
                             style={{
-                                padding: '10px 18px', borderRadius: '12px', fontSize: '13px', fontWeight: '700',
-                                cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit',
+                                padding: '10px 18px', borderRadius: '9999px', fontSize: '13px', fontWeight: '700',
+                                cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: 'inherit', flexShrink: 0,
                                 background: selectedSemester === sem ? 'var(--primary)' : 'var(--widget-bg)',
                                 color: selectedSemester === sem ? 'var(--text-on-primary)' : 'var(--text-primary)',
                                 border: '1px solid var(--border-premium)',
@@ -542,19 +553,19 @@ const SyllabusPage = () => {
                 </div>
             </div>
 
-            <div className="widget col-12" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
-                    <GraduationCap size={18} color="var(--accent)" />
-                    <h3 style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '24px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', boxSizing: 'border-box' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: isMobile ? '14px' : '18px' }}>
+                    <GraduationCap size={18} color="var(--accent)" style={{ flexShrink: 0 }} />
+                    <h3 style={{ fontSize: isMobile ? '14px' : '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {ORDINAL[selectedSemester]} Semester Subjects
                     </h3>
-                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--surface-inset)', padding: '2px 10px', borderRadius: '20px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', background: 'var(--surface-inset)', padding: '2px 10px', borderRadius: '20px', flexShrink: 0 }}>
                         {subjectsForSemester.length}
                     </span>
                 </div>
 
                 {subjectsForSemester.length === 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '48px 20px', textAlign: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: isMobile ? '36px 20px' : '48px 20px', boxSizing: 'border-box', textAlign: 'center' }}>
                         <BookOpen size={32} color="var(--text-muted)" />
                         <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-secondary)' }}>
                             No subjects added for {ORDINAL[selectedSemester]} Semester yet
@@ -564,18 +575,21 @@ const SyllabusPage = () => {
                         </span>
                     </div>
                 ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fill, minmax(260px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
                         {subjectsForSemester.map((subject) => {
                             const allTopics = subject.units.flatMap((u) => u.topics);
                             const doneCount = allTopics.filter((t) => t.done).length;
                             const totalTopics = allTopics.length;
                             return (
                                 <div key={subject.id} onClick={() => setViewingSubject(subject)} style={{
-                                    background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px',
-                                    padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer',
+                                    background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '14px' : '16px',
+                                    padding: isMobile ? '14px' : '18px', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '12px', cursor: 'pointer', minWidth: 0,
                                 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-                                        <h4 style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, lineHeight: 1.3, minWidth: 0, overflowWrap: 'break-word' }}>{subject.name}</h4>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                        <h4 style={{
+                                            fontSize: isMobile ? '13px' : '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, lineHeight: 1.3, minWidth: 0,
+                                            overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflowWrap: 'break-word', wordBreak: 'break-word',
+                                        }}>{subject.name}</h4>
                                         <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
                                             <button
                                                 type="button"
@@ -597,10 +611,10 @@ const SyllabusPage = () => {
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                        <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent)', background: 'var(--surface-inset)', padding: '3px 10px', borderRadius: '20px', border: '1px solid var(--border-premium)' }}>
+                                        <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--accent)', background: 'var(--surface-inset)', padding: '3px 10px', borderRadius: '20px', border: '1px solid var(--border-premium)', flexShrink: 0 }}>
                                             {subject.credits} {subject.credits === 1 ? 'Credit' : 'Credits'}
                                         </span>
-                                        <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)' }}>
+                                        <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '600', color: 'var(--text-muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {subject.units.length === 0
                                                 ? 'Tap to add units'
                                                 : totalTopics === 0
@@ -614,7 +628,7 @@ const SyllabusPage = () => {
                                             <div style={{ width: '100%', height: '6px', borderRadius: '10px', background: 'var(--surface-inset)', overflow: 'hidden' }}>
                                                 <div style={{ width: `${Math.round((doneCount / totalTopics) * 100)}%`, height: '100%', background: 'var(--success)', borderRadius: '10px', transition: 'width 0.3s ease' }} />
                                             </div>
-                                            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--success)', alignSelf: 'flex-end' }}>
+                                            <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--success)', alignSelf: 'flex-end' }}>
                                                 {Math.round((doneCount / totalTopics) * 100)}% complete
                                             </span>
                                         </div>

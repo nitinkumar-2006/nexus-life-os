@@ -23,7 +23,8 @@ export const ALL_NAV_ITEMS = [
     { name: 'Profile', id: 'profile', icon: User, essential: true },
 ];
 
-// The 5 tabs that get a permanent slot in the mobile bottom bar - everything
-// else (plus Settings/Audio Hub, which aren't in ALL_NAV_ITEMS since the
-// desktop Sidebar renders them separately too) lives in the More sheet.
-export const MOBILE_PRIMARY_TAB_NAMES = ['Home', 'Planner', 'Study', 'Finance', 'Gym'];
+// Mobile's own bottom-dock tab list (Home/Audio/AI/Profile/Settings)
+// lives directly in MobileTabBar.jsx now, not here - it isn't a subset
+// of ALL_NAV_ITEMS (Audio Hub was never part of this shared list), so a
+// name-filter constant no longer fits. Every module in ALL_NAV_ITEMS is
+// reachable on mobile via MobileSidebarDrawer.jsx instead.

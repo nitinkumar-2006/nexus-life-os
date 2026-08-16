@@ -394,54 +394,74 @@ const GymPage = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
             
             {/* Header Section */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Gym Command Center</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Track workouts, recovery, body analytics, and AI fitness coaching.</p>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px' }}>
+                <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Gym Hub</h1>
+
+                {/* Compact pill action bar - the primary (context-dependent
+                    Add Plan / Add Exercise / Log Measurements) and Profile
+                    buttons split the row evenly on mobile instead of
+                    wrapping onto their own lines. */}
+                <div style={{ display: 'flex', gap: isMobile ? '8px' : '10px', width: isMobile ? '100%' : 'auto' }}>
                     {activeTab === 'Dashboard' && (
-                        <button onClick={() => setIsAddPlanModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
-                            <Plus size={18} /> Add Workout Plan
+                        <button onClick={() => setIsAddPlanModal(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <Plus size={isMobile ? 16 : 18} /> {isMobile ? 'Add Plan' : 'Add Workout Plan'}
                         </button>
                     )}
                     {activeTab === 'Exercises' && (
-                        <button onClick={() => setIsAddExerciseModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
-                            <Plus size={18} /> Add Custom Exercise
+                        <button onClick={() => setIsAddExerciseModal(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <Plus size={isMobile ? 16 : 18} /> {isMobile ? 'Add Exercise' : 'Add Custom Exercise'}
                         </button>
                     )}
                     {activeTab === 'Recovery' && (
-                        <button onClick={() => { setMeasurementWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setIsAddMeasurementModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
-                            <Ruler size={18} /> Log Measurements
+                        <button onClick={() => { setMeasurementWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setIsAddMeasurementModal(true); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <Ruler size={isMobile ? 16 : 18} /> {isMobile ? 'Log' : 'Log Measurements'}
                         </button>
                     )}
-                    <button onClick={() => { setTempProfile(profile); setTempWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setTempTargetWeightDisplay(kgToDisplay(profile.targetWeight, weightUnit)); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
-                        <User size={18} /> Profile
+                    <button onClick={() => { setTempProfile(profile); setTempWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setTempTargetWeightDisplay(kgToDisplay(profile.targetWeight, weightUnit)); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <User size={isMobile ? 16 : 18} /> Profile
                     </button>
                 </div>
             </div>
 
-            {/* Quick Metrics Overview Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><Target size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Primary Goal</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.goal}</h2></div>
+            {/* Quick Metrics Overview Cards - compact 3-column grid on
+                mobile (matches the same pattern used across Planner/Study)
+                so all three stats are glanceable without extra scrolling. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><Target size={isMobile ? 16 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Primary Goal</span>
+                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.goal}</h2>
+                    </div>
                 </div>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981' }}><TrendingUp size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Current / Target Weight</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{kgToDisplay(profile.weight, weightUnit).toFixed(1)} {weightUnit} <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>/ {kgToDisplay(profile.targetWeight, weightUnit).toFixed(1)} {weightUnit}</span></h2></div>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><TrendingUp size={isMobile ? 16 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{isMobile ? 'Weight' : 'Current / Target Weight'}</span>
+                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {kgToDisplay(profile.weight, weightUnit).toFixed(1)}{isMobile ? '' : ` ${weightUnit}`} <span style={{ fontSize: isMobile ? '10px' : '14px', color: 'var(--text-muted)' }}>/ {kgToDisplay(profile.targetWeight, weightUnit).toFixed(1)} {weightUnit}</span>
+                        </h2>
+                    </div>
                 </div>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#F59E0B' }}><Flame size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Workout Streak</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{profile.streak} Days</h2></div>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#F59E0B', flexShrink: 0, display: 'flex' }}><Flame size={isMobile ? 16 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Streak</span>
+                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.streak}{isMobile ? '' : ' Days'}</h2>
+                    </div>
                 </div>
             </div>
 
-            {/* Navigation Tabs */}
-            <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto' }}>
+            {/* Navigation Tabs - fade-masked horizontal scroll (matching
+                the same pattern used on Timetable/Study/Syllabus) plus
+                taller mobile padding for a real touch target. */}
+            <div style={{
+                display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto',
+                maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+                WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+            }}>
                 {['Dashboard', 'Exercises', 'History', 'Recovery', 'Analytics'].map(tab => (
-                    <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '10px 16px', background: activeTab === tab ? 'var(--widget-bg)' : 'transparent', color: activeTab === tab ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === tab ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}>
+                    <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: activeTab === tab ? 'var(--widget-bg)' : 'transparent', color: activeTab === tab ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === tab ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}>
                         {tab === 'Analytics' ? <><Cpu size={14} style={{display:'inline', marginBottom:'-2px'}}/> AI Coach & Analytics</> : tab}
                     </button>
                 ))}
@@ -460,29 +480,45 @@ const GymPage = () => {
                         </div>
                     </div>
 
-                    <div>
-                        <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '16px' }}>Active Workout Split & Start Session</h3>
+                    {/* Given an explicit glassmorphic treatment (backdrop
+                        blur + a soft top-edge sheen) that works uniformly
+                        across all 4 themes - matching the same pattern
+                        used for Study's Quick Doubt Solver card, since
+                        --bg-surface alone is fully opaque under night/
+                        comfort/day and a plain blur there is invisible. */}
+                    <div style={{
+                        background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px',
+                        padding: '16px', boxShadow: 'var(--premium-shadow), inset 0 1px 0 rgba(255,255,255,0.07)',
+                        backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxSizing: 'border-box',
+                    }}>
+                        <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', marginTop: 0, marginBottom: '16px' }}>Active Workout Split & Start Session</h3>
                         {workoutPlans.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))', gap: isMobile ? '12px' : '20px' }}>
                                 {workoutPlans.map(plan => (
-                                    <div key={plan.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
+                                    <div key={plan.id} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', boxSizing: 'border-box' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
                                             <div style={{ minWidth: 0 }}>
-                                                <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', background: 'var(--widget-bg)', color: plan.active ? '#10B981' : 'var(--primary)', borderRadius: '6px', border: '1px solid var(--border-premium)' }}>
+                                                <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', background: 'var(--surface-inset)', color: plan.active ? '#10B981' : 'var(--primary)', borderRadius: '6px', border: '1px solid var(--border-premium)' }}>
                                                     {plan.active ? 'Active Split' : 'Standard'}
                                                 </span>
-                                                <h4 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginTop: '8px', overflowWrap: 'break-word' }}>{plan.name}</h4>
+                                                <h4 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', marginTop: '8px', overflowWrap: 'break-word' }}>{plan.name}</h4>
                                                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>{plan.split} · {plan.focus} · {(plan.exerciseIds || []).length} exercise{(plan.exerciseIds || []).length === 1 ? '' : 's'}</span>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                                                 <button onClick={() => deletePlan(plan.id)} style={{ padding: '8px', background: 'transparent', color: 'var(--text-muted)', border: 'none', cursor: 'pointer' }}><Trash2 size={16} /></button>
-                                                <button onClick={() => startWorkoutSession(plan)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}><Play size={14} /> Start</button>
+                                                <button onClick={() => startWorkoutSession(plan)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', cursor: 'pointer' }}><Play size={14} /> Start</button>
                                             </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        ) : <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-premium)', borderRadius: '16px' }}>No workout plans created. Click "Add Workout Plan" above.</div>}
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: isMobile ? '28px 16px' : '40px', boxSizing: 'border-box', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border-premium)', borderRadius: '14px' }}>
+                                <Dumbbell size={28} color="var(--text-muted)" style={{ opacity: 0.6 }} />
+                                <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)' }}>No workout plans yet</span>
+                                <span style={{ fontSize: '12px' }}>Tap "{isMobile ? 'Add Plan' : 'Add Workout Plan'}" above to build your first split.</span>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

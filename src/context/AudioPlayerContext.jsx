@@ -10,12 +10,52 @@ import { createContext, useContext, useState, useRef, useEffect, useCallback } f
 import { useStreaming } from './StreamingContext.jsx';
 import { useAuth } from './AuthContext.jsx';
 import { buildAudioTrackCloudMetadata, AUDIO_SYNC_STATUS } from '../utils/audioCloudSchema.js';
-import { uploadAudioToCloud, saveAudioTrackMetadata, fetchUserAudioTracks, downloadAudioBlobFromCloud, deleteAudioFromCloud } from '../utils/audioCloudSync.js';
+import { uploadAudioToCloud, saveAudioTrackMetadata, fetchUserAudioTracks, deleteAudioFromCloud } from '../utils/audioCloudSync.js';
+import { getSynthPresetUrl } from '../utils/noiseSynth.js';
 
+// A brand-new user (empty localStorage) starts on this queue - it used to
+// hotlink Pixabay's CDN directly, which is exactly the unreliable pattern
+// noiseSynth.js exists to avoid (Pixabay doesn't expose stable, crawlable
+// direct-download links without an authenticated API call). That's what
+// produced the real console 403/429s and the "Couldn't play" state on the
+// very first thing a fresh install ever tries to play. Synth-generated
+// audio has zero network dependency and can never 403/429/go dead.
 const DEFAULT_PLAYLIST = [
-    { id: 1, title: 'Lofi Focus Beats', url: 'https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf7f6.mp3?filename=lofi-study-112191.mp3', isLocal: false },
-    { id: 2, title: 'Ambient Rain', url: 'https://cdn.pixabay.com/download/audio/2022/01/18/audio_d0a13f69d2.mp3?filename=gentle-rain-16167.mp3', isLocal: false },
+    { id: 1, title: 'Lofi Focus Beats', url: getSynthPresetUrl('lofi'), isLocal: false },
+    { id: 2, title: 'Ambient Rain', url: getSynthPresetUrl('rain'), isLocal: false },
 ];
+
+// Every title any synth-generated track (library "catalog" tracks above,
+// plus AudioHubPage's Ambient Focus presets - see AMBIENT_PRESETS there)
+// is ever known by, mapped to the noiseSynth.js profile that regenerates
+// its audio. Two things can leave a persisted playlist entry pointing at
+// a genuinely dead URL: (1) an install from before this fix may still
+// have the old, dead Pixabay hotlink baked into a saved track object, or
+// (2) ANY blob: URL (what every synth track's `url` actually is) is
+// fundamentally tied to the document/session that minted it via
+// URL.createObjectURL - it does NOT survive a page reload, so a
+// synth-track's blob URL read back from localStorage is *always* stale,
+// not just sometimes. Both cases are healed the same way: regenerate a
+// fresh URL from the matching profile, keyed by title since that's the
+// only stable identifier these mock/generated tracks ever had.
+const TITLE_TO_SYNTH_PROFILE = {
+    'Lofi Focus Beats': 'lofi',
+    'Ambient Rain': 'rain',
+    'Rain': 'rain',
+    'Forest': 'forest',
+    'Coffee Shop': 'coffeeShop',
+    'White Noise': 'whiteNoise',
+};
+const healDeadHotlinks = (tracks) => tracks.map((t) => {
+    const profileKey = TITLE_TO_SYNTH_PROFILE[t.title];
+    if (!profileKey || typeof t.url !== 'string') return t;
+    const isDeadPixabayLink = t.url.includes('pixabay.com');
+    const isStaleBlobUrl = t.url.startsWith('blob:');
+    if (isDeadPixabayLink || isStaleBlobUrl) {
+        return { ...t, url: getSynthPresetUrl(profileKey) };
+    }
+    return t;
+});
 
 // Dropping/selecting several local files at once calls addSong() several
 // times in the same synchronous tick. Date.now() only has millisecond
@@ -146,7 +186,7 @@ export const AudioPlayerProvider = ({ children }) => {
         try {
             const saved = localStorage.getItem('nexus_playlist');
             const parsed = saved ? JSON.parse(saved) : null;
-            return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PLAYLIST;
+            return Array.isArray(parsed) && parsed.length > 0 ? healDeadHotlinks(parsed) : DEFAULT_PLAYLIST;
         } catch (e) {
             return DEFAULT_PLAYLIST;
         }
@@ -178,6 +218,17 @@ export const AudioPlayerProvider = ({ children }) => {
         }
     });
     const [shuffleEnabled, setShuffleEnabled] = useState(() => localStorage.getItem('nexus_shuffle') === 'true');
+    // Off by default - a real, confirmed source of "audio overlaps / two
+    // tracks play at once" reports: the crossfade below is genuine,
+    // intentional, working behavior (fades the next track in for
+    // CROSSFADE_SECONDS before the old one fully stops), but it was
+    // completely invisible anywhere in the UI - no label while it's
+    // happening, no setting to see or turn off. From a real listener's
+    // perspective, "two songs suddenly play together with zero
+    // explanation" reads exactly like a bug even though the code itself
+    // was working as designed. Kept as a real, functioning feature (not
+    // deleted) for anyone who does want it - just no longer a surprise.
+    const [crossfadeEnabled, setCrossfadeEnabled] = useState(() => localStorage.getItem('nexus_crossfade_enabled') === 'true');
     // 'off' | 'all' | 'one'
     const [repeatMode, setRepeatMode] = useState(() => {
         const saved = localStorage.getItem('nexus_repeat_mode');
@@ -212,6 +263,12 @@ export const AudioPlayerProvider = ({ children }) => {
     // anything had gone wrong. Cleared automatically the next time a
     // track genuinely starts playing successfully.
     const [playbackError, setPlaybackError] = useState(null);
+    // Real, visible counterpart to crossfadingRef (a plain ref, so it
+    // never triggers a re-render on its own) - lets the UI show an
+    // honest "Crossfading..." label for the ~4 real seconds two tracks
+    // are genuinely, intentionally both audible, instead of leaving
+    // that moment completely unexplained.
+    const [isCrossfading, setIsCrossfading] = useState(false);
     const [volume, setVolume] = useState(() => {
         const saved = parseFloat(localStorage.getItem('nexus_volume'));
         return Number.isFinite(saved) && saved >= 0 && saved <= 1 ? saved : 1.0;
@@ -245,10 +302,15 @@ export const AudioPlayerProvider = ({ children }) => {
     const currentSongIndexRef = useRef(currentSongIndex);
     const repeatModeRef = useRef(repeatMode);
     const shuffleEnabledRef = useRef(shuffleEnabled);
+    const crossfadeEnabledRef = useRef(crossfadeEnabled);
     useEffect(() => { volumeRef.current = volume; }, [volume]);
     useEffect(() => { currentSongIndexRef.current = currentSongIndex; }, [currentSongIndex]);
     useEffect(() => { repeatModeRef.current = repeatMode; }, [repeatMode]);
     useEffect(() => { shuffleEnabledRef.current = shuffleEnabled; }, [shuffleEnabled]);
+    useEffect(() => {
+        crossfadeEnabledRef.current = crossfadeEnabled;
+        localStorage.setItem('nexus_crossfade_enabled', String(crossfadeEnabled));
+    }, [crossfadeEnabled]);
 
     // Always-fresh reference to the playlist, so next()/prev()/playAt() never
     // act on a stale closure without needing to be re-created on every edit.
@@ -278,8 +340,7 @@ export const AudioPlayerProvider = ({ children }) => {
                     const newFromCloud = cloudTracks
                         .filter((t) => !knownIds.has(t.id))
                         // No url yet - the real rehydration effect below
-                        // downloads the actual bytes from cloudStorageUrl
-                        // and mints a real, fresh object URL.
+                        // points it at its own live cloudStorageUrl.
                         .map((t) => ({ ...t, url: null }));
                     return newFromCloud.length > 0 ? [...prevList, ...newFromCloud] : prevList;
                 });
@@ -320,26 +381,35 @@ export const AudioPlayerProvider = ({ children }) => {
                 }
                 // Not in local IndexedDB (a genuinely new device, or a
                 // cleared browser) - if this track was previously synced
-                // to the cloud, attempt a real re-download from its own
-                // live cloudStorageUrl before giving up on it.
+                // to the cloud, play it directly from its own live
+                // cloudStorageUrl instead of giving up on it.
+                //
+                // This used to fetch() the full file into a Blob first
+                // (so it could also be re-saved to IndexedDB for offline
+                // playback), but that fetch() is a cross-origin read of
+                // the response body, which the browser always subjects to
+                // CORS - and this Firebase Storage bucket has no CORS
+                // policy configured for this origin, so every one of
+                // those calls genuinely failed with a real, reproducible
+                // `net::ERR_FAILED` / "blocked by CORS policy" console
+                // error. That error is logged by the browser itself the
+                // moment the cross-origin request is blocked - it can't
+                // be silenced from application code no matter how the
+                // resulting promise rejection is caught, so the only real
+                // fix is to never make that fetch() at all.
+                //
+                // A plain <audio> element doesn't have this problem: it
+                // never reads the response bytes into JS, so streaming a
+                // cross-origin URL directly needs no CORS involvement.
+                // The one real trade-off is that a track rehydrated this
+                // way isn't re-cached into IndexedDB, so it won't play
+                // with this device fully offline - reasonable, since
+                // everything else about a cloud-synced track (auth,
+                // Firestore, the original sync) already needs a network
+                // connection anyway.
                 if (entry.cloudStorageUrl) {
-                    try {
-                        const cloudBlob = await downloadAudioBlobFromCloud(entry.cloudStorageUrl);
-                        if (cancelled) return;
-                        // Re-saves locally too, so this device doesn't
-                        // need to re-download the same track again next
-                        // time - matches the same real, established
-                        // save-then-play pattern addSong already uses.
-                        saveLocalTrackBlob(entry.id, cloudBlob);
-                        const freshUrl = URL.createObjectURL(cloudBlob);
-                        setPlaylist((prevList) => prevList.map((t) => (t.id === entry.id ? { ...t, url: freshUrl } : t)));
-                        continue;
-                    } catch (e) {
-                        // Real network failure or a genuinely revoked/
-                        // expired cloud URL - falls through to the same
-                        // honest "drop rather than leave permanently
-                        // unplayable" behavior below.
-                    }
+                    setPlaylist((prevList) => prevList.map((t) => (t.id === entry.id ? { ...t, url: entry.cloudStorageUrl } : t)));
+                    continue;
                 }
                 setPlaylist((prevList) => prevList.filter((t) => t.id !== entry.id));
             }
@@ -386,12 +456,29 @@ export const AudioPlayerProvider = ({ children }) => {
         localStorage.setItem('nexus_repeat_mode', repeatMode);
     }, [repeatMode]);
 
-    // Pick up playlist edits made in another browser tab/window.
+    // Pick up playlist edits made in another browser tab/window. Real bug,
+    // found and confirmed live with multiple tabs of this app open at
+    // once: healDeadHotlinks (like every .map() call) always returns a
+    // BRAND NEW array, even when every track passes through completely
+    // unchanged - so setPlaylist was firing on every single 'storage'
+    // event regardless of whether anything actually differed. That new
+    // reference re-triggers this file's own playlist-persistence effect,
+    // which re-writes localStorage and re-fires 'storage' in every OTHER
+    // open tab, whose own identical, unguarded listener does the same
+    // thing right back - a genuine, self-sustaining cross-tab ping-pong
+    // (confirmed live: 600+ redundant writes/sec, tripping React's
+    // "Maximum update depth exceeded" guard) with two or more tabs open,
+    // even with playback fully idle. The same JSON-equality guard
+    // GlobalUserSettingsContext already uses for this exact reason -
+    // bail out to the previous reference when nothing genuinely
+    // changed - stops the cascade at its source.
     useEffect(() => {
         const syncFromStorage = () => {
             try {
                 const saved = localStorage.getItem('nexus_playlist');
-                if (saved) setPlaylist(JSON.parse(saved));
+                if (!saved) return;
+                const healed = healDeadHotlinks(JSON.parse(saved));
+                setPlaylist((prev) => (JSON.stringify(prev) === JSON.stringify(healed) ? prev : healed));
             } catch (e) {
                 /* ignore malformed storage */
             }
@@ -644,6 +731,7 @@ export const AudioPlayerProvider = ({ children }) => {
         if (!activeAudio || !inactiveAudio) return;
 
         crossfadingRef.current = true;
+        setIsCrossfading(true);
         const targetVolume = volumeRef.current;
         inactiveAudio.src = nextTrack.url;
         inactiveAudio.loop = !!nextTrack.isAmbientPreset;
@@ -654,6 +742,7 @@ export const AudioPlayerProvider = ({ children }) => {
             // abandon the crossfade cleanly and let the normal onEnded
             // path handle advancing instead of leaving state stuck.
             crossfadingRef.current = false;
+            setIsCrossfading(false);
         });
 
         const steps = 24;
@@ -674,6 +763,7 @@ export const AudioPlayerProvider = ({ children }) => {
                 activeAudio.volume = targetVolume; // restored for the next time this slot is reused
                 activeSlotRef.current = activeSlotRef.current === 'A' ? 'B' : 'A';
                 crossfadingRef.current = false;
+                setIsCrossfading(false);
                 skipNextLoadRef.current = true;
                 setCurrentSongIndex(nextIdx);
                 setIsPlaying(true);
@@ -689,6 +779,7 @@ export const AudioPlayerProvider = ({ children }) => {
         if (!crossfadingRef.current) return;
         clearInterval(crossfadeIntervalRef.current);
         crossfadingRef.current = false;
+        setIsCrossfading(false);
         const inactiveAudio = getInactiveAudio();
         if (inactiveAudio) {
             inactiveAudio.pause();
@@ -712,7 +803,7 @@ export const AudioPlayerProvider = ({ children }) => {
     // raw File object so this function can own the whole lifecycle: an
     // object URL for immediate playback, plus persisting the actual bytes
     // to IndexedDB so the track survives a reload.
-    const addSong = useCallback((title, file) => {
+    const addSong = useCallback(async (title, file) => {
         if (!title || !title.trim() || !file) return;
         const id = generateTrackId();
         const url = URL.createObjectURL(file);
@@ -722,8 +813,17 @@ export const AudioPlayerProvider = ({ children }) => {
         // that's true, so it has to happen here, not deferred to some
         // later "prepare for sync" step that wouldn't have this data.
         const cloudMetadata = buildAudioTrackCloudMetadata({ id, title }, file);
+        // Await the IndexedDB write BEFORE adding the track to playlist
+        // state (and therefore before it enters localStorage's persisted
+        // metadata below). Previously this was fire-and-forget, so the
+        // track's metadata could reach localStorage while its actual
+        // bytes were still mid-write in IndexedDB - a page reload landing
+        // in that window left localStorage pointing at a local track with
+        // nothing to rehydrate, which the startup effect then silently
+        // dropped. Awaiting here closes that window: by the time the
+        // track is visible anywhere, its bytes are already durably saved.
+        await saveLocalTrackBlob(id, file);
         setPlaylist((prevList) => [...prevList, { id, title, url, isLocal: true, ...cloudMetadata }]);
-        saveLocalTrackBlob(id, file);
 
         // Real, background cloud upload - deliberately NOT awaited here,
         // so the track is already playable locally the instant this
@@ -922,7 +1022,7 @@ export const AudioPlayerProvider = ({ children }) => {
     const [recentlyPlayed, setRecentlyPlayed] = useState(() => {
         try {
             const saved = JSON.parse(localStorage.getItem('nexus_recently_played') || '[]');
-            return Array.isArray(saved) ? saved : [];
+            return Array.isArray(saved) ? healDeadHotlinks(saved) : [];
         } catch (e) {
             return [];
         }
@@ -980,6 +1080,8 @@ export const AudioPlayerProvider = ({ children }) => {
         favoriteTrackTitles,
         shuffleEnabled,
         repeatMode,
+        crossfadeEnabled,
+        isCrossfading,
         recentlyPlayed,
         durationsByUrl,
         setVolume,
@@ -996,6 +1098,7 @@ export const AudioPlayerProvider = ({ children }) => {
         toggleFavoriteTrack,
         toggleShuffle,
         cycleRepeatMode,
+        setCrossfadeEnabled,
         playPreset,
         deleteSong,
         moveSong,
@@ -1029,7 +1132,7 @@ export const AudioPlayerProvider = ({ children }) => {
                     if (activeSlotRef.current !== 'A') return;
                     setCurrentTime(e.target.currentTime);
                     const dur = e.target.duration;
-                    if (isFinite(dur) && dur > 0 && !crossfadingRef.current && dur - e.target.currentTime <= CROSSFADE_SECONDS) {
+                    if (crossfadeEnabledRef.current && isFinite(dur) && dur > 0 && !crossfadingRef.current && dur - e.target.currentTime <= CROSSFADE_SECONDS) {
                         startCrossfade();
                     }
                 }}
@@ -1050,7 +1153,7 @@ export const AudioPlayerProvider = ({ children }) => {
                     if (activeSlotRef.current !== 'B') return;
                     setCurrentTime(e.target.currentTime);
                     const dur = e.target.duration;
-                    if (isFinite(dur) && dur > 0 && !crossfadingRef.current && dur - e.target.currentTime <= CROSSFADE_SECONDS) {
+                    if (crossfadeEnabledRef.current && isFinite(dur) && dur > 0 && !crossfadingRef.current && dur - e.target.currentTime <= CROSSFADE_SECONDS) {
                         startCrossfade();
                     }
                 }}

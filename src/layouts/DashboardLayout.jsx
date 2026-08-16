@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import Sidebar from '../components/sidebar.jsx';
 import MobileTabBar from '../components/MobileTabBar.jsx';
+import MobileSidebarDrawer from '../components/MobileSidebarDrawer.jsx';
 import Header from '../components/header.jsx';
 import HomePage from '../pages/HomePage.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
@@ -47,6 +48,11 @@ const DashboardLayout = () => {
     });
     const [isCollapsed, setIsCollapsed] = useState(true);
     const isMobile = useIsMobile();
+    // Compact icon-only mobile drawer (MobileSidebarDrawer) - the
+    // hamburger's own open state, session-only like every other panel
+    // toggle in this app. Closed automatically on every real nav click
+    // inside the drawer itself (see its own handleNavClick).
+    const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
     // --- Dynamic Theme wiring -------------------------------------------------
     // This is the single source of truth for which theme is active. It decides
@@ -199,8 +205,8 @@ const DashboardLayout = () => {
             case 'Analytics': return <ErrorBoundary moduleName="Analytics" key="Analytics"><AnalyticsPage /></ErrorBoundary>;
             case 'AI': return <ErrorBoundary moduleName="AI Assistant" key="AI"><AIPage /></ErrorBoundary>;
             case 'Profile': return <ErrorBoundary moduleName="Profile" key="Profile"><ProfilePage /></ErrorBoundary>;
-            case 'Settings': return <ErrorBoundary moduleName="Settings" key="Settings"><SettingsPage /></ErrorBoundary>; // Fully functional settings page render
-            case 'audio_hub': return <ErrorBoundary moduleName="Audio Hub" key="AudioHub"><AudioHubPage setActiveTab={setActiveTab} /></ErrorBoundary>;
+            case 'Settings': return <ErrorBoundary moduleName="Settings" key="Settings"><SettingsPage setActiveTab={setActiveTab} /></ErrorBoundary>; // Fully functional settings page render
+            case 'audio_hub': return <ErrorBoundary moduleName="Audio Hub" key="AudioHub"><AudioHubPage /></ErrorBoundary>;
             default: return <ErrorBoundary moduleName="Home" key="Default"><HomePage setActiveTab={setActiveTab} /></ErrorBoundary>;
         }
     };
@@ -236,7 +242,26 @@ const DashboardLayout = () => {
                             />
                         )}
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', minWidth: 0 }}>
-                            <Header setActiveTab={setActiveTab} isMobile={isMobile} />
+                            {/* Real toggle, not a one-way "always open" -
+                                this was the actual bug: tapping the same
+                                hamburger a second time (while the drawer
+                                was already open) called this same handler
+                                again, which unconditionally set true onto
+                                an already-true value, so nothing visibly
+                                changed and the drawer stayed stuck open.
+                                Hidden entirely on mobile while on the AI
+                                page - that page now owns its own minimal,
+                                ChatGPT-style top bar (menu toggle + New
+                                Chat) instead, so this global bar would just
+                                be redundant chrome eating into the chat's
+                                own full-screen space. Bottom-tab navigation
+                                (Home/Audio/AI/Profile/Settings) stays fully
+                                reachable regardless - this only removes the
+                                secondary hamburger entry point while
+                                specifically on this one page. */}
+                            {!(isMobile && activeTab === 'AI') && (
+                                <Header setActiveTab={setActiveTab} isMobile={isMobile} onOpenMenu={() => setIsMobileNavOpen((v) => !v)} />
+                            )}
                             <div style={{ flex: 1, overflowY: 'auto', willChange: 'scroll-position', minWidth: 0 }}>
                                 {/* Real, reduced padding on mobile only - the
                                     desktop value (32px 40px 40px 40px) is
@@ -262,6 +287,14 @@ const DashboardLayout = () => {
                             </div>
                         </div>
                         {isMobile && <MobileTabBar activeTab={activeTab} setActiveTab={setActiveTab} />}
+                        {isMobile && (
+                            <MobileSidebarDrawer
+                                isOpen={isMobileNavOpen}
+                                onClose={() => setIsMobileNavOpen(false)}
+                                activeTab={activeTab}
+                                setActiveTab={setActiveTab}
+                            />
+                        )}
                     </div>
                 </div>
             </AudioPlayerProvider>

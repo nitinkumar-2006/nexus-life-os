@@ -3,12 +3,12 @@ import { useState, useEffect, useRef } from 'react';
 import {
     Search, Bell, Moon, Sun, Cpu, CheckSquare, BookOpen,
     Dumbbell, Apple, Wallet, Calendar, BarChart2, FileText, User,
-    Plus, Headphones, Sparkles, Flame, Zap, Cloud, Settings as SettingsIcon, X, Play, Pause, SkipForward, SkipBack, ListMusic, StickyNote
+    Plus, Headphones, Sparkles, Flame, Zap, Cloud, Settings as SettingsIcon, X, Play, Pause, SkipForward, SkipBack, ListMusic, StickyNote, Menu
 } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import QuickNotesModal from './QuickNotesModal.jsx';
-const Header = ({ setActiveTab, isMobile }) => {
+const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     const { click: playClickFeedback, modalOpen } = useMicroFeedback();
     // A single, delegated click handler on the header's own root element
     // covers every real button within it - the 4 left-section shortcuts,
@@ -273,14 +273,19 @@ const Header = ({ setActiveTab, isMobile }) => {
             onClickCapture={handleHeaderClickCapture}
             style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: isMobile ? '8px' : '14px',
-            padding: isMobile ? '14px 12px' : '18px 28px', borderBottom: 'none', 
-            position: 'sticky', top: 0, zIndex: 1000, 
+            /* Mobile: a real, content-driven slim height (60px) instead of
+               the desktop's own fixed 84px - tight enough to fit its own
+               tallest element (the 36px avatar below) plus modest
+               breathing room, not a large block with wasted vertical
+               space above the home page's own content. */
+            padding: isMobile ? '10px 12px' : '18px 28px', borderBottom: 'none',
+            position: 'sticky', top: 0, zIndex: 1000,
             /* backdrop-filter intentionally not set inline - see the note on
                the Sidebar for why: the external stylesheet rule matching
                [style*="var(--header-bg"] applies the full blur+saturate+
                brightness treatment, and an inline declaration here would
                silently override it down to a plain, unsaturated blur. */
-            background: 'var(--header-bg, var(--bg-main))', color: 'var(--text-main)', flexShrink: 0, height: '84px', width: '100%',
+            background: 'var(--header-bg, var(--bg-main))', color: 'var(--text-main)', flexShrink: 0, height: isMobile ? '60px' : '84px', width: '100%',
             transition: 'background 0.3s ease, color 0.3s ease'
         }}>
             {/* Real, 20px custom draggable strip - the actual mechanism
@@ -303,12 +308,25 @@ const Header = ({ setActiveTab, isMobile }) => {
                 }}
             />
 
-            {/* Mobile shows just the logo + wordmark on the left - primary
-                navigation now lives entirely in MobileTabBar's fixed bottom
-                bar, so no hamburger/drawer trigger is needed here anymore. */}
+            {/* Mobile: hamburger trigger (opens the compact icon-only
+                MobileSidebarDrawer for every secondary module) + wordmark
+                on the left - no separate logo icon here (that's already
+                the hamburger's own visual identity; a second app icon
+                right next to it was redundant), so the NEXUS wordmark
+                sits right after the hamburger. Primary day-to-day
+                navigation still lives in MobileTabBar's fixed bottom bar -
+                this hamburger is the second, "everything else" entry
+                point. */}
             {isMobile && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, WebkitAppRegion: 'no-drag' }}>
-                    <img src="/nexus-logo.png" alt="Nexus" style={{ width: '30px', height: '30px', objectFit: 'contain', borderRadius: '8px', flexShrink: 0 }} />
+                    <button
+                        onClick={onOpenMenu}
+                        title="Open menu"
+                        aria-label="Open menu"
+                        style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', cursor: 'pointer', flexShrink: 0 }}
+                    >
+                        <Menu size={18} />
+                    </button>
                     <span style={{ fontSize: '15px', fontWeight: '900', letterSpacing: '0.6px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>NEXUS</span>
                 </div>
             )}
@@ -594,24 +612,30 @@ const Header = ({ setActiveTab, isMobile }) => {
                     )}
                 </div>
                 
-                {/* Theme Toggle - hidden on mobile, reachable via Settings instead. */}
-                {!isMobile && (
+                {/* Theme Toggle - now shown on mobile too, sitting right
+                    between Notifications and the Profile avatar (its
+                    existing DOM position already put it exactly there;
+                    it just needed to stop being hidden below the mobile
+                    breakpoint). Still also reachable via Settings. */}
                 <button title="Cycle Theme" onClick={cycleTheme} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {getThemeIcon()}
                 </button>
-                )}
 
                 {/* Profile Section - name/level text hidden on mobile,
                     avatar-only, a real, standard mobile-app space-saving
                     convention. */}
                 <div onClick={() => setActiveTab('Profile')} style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingLeft: isMobile ? 0 : '14px', borderLeft: isMobile ? 'none' : '1px solid var(--border-premium)', cursor: 'pointer', flexShrink: 0, minWidth: 0 }}>
-                    <div style={{ 
-                        width: '44px', height: '44px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+                    <div style={{
+                        // Slightly smaller on mobile - fits the header's own
+                        // slim 60px height comfortably and brings it in line
+                        // with the other 34-38px icons next to it instead of
+                        // sticking out as the single largest element.
+                        width: isMobile ? '36px' : '44px', height: isMobile ? '36px' : '44px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
                         WebkitMaskImage: 'radial-gradient(white, black)', maskImage: 'radial-gradient(white, black)',
-                        background: profileData.avatarUrl ? 'transparent' : 'linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899)', 
-                        boxShadow: '0 0 15px rgba(139, 92, 246, 0.4), inset 0 2px 4px rgba(255,255,255,0.3)', 
-                        color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                        fontWeight: '900', fontSize: '18px', border: '1px solid rgba(255,255,255,0.2)',
+                        background: profileData.avatarUrl ? 'transparent' : 'linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899)',
+                        boxShadow: '0 0 15px rgba(139, 92, 246, 0.4), inset 0 2px 4px rgba(255,255,255,0.3)',
+                        color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: '900', fontSize: isMobile ? '15px' : '18px', border: '1px solid rgba(255,255,255,0.2)',
                         textShadow: '0 2px 4px rgba(0,0,0,0.3)'
                     }}
                     data-diag="header-avatar"

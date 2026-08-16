@@ -11,7 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Play, Pause, SkipForward, SkipBack, Music, Trash2, Volume2, VolumeX,
-    ArrowLeft, Disc, ArrowUp, ArrowDown, UploadCloud, CloudRain, TreePine, Coffee, Wind,
+    Disc, ArrowUp, ArrowDown, UploadCloud, CloudRain, TreePine, Coffee, Wind,
     Search, Shuffle, Heart, Library, ListMusic, FolderOpen, X, ChevronLeft, Radio,
     Repeat, Repeat1, Apple, Check, Loader2, CheckCircle2,
 } from 'lucide-react';
@@ -121,48 +121,56 @@ const SUB_TABS = [
 // Sub-components
 // ---------------------------------------------------------------------------
 
+// Sized to exactly match the Recently Played / Quick Mix cards below it
+// (same 132px flex-basis, 112px fixed artwork square, 10px padding,
+// single-line title, no separate description row) - these used to be a
+// visibly different, much larger card shape (160x212px vs Recently
+// Played's 134x160px: 18px padding, a full aspect-ratio-square artwork,
+// and a two-line title+description), which made the two rows look like
+// they belonged to two different apps stacked on top of each other. The
+// playlist's own description is still real and available - it's just
+// shown on PlaylistDetailView once opened, not doubled up here too.
 const PlaylistCard = React.memo(({ playlist, isFavorite, onOpen, onToggleFavorite, onShufflePlay }) => (
     <div
         style={{
-            background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px',
-            padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer',
-            transition: 'transform 0.15s ease, border-color 0.15s ease',
+            flex: '0 0 132px', display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer',
+            background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px',
+            padding: '10px', transition: 'border-color 0.15s ease',
         }}
         onClick={() => onOpen(playlist)}
         onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-premium)'; }}
     >
-        <div style={{ position: 'relative', width: '100%', paddingTop: '100%', borderRadius: '14px', overflow: 'hidden', background: gradientForId(playlist.id) }}>
+        <div style={{ position: 'relative', width: '112px', height: '112px', borderRadius: '12px', overflow: 'hidden', background: gradientForId(playlist.id), flexShrink: 0 }}>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Disc size={40} color="rgba(255,255,255,0.85)" />
+                <Disc size={32} color="rgba(255,255,255,0.85)" />
             </div>
             <button
                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(playlist.id); }}
                 title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 style={{
-                    position: 'absolute', top: '8px', right: '8px', background: 'rgba(0,0,0,0.55)',
-                    border: 'none', borderRadius: '50%', width: '30px', height: '30px', display: 'flex', alignItems: 'center',
+                    position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.55)',
+                    border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center',
                     justifyContent: 'center', cursor: 'pointer',
                 }}
             >
-                <Heart size={15} color={isFavorite ? '#F43F5E' : '#fff'} fill={isFavorite ? '#F43F5E' : 'none'} />
+                <Heart size={12} color={isFavorite ? '#F43F5E' : '#fff'} fill={isFavorite ? '#F43F5E' : 'none'} />
             </button>
             <button
                 onClick={(e) => { e.stopPropagation(); onShufflePlay(playlist); }}
                 title="Shuffle play"
                 style={{
-                    position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(0,0,0,0.65)',
-                    border: 'none', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center',
+                    position: 'absolute', bottom: '6px', right: '6px', background: 'rgba(0,0,0,0.65)',
+                    border: 'none', borderRadius: '50%', width: '26px', height: '26px', display: 'flex', alignItems: 'center',
                     justifyContent: 'center', cursor: 'pointer', color: '#fff',
                 }}
             >
-                <Shuffle size={16} />
+                <Shuffle size={13} />
             </button>
         </div>
-        <div>
-            <h4 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{playlist.title}</h4>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{playlist.description}</p>
-        </div>
+        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }} title={playlist.title}>
+            {playlist.title}
+        </span>
     </div>
 ));
 
@@ -220,7 +228,7 @@ const StreamingServiceControl = ({
     label, icon, brandGradient, brandGlowColor,
     connected, connecting, error, configured,
     onConnect, onDisconnect, onNeedsSetup,
-    isActive, onSetActive,
+    isActive, onSetActive, isMobile,
 }) => {
     const [isHovered, setIsHovered] = useState(false);
     const [showError, setShowError] = useState(false);
@@ -243,7 +251,7 @@ const StreamingServiceControl = ({
     };
 
     return (
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '10px', width: isMobile ? '100%' : 'auto', minWidth: 0 }}>
             <button
                 onClick={handleClick}
                 disabled={connecting}
@@ -257,7 +265,8 @@ const StreamingServiceControl = ({
                     color: connected ? 'var(--text-primary)' : (configured ? '#fff' : 'var(--text-muted)'),
                     fontWeight: '700', fontSize: '13px', cursor: connecting ? 'wait' : 'pointer',
                     opacity: configured ? 1 : 0.75,
-                    minWidth: '176px', justifyContent: 'center',
+                    minWidth: isMobile ? 0 : '176px', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 0' : 'none',
+                    justifyContent: 'center', boxSizing: 'border-box',
                     // Signature brand glow on hover, only while the button is
                     // actually its branded self (configured, not yet
                     // connected) - once connected it goes back to the
@@ -372,6 +381,7 @@ const StreamingSetupModal = ({ service, onClose }) => {
 };
 
 const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, queuePlaylistTracks, playTrackNow, recentlyPlayed, currentTrack, isPlaying, togglePlay }) => {
+    const isMobile = useIsMobile();
     const [openPlaylist, setOpenPlaylist] = useState(null);
     const {
         spotifyAuth, connectSpotify, disconnectSpotify,
@@ -413,12 +423,16 @@ const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, qu
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-            {/* Fixed-height row (padding + minWidth on each button below keep
-                this from resizing as connection state changes), so this
-                never shifts the playlist grid beneath it. */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', minHeight: '40px' }}>
+            {/* Header row: label + the two streaming connect buttons. On
+                mobile this stacks into its own column with the buttons
+                sharing one full-width row (flex:1 each in
+                StreamingServiceControl) instead of the old flexWrap:'wrap'
+                layout, which let a fixed 176px minWidth on each button
+                force them onto separate stacked lines the moment both
+                didn't fit beside the "Playlists & Albums" label. */}
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px', minHeight: isMobile ? 'auto' : '40px' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Playlists & Albums</h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '14px', flexWrap: 'nowrap', width: isMobile ? '100%' : 'auto' }}>
                     <StreamingServiceControl
                         label="Apple Music"
                         icon={<Apple size={15} />}
@@ -433,6 +447,7 @@ const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, qu
                         onNeedsSetup={() => setSetupModalService('apple')}
                         isActive={activeSource === 'apple'}
                         onSetActive={(explicit) => setActiveSource(explicit || 'apple')}
+                        isMobile={isMobile}
                     />
                     <StreamingServiceControl
                         label="Spotify"
@@ -448,6 +463,7 @@ const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, qu
                         onNeedsSetup={() => setSetupModalService('spotify')}
                         isActive={activeSource === 'spotify'}
                         onSetActive={(explicit) => setActiveSource(explicit || 'spotify')}
+                        isMobile={isMobile}
                     />
                 </div>
             </div>
@@ -458,7 +474,14 @@ const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, qu
             {setupModalService && (
                 <StreamingSetupModal service={setupModalService} onClose={() => setSetupModalService(null)} />
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '20px' }}>
+            {/* Always a horizontally-scrolling row, on both mobile and
+                desktop now - the exact same layout (and the exact same
+                132px card via PlaylistCard's own flex-basis) as Recently
+                Played / Quick Mix below it, matching a real Spotify/Apple
+                Music app's own playlist carousels rather than a wrapping
+                grid that made this row look like a different, disconnected
+                section. */}
+            <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', overflowY: 'hidden', padding: '4px 4px 14px 4px', WebkitOverflowScrolling: 'touch' }}>
                 {AUDIO_LIBRARY.map((playlist) => (
                     <PlaylistCard
                         key={playlist.id}
@@ -776,7 +799,15 @@ const QueueManager = React.memo(({ playlist, currentSongIndex, isPlaying, toggle
                                 </button>
                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0 }}>#{idx + 1}</span>
                                 <span style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '1 1 auto', minWidth: 0 }}>{song.title}</span>
-                                <span style={{ fontSize: '9px', color: 'var(--text-muted)', border: '1px solid var(--border-premium)', borderRadius: '4px', padding: '1px 5px', flexShrink: 0, fontWeight: '700' }}>{song.isLocal ? 'LOCAL' : 'Apple Music'}</span>
+                                {/* Honest source badge - this used to hardcode
+                                    "Apple Music" for every non-local track,
+                                    which was simply wrong for the mock
+                                    library/ambient/search tracks that make
+                                    up the overwhelming majority of the
+                                    queue (genuine Apple Music playback only
+                                    happens once that streaming source is
+                                    actually connected and active). */}
+                                <span style={{ fontSize: '9px', color: 'var(--text-muted)', border: '1px solid var(--border-premium)', borderRadius: '4px', padding: '1px 5px', flexShrink: 0, fontWeight: '700' }}>{song.isLocal ? 'LOCAL' : 'NEXUS'}</span>
                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{knownDuration !== undefined ? (knownDuration > 0 ? formatTime(knownDuration) : '--:--') : '...'}</span>
                                 {isActive && isPlaying && <EqualizerBars isPlaying size="small" />}
                             </div>
@@ -796,11 +827,146 @@ const QueueManager = React.memo(({ playlist, currentSongIndex, isPlaying, toggle
     );
 });
 
+// Compact, persistent mini-player - the actual replacement for the old,
+// oversized "Now Playing" hero that used to sit at the very top of the
+// page (a 220px circular disc + full transport on mobile, an equally
+// large horizontal console on desktop), pushing every real browsing
+// surface (playlists, recently played, queue) below the fold before a
+// user could even see them. A real streaming app's own main view is
+// almost entirely the browsing surface; "what's playing" lives in one
+// slim, always-visible bar pinned to the edge of the screen instead -
+// this is that bar. flexShrink: 0 keeps it from ever being compressed by
+// the scrollable content above it in the page's own flex column.
+const MiniPlayerBar = ({
+    currentTrack, isPlaying, togglePlay, next, prev, isMobile,
+    favoriteTrackTitles, toggleFavoriteTrack, volume, isMuted, toggleMute, setVolume,
+    currentTime, duration, seek,
+}) => {
+    const isFav = favoriteTrackTitles.has(currentTrack.title);
+    const safeDuration = duration && isFinite(duration) ? duration : 0;
+    const clampedTime = Math.min(currentTime, safeDuration);
+    const progressPct = safeDuration > 0 ? (clampedTime / safeDuration) * 100 : 0;
+
+    return (
+        <div style={{
+            flexShrink: 0, display: 'flex', flexDirection: 'column',
+            // A real Spotify-style mini-player is always fully opaque - a
+            // dedicated --player-bar-bg token (see variables.css) instead
+            // of --bg-surface, since --bg-surface is exactly what the
+            // Dynamic theme's own automatic glass/blur CSS selectors match
+            // on. Using it here was the actual cause of this bar picking
+            // up unwanted transparency/blur "leaking" from that theme.
+            background: 'var(--player-bar-bg)', borderTop: '1px solid var(--border-premium)',
+            // overflow: hidden clips the scrubber below to this card's own
+            // rounded top corners rather than letting its flat edges
+            // overhang past the curve. position: relative is what scopes
+            // the scrubber's position: absolute below to THIS card
+            // specifically (top: 0/left: 0/right: 0 becomes relative to
+            // this element's own border box, not the page or any other
+            // ancestor) - so it is structurally impossible for it to
+            // render anywhere but pinned to this exact card's top edge,
+            // regardless of any spacing a parent layout might introduce
+            // above this bar.
+            borderRadius: '20px 20px 0 0', boxShadow: '0 -8px 24px rgba(0,0,0,0.18)', boxSizing: 'border-box',
+            overflow: 'hidden', position: 'relative',
+        }}>
+            {/* Thin, custom-painted Spotify-style progress line, absolutely
+                pinned to this card's own top edge (position: absolute;
+                top: 0; left: 0; right: 0) instead of relying on normal
+                document flow to keep it first - this removes it from flow
+                entirely, so no sibling spacing/gap above this bar can ever
+                push it out of place. The hit-area stays a taller 14px for
+                a real touch/click target, matching the actual 3px painted
+                line centered at its very top. A plain native
+                <input type="range"> here would render with real,
+                inconsistent browser chrome (padding, a permanently-visible
+                thumb) at a much taller footprint than a real mini-player
+                scrubber ever uses - this paints only the slim colored fill
+                for the visual, while a fully transparent range input the
+                same size still handles every real interaction (click-to-
+                seek, drag, keyboard, a11y). */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '14px', zIndex: 2 }}>
+                <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '3px', background: 'var(--border-premium)', overflow: 'hidden' }}>
+                    <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--primary)' }} />
+                </div>
+                <input
+                    type="range" min={0} max={safeDuration} step="0.1"
+                    value={clampedTime}
+                    onChange={(e) => seek(parseFloat(e.target.value))}
+                    aria-label="Seek"
+                    style={{
+                        position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0,
+                        opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none',
+                    }}
+                />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '14px', padding: isMobile ? '16px 14px 12px 14px' : '14px 20px 14px 20px' }}>
+                <div style={{
+                    width: isMobile ? '40px' : '46px', height: isMobile ? '40px' : '46px', borderRadius: '12px', background: 'var(--primary-muted)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', flexShrink: 0,
+                }}>
+                    <Disc size={isMobile ? 20 : 22} />
+                </div>
+
+                {/* Title only, single-lined, bold - no artist/"Nexus Audio"
+                    subtitle row underneath it anymore, per this request's
+                    own explicit "keep the track title clean, bold, and
+                    single-lined" ask. The equalizer bars alone already
+                    signal live playback; a crossfade in progress no longer
+                    gets its own text label here (it still genuinely
+                    happens - this only removes the second text row that
+                    announced it). */}
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: isMobile ? '14px' : '15px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.title}</span>
+                    <EqualizerBars isPlaying={isPlaying} size="small" />
+                </div>
+
+                <button
+                    onClick={() => toggleFavoriteTrack(currentTrack.title)}
+                    title={isFav ? 'Unfavorite' : 'Favorite'}
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: '4px' }}
+                >
+                    <Heart size={17} color={isFav ? '#F43F5E' : 'var(--text-muted)'} fill={isFav ? '#F43F5E' : 'none'} />
+                </button>
+
+                {/* Previous - now always shown (not desktop-only): a real
+                    media player needs both skip directions available
+                    regardless of viewport, matching Next right beside it. */}
+                <button onClick={prev} title="Previous" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', borderRadius: '50%', width: isMobile ? '34px' : '36px', height: isMobile ? '34px' : '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <SkipBack size={14} />
+                </button>
+                <button
+                    onClick={togglePlay} title={isPlaying ? 'Pause' : 'Play'}
+                    style={{
+                        background: 'var(--primary)', border: 'none', color: '#fff', borderRadius: '50%',
+                        width: isMobile ? '42px' : '44px', height: isMobile ? '42px' : '44px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', boxShadow: '0 4px 15px rgba(var(--primary-rgb), 0.3)', flexShrink: 0,
+                    }}
+                >
+                    {isPlaying ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: '2px' }} />}
+                </button>
+                <button onClick={next} title="Next" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', borderRadius: '50%', width: isMobile ? '34px' : '36px', height: isMobile ? '34px' : '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <SkipForward size={14} />
+                </button>
+
+                {!isMobile && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px', background: 'var(--bg-main)', padding: '7px 12px', borderRadius: '12px', border: '1px solid var(--border-premium)', flexShrink: 0 }}>
+                        <button onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex' }}>
+                            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                        </button>
+                        <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} aria-label="Volume" style={{ width: '80px', accentColor: 'var(--primary)' }} />
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
-const AudioHubPage = ({ setActiveTab }) => {
+const AudioHubPage = () => {
     const isMobile = useIsMobile();
     useEffect(() => {
         localStorage.setItem('nexus_current_route', 'audio_hub');
@@ -817,24 +983,35 @@ const AudioHubPage = ({ setActiveTab }) => {
     const [subTab, setSubTab] = useState('library');
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '18px' : '32px', animation: 'fadeInScale 0.3s ease', paddingBottom: isMobile ? '28px' : '48px', width: '100%', maxWidth: '1600px', margin: '0 auto', boxSizing: 'border-box', minWidth: 0 }}>
+        <div style={{
+            display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', animation: 'fadeInScale 0.3s ease',
+            width: '100%', maxWidth: '1600px', margin: '0 auto', boxSizing: 'border-box', minWidth: 0,
+            // Bounded to the real, available viewport height (minus the
+            // fixed chrome genuinely around this page - see AIPage.jsx's
+            // own identical fix for the exact same reasoning) so the
+            // MiniPlayerBar below can sit as a normal, non-fixed last
+            // flex child that's always visible, with only the middle
+            // browsing area scrolling internally - not position:fixed/
+            // sticky, which would need to know the sidebar's own dynamic
+            // width or risk clipping inside an overflow:hidden ancestor.
+            height: isMobile ? 'calc(100vh - 152px - env(safe-area-inset-bottom, 0px))' : 'calc(100vh - 164px)',
+        }}>
 
-            {/* Compact top bar - back button + section tabs integrated into
-                one row, no large page title (matches a native desktop
-                music app's zero-clutter feel rather than a standalone
-                "page" look). */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '2px', flexWrap: 'wrap' }}>
-                <button
-                    onClick={() => {
-                        if (typeof setActiveTab === 'function') setActiveTab('Home');
-                        window.dispatchEvent(new CustomEvent('nexus_open_home'));
-                    }}
-                    title="Back to Home Dashboard"
-                    style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '8px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: '8px', flexShrink: 0 }}
-                >
-                    <ArrowLeft size={16} />
-                </button>
-                <div style={{ width: '1px', height: '20px', background: 'var(--border-premium)', marginBottom: '8px', flexShrink: 0 }} />
+            {/* Compact top bar - just the section tabs now (the back arrow
+                that used to sit before them jumped straight to Home,
+                which doesn't fit this page's own streaming-app tab
+                layout - every other hub page reaches Home via the
+                sidebar/bottom-nav, not a page-local back button). */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
+                borderBottom: isMobile ? 'none' : '1px solid var(--border-premium)', paddingBottom: '2px',
+                flexWrap: isMobile ? 'nowrap' : 'wrap',
+                overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch',
+            }}>
+                {/* Mobile: clean, rounded pill tabs (Apple Music/Spotify
+                    style) in a horizontally-scrolling row instead of
+                    wrapping onto multiple lines. Desktop keeps its
+                    existing underline-tab treatment unchanged. */}
                 {SUB_TABS.map((t) => {
                     const Icon = t.icon;
                     const active = subTab === t.id;
@@ -842,7 +1019,14 @@ const AudioHubPage = ({ setActiveTab }) => {
                         <button
                             key={t.id}
                             onClick={() => setSubTab(t.id)}
-                            style={{
+                            style={isMobile ? {
+                                display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
+                                background: active ? 'var(--primary)' : 'var(--widget-bg)',
+                                border: `1px solid ${active ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                borderRadius: '20px',
+                                color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                                marginBottom: '8px', whiteSpace: 'nowrap',
+                            } : {
                                 display: 'flex', alignItems: 'center', gap: '7px', padding: '10px 16px',
                                 background: 'transparent', border: 'none', borderBottom: `2px solid ${active ? 'var(--primary)' : 'transparent'}`,
                                 color: active ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '13px', cursor: 'pointer',
@@ -853,105 +1037,50 @@ const AudioHubPage = ({ setActiveTab }) => {
                     );
                 })}
             </div>
-            {/* Main Player Console */}
-            <div style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '32px',
-                boxShadow: 'var(--premium-shadow)', display: 'flex', alignItems: 'center', gap: '32px', flexWrap: 'wrap'
-            }}>
-                <div style={{
-                    width: '110px', height: '110px', borderRadius: '50%', background: 'var(--primary-muted)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)',
-                    boxShadow: '0 0 25px rgba(var(--primary-rgb), 0.2)', flexShrink: 0
-                }}>
-                    <Disc size={54} />
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: '1 1 320px', minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '11px', background: 'var(--primary-muted)', color: 'var(--accent)', padding: '4px 10px', borderRadius: '12px', fontWeight: '700', textTransform: 'uppercase', width: 'fit-content' }}>Now Playing</span>
-                        <EqualizerBars isPlaying={isPlaying} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                        <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '1 1 auto', minWidth: 0 }}>{currentTrack.title}</h2>
-                        <button
-                            onClick={() => toggleFavoriteTrack(currentTrack.title)}
-                            title={favoriteTrackTitles.has(currentTrack.title) ? 'Unfavorite' : 'Favorite'}
-                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: 0 }}
-                        >
-                            <Heart size={19} color={favoriteTrackTitles.has(currentTrack.title) ? '#F43F5E' : 'var(--text-muted)'} fill={favoriteTrackTitles.has(currentTrack.title) ? '#F43F5E' : 'none'} />
-                        </button>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%' }}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', minWidth: '34px' }}>{formatTime(currentTime)}</span>
-                        <input
-                            type="range" min={0} max={duration && isFinite(duration) ? duration : 0} step="0.1"
-                            value={Math.min(currentTime, duration && isFinite(duration) ? duration : 0)}
-                            onChange={(e) => seek(parseFloat(e.target.value))}
-                            aria-label="Seek"
-                            style={{ flex: 1, accentColor: 'var(--primary)', cursor: 'pointer' }}
+            {/* Scrollable browsing area - tab content + queue are the
+                actual main surface of this page now (a real streaming
+                app's own main view is almost entirely this), scrolling
+                independently in the space between the tab row above and
+                the pinned MiniPlayerBar below. flex: 1, minHeight: 0 is
+                what makes that internal scroll genuinely bounded instead
+                of growing the whole page - see AIPage.jsx's own identical
+                fix for why minHeight: 0 is required at every level of a
+                nested flex-column chain like this one. */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px' }}>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', minHeight: '200px', width: '100%', boxSizing: 'border-box', overflow: 'hidden', minWidth: 0, flexShrink: 0 }}>
+                    {subTab === 'library' && (
+                        <LibraryTab
+                            favoritePlaylistIds={favoritePlaylistIds}
+                            toggleFavoritePlaylist={toggleFavoritePlaylist}
+                            queuePlaylistTracks={queuePlaylistTracks}
+                            playTrackNow={playTrackNow}
+                            recentlyPlayed={recentlyPlayed}
+                            currentTrack={currentTrack}
+                            isPlaying={isPlaying}
+                            togglePlay={togglePlay}
                         />
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', minWidth: '34px', textAlign: 'right' }}>{formatTime(duration)}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '2px', flexWrap: 'wrap' }}>
-                        <button
-                            onClick={toggleShuffle}
-                            title="Shuffle"
-                            style={{ background: shuffleEnabled ? 'var(--primary-muted)' : 'transparent', border: 'none', color: shuffleEnabled ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '6px', borderRadius: '8px' }}
-                        >
-                            <Shuffle size={16} />
-                        </button>
-                        <button onClick={prev} title="Previous" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', borderRadius: '50%', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><SkipBack size={16} /></button>
-                        <button onClick={togglePlay} title={isPlaying ? 'Pause' : 'Play'} style={{ background: 'var(--primary)', border: 'none', color: '#fff', borderRadius: '50%', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 15px rgba(var(--primary-rgb), 0.3)' }}>
-                            {isPlaying ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: '2px' }} />}
-                        </button>
-                        <button onClick={next} title="Next" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', borderRadius: '50%', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><SkipForward size={16} /></button>
-                        <button
-                            onClick={cycleRepeatMode}
-                            title={`Repeat: ${repeatMode}`}
-                            style={{ background: repeatMode !== 'off' ? 'var(--primary-muted)' : 'transparent', border: 'none', color: repeatMode !== 'off' ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '6px', borderRadius: '8px' }}
-                        >
-                            {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
-                        </button>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', background: 'var(--bg-main)', padding: '8px 14px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
-                            <button onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex' }}>
-                                {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-                            </button>
-                            <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} aria-label="Volume" style={{ width: '80px', accentColor: 'var(--primary)' }} />
-                        </div>
-                    </div>
+                    )}
+                    {subTab === 'search' && <GlobalSearchTab playlist={playlist} playTrackNow={playTrackNow} />}
+                    {subTab === 'ambient' && <AmbientTab currentTrack={currentTrack} isPlaying={isPlaying} playPreset={playPreset} />}
+                    {subTab === 'local' && <LocalFilesTab addSong={addSong} cloudUploadStatus={cloudUploadStatus} playlist={playlist} />}
                 </div>
+
+                {/* Queue - still visible regardless of active sub-tab, just
+                    now part of the same internally-scrolling area instead
+                    of pushing the whole page taller. */}
+                <QueueManager
+                    playlist={playlist} currentSongIndex={currentSongIndex} isPlaying={isPlaying}
+                    togglePlay={togglePlay} playAt={playAt} deleteSong={deleteSong} moveSong={moveSong}
+                    favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
+                    durationsByUrl={durationsByUrl}
+                />
             </div>
 
-
-            {/* Tab content */}
-            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', minHeight: '200px', width: '100%', boxSizing: 'border-box', overflow: 'hidden', minWidth: 0 }}>
-                {subTab === 'library' && (
-                    <LibraryTab
-                        favoritePlaylistIds={favoritePlaylistIds}
-                        toggleFavoritePlaylist={toggleFavoritePlaylist}
-                        queuePlaylistTracks={queuePlaylistTracks}
-                        playTrackNow={playTrackNow}
-                        recentlyPlayed={recentlyPlayed}
-                        currentTrack={currentTrack}
-                        isPlaying={isPlaying}
-                        togglePlay={togglePlay}
-                    />
-                )}
-                {subTab === 'search' && <GlobalSearchTab playlist={playlist} playTrackNow={playTrackNow} />}
-                {subTab === 'ambient' && <AmbientTab currentTrack={currentTrack} isPlaying={isPlaying} playPreset={playPreset} />}
-                {subTab === 'local' && <LocalFilesTab addSong={addSong} cloudUploadStatus={cloudUploadStatus} playlist={playlist} />}
-            </div>
-
-            {/* Persistent Queue Manager - visible regardless of active sub-tab */}
-            <QueueManager
-                playlist={playlist} currentSongIndex={currentSongIndex} isPlaying={isPlaying}
-                togglePlay={togglePlay} playAt={playAt} deleteSong={deleteSong} moveSong={moveSong}
+            <MiniPlayerBar
+                currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev} isMobile={isMobile}
                 favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
-                durationsByUrl={durationsByUrl}
+                volume={volume} isMuted={isMuted} toggleMute={toggleMute} setVolume={setVolume}
+                currentTime={currentTime} duration={duration} seek={seek}
             />
         </div>
     );

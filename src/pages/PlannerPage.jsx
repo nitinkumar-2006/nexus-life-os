@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import {
     CheckSquare, Circle, Plus, Trash2, Calendar,
-    Clock, Filter, ArrowUpRight,
+    Clock, ArrowUpRight, ClipboardList,
     Search, List, Columns, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
@@ -166,37 +166,43 @@ const PlannerPage = ({ setActiveTab }) => {
                     <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>Manage operational workflows, projects, priorities, and execution schedules.</p>
                 </div>
                 
-                <button 
+                <button
                     onClick={() => { modalOpen(); setIsModalOpen(true); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', boxShadow: '0 0 20px rgba(var(--primary-rgb), 0.3)' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 22px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', boxShadow: '0 0 20px rgba(var(--primary-rgb), 0.3)' }}
                 >
                     <Plus size={18} /> New Task
                 </button>
             </div>
 
-            {/* KPI Metric Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '20px 24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>TOTAL TASKS</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                        <span style={{ fontSize: '26px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalCount}</span>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Active Workspace</span>
+            {/* KPI Metric Cards - a real, compact 3-column grid on mobile
+                (was auto-fit/minmax(220px,...), which is wider than half
+                a phone screen, so each card forced itself onto its own
+                full-width row instead of the three sitting together in
+                one glanceable row) with shorter labels and stacked
+                number/subtext so nothing wraps or overflows at 110px-ish
+                column width. Desktop keeps the original layout untouched. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '16px' : '20px', padding: isMobile ? '12px 10px' : '20px 24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '2px' : '10px', minWidth: 0 }}>
+                    <span style={{ fontSize: isMobile ? '10px' : '12px', fontWeight: '700', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMobile ? 'TASKS' : 'TOTAL TASKS'}</span>
+                    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'baseline', gap: isMobile ? 0 : '8px' }}>
+                        <span style={{ fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalCount}</span>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{isMobile ? 'Total' : 'Active Workspace'}</span>
                     </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '20px 24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>COMPLETION RATE</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                        <span style={{ fontSize: '26px', fontWeight: '800', color: '#10B981' }}>{completionRate}%</span>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{completedCount} Done</span>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '16px' : '20px', padding: isMobile ? '12px 10px' : '20px 24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '2px' : '10px', minWidth: 0 }}>
+                    <span style={{ fontSize: isMobile ? '10px' : '12px', fontWeight: '700', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMobile ? 'DONE %' : 'COMPLETION RATE'}</span>
+                    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'baseline', gap: isMobile ? 0 : '8px' }}>
+                        <span style={{ fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#10B981' }}>{completionRate}%</span>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{completedCount} Done</span>
                     </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '20px 24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>HIGH PRIORITY PENDING</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                        <span style={{ fontSize: '26px', fontWeight: '800', color: '#EF4444' }}>{highPriorityCount}</span>
-                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Requires Focus</span>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '16px' : '20px', padding: isMobile ? '12px 10px' : '20px 24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '2px' : '10px', minWidth: 0 }}>
+                    <span style={{ fontSize: isMobile ? '10px' : '12px', fontWeight: '700', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMobile ? 'HIGH PRI.' : 'HIGH PRIORITY PENDING'}</span>
+                    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'baseline', gap: isMobile ? 0 : '8px' }}>
+                        <span style={{ fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#EF4444' }}>{highPriorityCount}</span>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{isMobile ? 'Pending' : 'Requires Focus'}</span>
                     </div>
                 </div>
             </div>
@@ -212,10 +218,10 @@ const PlannerPage = ({ setActiveTab }) => {
                         key={tab}
                         onClick={() => setActiveTabFilter(tab)}
                         style={{
-                            padding: '10px 20px', borderRadius: '14px', fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+                            padding: isMobile ? '8px 16px' : '10px 20px', borderRadius: '9999px', fontSize: isMobile ? '12px' : '13px', fontWeight: '700', cursor: 'pointer',
                             background: activeTab === tab ? 'var(--primary)' : 'var(--bg-surface)',
                             color: activeTab === tab ? 'var(--text-on-primary)' : 'var(--text-secondary)',
-                            border: '1px solid var(--border-premium)', transition: 'all 0.2s ease', whiteSpace: 'nowrap'
+                            border: '1px solid var(--border-premium)', transition: 'all 0.2s ease', whiteSpace: 'nowrap', flexShrink: 0,
                         }}
                     >
                         {tab}
@@ -233,15 +239,19 @@ const PlannerPage = ({ setActiveTab }) => {
                         placeholder={isMobile ? 'Search tasks...' : 'Search tasks by title or keyword...'}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        style={{ width: '100%', padding: isMobile ? '9px 14px 9px 38px' : '10px 14px 10px 38px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                        style={{ width: '100%', padding: isMobile ? '9px 14px 9px 38px' : '10px 14px 10px 38px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
                     />
                 </div>
-                <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '4px', flexShrink: 0 }}>
+                {/* iOS-style segmented control - a fully pill-rounded outer
+                    track with the active option's own pill sliding between
+                    the two positions, matching the same shape language as
+                    the pill search bar and New Task button beside it. */}
+                <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '9999px', padding: '4px', flexShrink: 0 }}>
                     <button
                         onClick={() => setViewMode('list')}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '7px 12px' : '8px 14px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                            fontSize: '12px', fontWeight: '700', fontFamily: 'inherit',
+                            display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '7px 14px' : '8px 16px', borderRadius: '9999px', border: 'none', cursor: 'pointer',
+                            fontSize: '12px', fontWeight: '700', fontFamily: 'inherit', transition: 'background 0.2s ease, color 0.2s ease',
                             background: viewMode === 'list' ? 'var(--primary)' : 'transparent',
                             color: viewMode === 'list' ? 'var(--text-on-primary)' : 'var(--text-secondary)',
                         }}
@@ -251,8 +261,8 @@ const PlannerPage = ({ setActiveTab }) => {
                     <button
                         onClick={() => setViewMode('kanban')}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '7px 12px' : '8px 14px', borderRadius: '10px', border: 'none', cursor: 'pointer',
-                            fontSize: '12px', fontWeight: '700', fontFamily: 'inherit',
+                            display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '7px 14px' : '8px 16px', borderRadius: '9999px', border: 'none', cursor: 'pointer',
+                            fontSize: '12px', fontWeight: '700', fontFamily: 'inherit', transition: 'background 0.2s ease, color 0.2s ease',
                             background: viewMode === 'kanban' ? 'var(--primary)' : 'transparent',
                             color: viewMode === 'kanban' ? 'var(--text-on-primary)' : 'var(--text-secondary)',
                         }}
@@ -271,8 +281,12 @@ const PlannerPage = ({ setActiveTab }) => {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {filteredTasks.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)', fontSize: '14px' }}>
-                            No tasks found in this category. Click 'New Task' to add one.
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center', padding: isMobile ? '36px 20px' : '48px 0' }}>
+                            <div style={{ width: '48px', height: '48px', borderRadius: '16px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                                <ClipboardList size={22} />
+                            </div>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '14px', fontWeight: '600', margin: 0 }}>No tasks in this queue yet</p>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0, opacity: 0.8 }}>Tap 'New Task' above to add your first one.</p>
                         </div>
                     ) : (
                         filteredTasks.map(task => (
@@ -441,8 +455,31 @@ const PlannerPage = ({ setActiveTab }) => {
                 </div>
             )}
             {isModalOpen && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <form onSubmit={handleCreateTask} className="nexus-glass-modal" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '32px', width: '100%', maxWidth: '480px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                // Mobile: a real bottom slide-up sheet (anchored to the
+                // bottom edge, rounded top corners only, the app's own
+                // existing nexusSheetSlideUp keyframe - previously defined
+                // in style.css for the old MobileTabBar "More" sheet but
+                // never actually wired up anywhere since that panel was
+                // removed) instead of a centered dialog floating in the
+                // middle of a small screen. Desktop keeps the original
+                // centered modal, completely unchanged.
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <form
+                        onSubmit={handleCreateTask} className="nexus-glass-modal"
+                        style={{
+                            background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
+                            borderRadius: isMobile ? '24px 24px 0 0' : '24px',
+                            padding: isMobile ? '24px 20px calc(20px + env(safe-area-inset-bottom, 0px)) 20px' : '32px',
+                            width: '100%', maxWidth: isMobile ? '100%' : '480px',
+                            maxHeight: isMobile ? '88vh' : 'none', overflowY: isMobile ? 'auto' : 'visible',
+                            boxShadow: 'var(--premium-shadow)', boxSizing: 'border-box',
+                            display: 'flex', flexDirection: 'column', gap: '20px',
+                            animation: isMobile ? 'nexusSheetSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+                        }}
+                    >
+                        {isMobile && (
+                            <div style={{ width: '40px', height: '4px', borderRadius: '4px', background: 'var(--border-premium)', margin: '-8px auto 0 auto', flexShrink: 0 }} />
+                        )}
                         <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Create New Task</h3>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

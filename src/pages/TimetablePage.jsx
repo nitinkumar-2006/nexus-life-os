@@ -236,286 +236,300 @@ const TimetablePage = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
-            <div>
-                <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Daily Timetable & Manual Planner</h1>
-                <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Add, manage, and customize your routine manually according to your needs.</p>
-            </div>
+            <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>Daily Table & Manual Planner</h1>
 
-            {/* Day Selector Tabs + Batch Duplicate */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
-                <div style={{
-                    display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px', flex: 1, minWidth: 0,
-                    maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
-                    WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
-                }}>
-                    {DAYS.map(day => (
-                        <button
-                            key={day}
-                            onClick={() => { setSelectedDay(day); setIsDuplicateOpen(false); setDuplicateTargetDays([]); }}
-                            style={{
-                                padding: '10px 20px', borderRadius: '12px', fontSize: '14px', fontWeight: '700',
-                                cursor: 'pointer', transition: 'all 0.2s ease', whiteSpace: 'nowrap',
-                                background: selectedDay === day ? 'var(--primary)' : 'var(--bg-surface)',
-                                color: selectedDay === day ? 'var(--text-on-primary)' : 'var(--text-primary)',
-                                border: '1px solid var(--border-premium)'
-                            }}
-                        >
-                            {day}
-                        </button>
-                    ))}
-                </div>
-
-                <div ref={duplicateRef} style={{ position: 'relative', flexShrink: 0 }}>
+            {/* Day Selector Tabs - single, always-scrollable row. "Copy to
+                Other Days" used to share this row and forced mobile into a
+                second stacked row just to fit its own full-width button;
+                it now lives inside the form below, right above the time
+                picker, so this row stays one line on every viewport. */}
+            <div style={{
+                display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px',
+                maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+                WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+            }}>
+                {DAYS.map(day => (
                     <button
-                        type="button"
-                        onClick={() => setIsDuplicateOpen((v) => !v)}
-                        disabled={currentSchedule.length === 0}
-                        title={currentSchedule.length === 0 ? `${selectedDay} has no entries to copy yet` : `Copy ${selectedDay}'s routine to other days`}
+                        key={day}
+                        onClick={() => { setSelectedDay(day); setIsDuplicateOpen(false); setDuplicateTargetDays([]); }}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '12px',
-                            background: 'var(--widget-bg)', color: currentSchedule.length === 0 ? 'var(--text-muted)' : 'var(--text-primary)',
-                            border: '1px solid var(--border-premium)', fontWeight: '700', fontSize: '14px',
-                            cursor: currentSchedule.length === 0 ? 'default' : 'pointer', opacity: currentSchedule.length === 0 ? 0.6 : 1,
-                            whiteSpace: 'nowrap',
+                            padding: '10px 20px', borderRadius: '12px', fontSize: '14px', fontWeight: '700',
+                            cursor: 'pointer', transition: 'all 0.2s ease', whiteSpace: 'nowrap', flexShrink: 0,
+                            background: selectedDay === day ? 'var(--primary)' : 'var(--bg-surface)',
+                            color: selectedDay === day ? 'var(--text-on-primary)' : 'var(--text-primary)',
+                            border: '1px solid var(--border-premium)'
                         }}
                     >
-                        <Copy size={16} /> Copy to Other Days
+                        {day}
                     </button>
-
-                    {isDuplicateOpen && (
-                        <div style={{
-                            position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 50, width: '260px',
-                            background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px',
-                            padding: '18px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px',
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>Copy {selectedDay} to:</span>
-                                <button type="button" onClick={() => { setIsDuplicateOpen(false); setDuplicateTargetDays([]); }} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}>
-                                    <X size={16} />
-                                </button>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                {DAYS.filter((d) => d !== selectedDay).map((day) => (
-                                    <label key={day} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px 0' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={duplicateTargetDays.includes(day)}
-                                            onChange={() => toggleDuplicateTarget(day)}
-                                            style={{ accentColor: 'var(--primary)', width: '15px', height: '15px', cursor: 'pointer' }}
-                                        />
-                                        {day}
-                                    </label>
-                                ))}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleDuplicateToDays}
-                                disabled={duplicateTargetDays.length === 0}
-                                style={{
-                                    padding: '10px', borderRadius: '10px', background: duplicateTargetDays.length === 0 ? 'var(--widget-bg)' : 'var(--primary)',
-                                    color: duplicateTargetDays.length === 0 ? 'var(--text-muted)' : 'var(--text-on-primary)',
-                                    border: duplicateTargetDays.length === 0 ? '1px solid var(--border-premium)' : 'none',
-                                    fontWeight: '700', fontSize: '13px', cursor: duplicateTargetDays.length === 0 ? 'default' : 'pointer',
-                                }}
-                            >
-                                Copy to {duplicateTargetDays.length || 0} day{duplicateTargetDays.length === 1 ? '' : 's'}
-                            </button>
-                        </div>
-                    )}
-                </div>
+                ))}
             </div>
 
             {/* Manual Add Form */}
             <form onSubmit={handleAddSlot} style={{
                 background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
-                borderRadius: '16px', padding: isMobile ? '16px' : '24px', display: 'flex', flexWrap: 'wrap', gap: '10px',
-                alignItems: 'flex-end', boxShadow: 'var(--premium-shadow)'
+                borderRadius: '16px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column',
+                gap: isMobile ? '14px' : '16px', boxShadow: 'var(--premium-shadow)'
             }}>
-                <div style={{ flex: isMobile ? '1 1 100%' : '0 1 240px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Start Time</label>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                        <select aria-label="Start hour" value={startHour} onChange={(e) => setStartHour(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                            {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
-                                <option key={h} value={h} style={{ background: 'var(--surface-inset)' }}>{h}</option>
-                            ))}
-                        </select>
-                        <select aria-label="Start minute" value={startMinute} onChange={(e) => setStartMinute(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                            {['00', '15', '30', '45'].map((m) => (
-                                <option key={m} value={m} style={{ background: 'var(--surface-inset)' }}>{m}</option>
-                            ))}
-                        </select>
-                        <select aria-label="Start AM or PM" value={startPeriod} onChange={(e) => setStartPeriod(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                            <option value="AM" style={{ background: 'var(--surface-inset)' }}>AM</option>
-                            <option value="PM" style={{ background: 'var(--surface-inset)' }}>PM</option>
-                        </select>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>New Entry for {selectedDay}</span>
+
+                    <div ref={duplicateRef} style={{ position: 'relative', flexShrink: 0 }}>
+                        <button
+                            type="button"
+                            onClick={() => setIsDuplicateOpen((v) => !v)}
+                            disabled={currentSchedule.length === 0}
+                            title={currentSchedule.length === 0 ? `${selectedDay} has no entries to copy yet` : `Copy ${selectedDay}'s routine to other days`}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '9999px',
+                                background: 'var(--widget-bg)', color: currentSchedule.length === 0 ? 'var(--text-muted)' : 'var(--text-primary)',
+                                border: '1px solid var(--border-premium)', fontWeight: '700', fontSize: '12px',
+                                cursor: currentSchedule.length === 0 ? 'default' : 'pointer', opacity: currentSchedule.length === 0 ? 0.6 : 1,
+                                whiteSpace: 'nowrap',
+                            }}
+                        >
+                            <Copy size={13} /> Copy to Other Days
+                        </button>
+
+                        {isDuplicateOpen && (
+                            <div style={{
+                                position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 50, width: '260px',
+                                background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px',
+                                padding: '18px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px',
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>Copy {selectedDay} to:</span>
+                                    <button type="button" onClick={() => { setIsDuplicateOpen(false); setDuplicateTargetDays([]); }} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}>
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {DAYS.filter((d) => d !== selectedDay).map((day) => (
+                                        <label key={day} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px 0' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={duplicateTargetDays.includes(day)}
+                                                onChange={() => toggleDuplicateTarget(day)}
+                                                style={{ accentColor: 'var(--primary)', width: '15px', height: '15px', cursor: 'pointer' }}
+                                            />
+                                            {day}
+                                        </label>
+                                    ))}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleDuplicateToDays}
+                                    disabled={duplicateTargetDays.length === 0}
+                                    style={{
+                                        padding: '10px', borderRadius: '10px', background: duplicateTargetDays.length === 0 ? 'var(--widget-bg)' : 'var(--primary)',
+                                        color: duplicateTargetDays.length === 0 ? 'var(--text-muted)' : 'var(--text-on-primary)',
+                                        border: duplicateTargetDays.length === 0 ? '1px solid var(--border-premium)' : 'none',
+                                        fontWeight: '700', fontSize: '13px', cursor: duplicateTargetDays.length === 0 ? 'default' : 'pointer',
+                                    }}
+                                >
+                                    Copy to {duplicateTargetDays.length || 0} day{duplicateTargetDays.length === 1 ? '' : 's'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div style={{ flex: isMobile ? '1 1 100%' : '0 1 240px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>End Time</label>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                        <select aria-label="End hour" value={endHour} onChange={(e) => setEndHour(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                            {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
-                                <option key={h} value={h} style={{ background: 'var(--surface-inset)' }}>{h}</option>
-                            ))}
-                        </select>
-                        <select aria-label="End minute" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                            {['00', '15', '30', '45'].map((m) => (
-                                <option key={m} value={m} style={{ background: 'var(--surface-inset)' }}>{m}</option>
-                            ))}
-                        </select>
-                        <select aria-label="End AM or PM" value={endPeriod} onChange={(e) => setEndPeriod(e.target.value)} style={{ flex: 1, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '14px 6px' : '12px 4px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                            <option value="AM" style={{ background: 'var(--surface-inset)' }}>AM</option>
-                            <option value="PM" style={{ background: 'var(--surface-inset)' }}>PM</option>
-                        </select>
+                {/* Start/End Time - compact 2-column grid on every viewport,
+                    instead of each time picker stacking as its own
+                    full-width row. */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: isMobile ? '8px' : '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+                        <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Start Time</label>
+                        <div style={{ display: 'flex', gap: isMobile ? '4px' : '6px' }}>
+                            <select aria-label="Start hour" value={startHour} onChange={(e) => setStartHour(e.target.value)} style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '10px 2px' : '12px 4px', color: 'var(--text-primary)', fontSize: isMobile ? '12px' : '14px', outline: 'none', cursor: 'pointer' }}>
+                                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
+                                    <option key={h} value={h} style={{ background: 'var(--surface-inset)' }}>{h}</option>
+                                ))}
+                            </select>
+                            <select aria-label="Start minute" value={startMinute} onChange={(e) => setStartMinute(e.target.value)} style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '10px 2px' : '12px 4px', color: 'var(--text-primary)', fontSize: isMobile ? '12px' : '14px', outline: 'none', cursor: 'pointer' }}>
+                                {['00', '15', '30', '45'].map((m) => (
+                                    <option key={m} value={m} style={{ background: 'var(--surface-inset)' }}>{m}</option>
+                                ))}
+                            </select>
+                            <select aria-label="Start AM or PM" value={startPeriod} onChange={(e) => setStartPeriod(e.target.value)} style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: isMobile ? '10px 2px' : '12px 4px', color: 'var(--text-primary)', fontSize: isMobile ? '12px' : '14px', outline: 'none', cursor: 'pointer' }}>
+                                <option value="AM" style={{ background: 'var(--surface-inset)' }}>AM</option>
+                                <option value="PM" style={{ background: 'var(--surface-inset)' }}>PM</option>
+                            </select>
+                        </div>
                     </div>
-                    {timeError && <span style={{ fontSize: '11px', color: '#EF4444', fontWeight: '600' }}>{timeError}</span>}
-                </div>
 
-                <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label htmlFor="timetableTaskTitle" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Task / Activity Title</label>
-                    <input
-                        id="timetableTaskTitle"
-                        type="text"
-                        placeholder="e.g. Java Programming Core Study"
-                        value={titleInput}
-                        onChange={(e) => setTitleInput(e.target.value)}
-                        style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '12px 16px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
-                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+                        <label style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>End Time</label>
+                        <div style={{ display: 'flex', gap: isMobile ? '4px' : '6px' }}>
+                            <select aria-label="End hour" value={endHour} onChange={(e) => setEndHour(e.target.value)} style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '10px 2px' : '12px 4px', color: 'var(--text-primary)', fontSize: isMobile ? '12px' : '14px', outline: 'none', cursor: 'pointer' }}>
+                                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((h) => (
+                                    <option key={h} value={h} style={{ background: 'var(--surface-inset)' }}>{h}</option>
+                                ))}
+                            </select>
+                            <select aria-label="End minute" value={endMinute} onChange={(e) => setEndMinute(e.target.value)} style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '10px 2px' : '12px 4px', color: 'var(--text-primary)', fontSize: isMobile ? '12px' : '14px', outline: 'none', cursor: 'pointer' }}>
+                                {['00', '15', '30', '45'].map((m) => (
+                                    <option key={m} value={m} style={{ background: 'var(--surface-inset)' }}>{m}</option>
+                                ))}
+                            </select>
+                            <select aria-label="End AM or PM" value={endPeriod} onChange={(e) => setEndPeriod(e.target.value)} style={{ flex: 1, minWidth: 0, background: 'var(--widget-bg)', border: `1px solid ${timeError ? '#EF4444' : 'var(--border-premium)'}`, borderRadius: '10px', padding: isMobile ? '10px 2px' : '12px 4px', color: 'var(--text-primary)', fontSize: isMobile ? '12px' : '14px', outline: 'none', cursor: 'pointer' }}>
+                                <option value="AM" style={{ background: 'var(--surface-inset)' }}>AM</option>
+                                <option value="PM" style={{ background: 'var(--surface-inset)' }}>PM</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
+                {timeError && <span style={{ fontSize: '11px', color: '#EF4444', fontWeight: '600', marginTop: '-8px' }}>{timeError}</span>}
 
-                <div style={{ flex: '0 1 180px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label htmlFor="timetableCategory" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Category</label>
-                    <select
-                        id="timetableCategory"
-                        value={isCustomCategory ? '__custom__' : categoryInput}
-                        onChange={(e) => {
-                            if (e.target.value === '__custom__') {
-                                setIsCustomCategory(true);
-                            } else {
-                                setIsCustomCategory(false);
-                                setCategoryInput(e.target.value);
-                            }
-                        }}
-                        style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '12px 16px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}
-                    >
-                        <option value="Study" style={{background: 'var(--surface-inset)'}}>Study</option>
-                        <option value="College" style={{background: 'var(--surface-inset)'}}>College</option>
-                        <option value="Syllabus" style={{background: 'var(--surface-inset)'}}>Syllabus</option>
-                        <option value="Planner" style={{background: 'var(--surface-inset)'}}>Planner</option>
-                        <option value="Fitness" style={{background: 'var(--surface-inset)'}}>Fitness</option>
-                        <option value="Gym" style={{background: 'var(--surface-inset)'}}>Gym</option>
-                        <option value="Diet" style={{background: 'var(--surface-inset)'}}>Diet</option>
-                        <option value="Finance" style={{background: 'var(--surface-inset)'}}>Finance</option>
-                        <option value="Calendar" style={{background: 'var(--surface-inset)'}}>Calendar</option>
-                        <option value="Analytics" style={{background: 'var(--surface-inset)'}}>Analytics</option>
-                        <option value="AI" style={{background: 'var(--surface-inset)'}}>AI</option>
-                        <option value="Development" style={{background: 'var(--surface-inset)'}}>Development</option>
-                        <option value="Review" style={{background: 'var(--surface-inset)'}}>Review</option>
-                        <option value="__custom__" style={{background: 'var(--surface-inset)'}}>+ Custom tag...</option>
-                    </select>
-                    {isCustomCategory && (
+                {/* Title + Category - sleek, glassmorphism-consistent inputs */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label htmlFor="timetableTaskTitle" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Task / Activity Title</label>
                         <input
+                            id="timetableTaskTitle"
                             type="text"
-                            aria-label="Custom category tag"
-                            autoFocus
-                            placeholder="#Hackathon, #Trip, or any tag"
-                            value={customCategory}
-                            onChange={(e) => setCustomCategory(e.target.value)}
-                            style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                            placeholder="e.g. Java Programming Core Study"
+                            value={titleInput}
+                            onChange={(e) => setTitleInput(e.target.value)}
+                            style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', padding: '13px 16px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
                         />
-                    )}
+                    </div>
+
+                    <div style={{ flex: '1 1 160px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label htmlFor="timetableCategory" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>Category</label>
+                        <select
+                            id="timetableCategory"
+                            value={isCustomCategory ? '__custom__' : categoryInput}
+                            onChange={(e) => {
+                                if (e.target.value === '__custom__') {
+                                    setIsCustomCategory(true);
+                                } else {
+                                    setIsCustomCategory(false);
+                                    setCategoryInput(e.target.value);
+                                }
+                            }}
+                            style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', padding: '13px 16px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer', boxSizing: 'border-box' }}
+                        >
+                            <option value="Study" style={{background: 'var(--surface-inset)'}}>Study</option>
+                            <option value="College" style={{background: 'var(--surface-inset)'}}>College</option>
+                            <option value="Syllabus" style={{background: 'var(--surface-inset)'}}>Syllabus</option>
+                            <option value="Planner" style={{background: 'var(--surface-inset)'}}>Planner</option>
+                            <option value="Fitness" style={{background: 'var(--surface-inset)'}}>Fitness</option>
+                            <option value="Gym" style={{background: 'var(--surface-inset)'}}>Gym</option>
+                            <option value="Diet" style={{background: 'var(--surface-inset)'}}>Diet</option>
+                            <option value="Finance" style={{background: 'var(--surface-inset)'}}>Finance</option>
+                            <option value="Calendar" style={{background: 'var(--surface-inset)'}}>Calendar</option>
+                            <option value="Analytics" style={{background: 'var(--surface-inset)'}}>Analytics</option>
+                            <option value="AI" style={{background: 'var(--surface-inset)'}}>AI</option>
+                            <option value="Development" style={{background: 'var(--surface-inset)'}}>Development</option>
+                            <option value="Review" style={{background: 'var(--surface-inset)'}}>Review</option>
+                            <option value="__custom__" style={{background: 'var(--surface-inset)'}}>+ Custom tag...</option>
+                        </select>
+                        {isCustomCategory && (
+                            <input
+                                type="text"
+                                aria-label="Custom category tag"
+                                autoFocus
+                                placeholder="#Hackathon, #Trip, or any tag"
+                                value={customCategory}
+                                onChange={(e) => setCustomCategory(e.target.value)}
+                                style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                        )}
+                    </div>
                 </div>
 
-                <div style={{ display: 'flex' }}>
-                    <button 
-                        type="submit"
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px',
-                            background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
-                            borderRadius: '10px', fontWeight: '700', fontSize: '14px', cursor: 'pointer',
-                            transition: 'opacity 0.2s'
-                        }}
-                    >
-                        <Plus size={18} /> Add Entry
-                    </button>
-                </div>
+                {/* Prominent pill submit button, its own row below every field */}
+                <button
+                    type="submit"
+                    style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                        padding: '14px 28px', width: isMobile ? '100%' : 'fit-content', alignSelf: isMobile ? 'stretch' : 'flex-start',
+                        background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
+                        borderRadius: '9999px', fontWeight: '800', fontSize: '14px', cursor: 'pointer',
+                        transition: 'opacity 0.2s', boxSizing: 'border-box',
+                    }}
+                >
+                    <Plus size={18} /> Add Entry
+                </button>
             </form>
 
-            {/* Timetable Slots List */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '4px' }}>
-                    Schedule for {selectedDay} ({currentSchedule.length} Entries)
+            {/* Timetable Slots List - one continuous divided list instead of
+                separately shadowed/rounded cards per entry, so consecutive
+                slots read as a single elegant schedule with zero wasted
+                spacing between them. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '4px' }}>
+                    Schedule for {selectedDay} ({currentSchedule.length} {currentSchedule.length === 1 ? 'Entry' : 'Entries'})
                 </h3>
 
                 {currentSchedule.length > 0 ? (
-                    currentSchedule.map((slot, index) => {
-                        const accentColor = getCategoryColor(slot.category);
-                        return (
-                            <div key={index} style={{
-                                background: 'var(--bg-surface)', borderTop: '1px solid var(--border-premium)',
-                                borderRight: '1px solid var(--border-premium)', borderBottom: '1px solid var(--border-premium)',
-                                borderLeft: `3px solid ${accentColor}`,
-                                borderRadius: '16px', padding: isMobile ? '16px' : '20px 28px', display: 'flex',
-                                flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between',
-                                alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '14px' : '0',
-                                boxShadow: 'var(--premium-shadow)',
-                                transition: 'all 0.3s ease', opacity: slot.completed ? 0.6 : 1,
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => toggleSlotComplete(index)}
-                                        title={slot.completed ? 'Mark as not done' : 'Mark as done'}
-                                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', padding: 0, flexShrink: 0 }}
-                                    >
-                                        {slot.completed
-                                            ? <CheckCircle size={22} color="var(--success)" />
-                                            : <Circle size={22} color="var(--text-muted)" />}
-                                    </button>
-                                    <div style={{
-                                        width: '40px', height: '40px', borderRadius: '12px', background: `${accentColor}22`,
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', color: accentColor, flexShrink: 0
-                                    }}>
-                                        {getCategoryIcon(slot.category)}
-                                    </div>
-                                    <div>
-                                        <span style={{ fontSize: '12px', fontWeight: '700', color: accentColor, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                            {slot.category}
-                                        </span>
-                                        <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginTop: '2px', textDecoration: 'none' }}>
-                                            {slot.title}
-                                        </h3>
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '16px' }}>
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px',
-                                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)',
-                                        borderRadius: '12px', fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)'
-                                    }}>
-                                        <Clock size={15} color="var(--accent)" />
-                                        {slot.time}
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', boxShadow: 'var(--premium-shadow)', overflow: 'hidden' }}>
+                        {currentSchedule.map((slot, index) => {
+                            const accentColor = getCategoryColor(slot.category);
+                            const isLast = index === currentSchedule.length - 1;
+                            return (
+                                <div key={index} style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                    flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                    padding: isMobile ? '12px 14px' : '14px 20px',
+                                    borderBottom: isLast ? 'none' : '1px solid var(--border-premium)',
+                                    transition: 'opacity 0.2s ease', opacity: slot.completed ? 0.55 : 1,
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: '1 1 auto' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleSlotComplete(index)}
+                                            title={slot.completed ? 'Mark as not done' : 'Mark as done'}
+                                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', padding: 0, flexShrink: 0 }}
+                                        >
+                                            {slot.completed
+                                                ? <CheckCircle size={20} color="var(--success)" />
+                                                : <Circle size={20} color="var(--text-muted)" />}
+                                        </button>
+                                        <div style={{
+                                            width: '32px', height: '32px', borderRadius: '10px', background: `${accentColor}22`,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: accentColor, flexShrink: 0
+                                        }}>
+                                            {getCategoryIcon(slot.category)}
+                                        </div>
+                                        <div style={{ minWidth: 0 }}>
+                                            <span style={{ fontSize: '10px', fontWeight: '700', color: accentColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                {slot.category}
+                                            </span>
+                                            <h4 style={{ fontSize: isMobile ? '14px' : '15px', fontWeight: '700', color: 'var(--text-primary)', margin: '2px 0 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={slot.title}>
+                                                {slot.title}
+                                            </h4>
+                                        </div>
                                     </div>
 
-                                    <button
-                                        onClick={() => handleDeleteSlot(index)}
-                                        title="Delete Entry"
-                                        style={{
-                                            background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)',
-                                            borderRadius: '10px', padding: isMobile ? '14px' : '10px', color: '#EF4444', cursor: 'pointer',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s'
-                                        }}
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px',
+                                            background: 'var(--widget-bg)', border: '1px solid var(--border-premium)',
+                                            borderRadius: '9999px', fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap',
+                                        }}>
+                                            <Clock size={13} color="var(--accent)" />
+                                            {slot.time}
+                                        </div>
+
+                                        <button
+                                            onClick={() => handleDeleteSlot(index)}
+                                            title="Delete Entry"
+                                            style={{
+                                                background: 'transparent', border: 'none', borderRadius: '8px',
+                                                padding: '6px', color: '#EF4444', cursor: 'pointer', opacity: 0.85,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'opacity 0.2s',
+                                            }}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })
+                            );
+                        })}
+                    </div>
                 ) : (
-                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px solid var(--border-premium)' }}>
+                    <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px solid var(--border-premium)', fontSize: '13px' }}>
                         No timetable entries added for {selectedDay} yet. Use the form above to add your tasks manually!
                     </div>
                 )}

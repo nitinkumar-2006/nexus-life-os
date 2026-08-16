@@ -379,19 +379,16 @@ const StudyPage = ({ setActiveTab }) => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
             
             {/* Header Section */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Study Command Center</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Manage your semester curriculum, assignments, notes, and flashcards.</p>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px' }}>
+                <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Study Hub</h1>
+
+                <div style={{ display: 'flex', gap: isMobile ? '8px' : '10px', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
+                    <div style={{ position: 'relative', flex: isMobile ? '1 1 0' : 'none' }}>
                         <button
                             onClick={() => setIsExportMenuOpen((v) => !v)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                         >
-                            <Download size={18} /> Export Report
+                            <Download size={isMobile ? 16 : 18} /> {isMobile ? 'Export' : 'Export Report'}
                         </button>
                         {isExportMenuOpen && (
                             <>
@@ -427,44 +424,61 @@ const StudyPage = ({ setActiveTab }) => {
                         )}
                     </div>
 
-                    <button 
-                        onClick={() => { 
+                    <button
+                        onClick={() => {
                             if (internalTab === 'Subjects') { if (typeof setActiveTab === 'function') setActiveTab('Syllabus'); return; }
                             else if (internalTab === 'Assignments') setModalType('assignment');
                             else if (internalTab === 'Notes') setModalType('note');
                             else setModalType('flashcard');
-                            setIsAddModalOpen(true); 
+                            setIsAddModalOpen(true);
                             }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                         >
-                        <Plus size={18} /> {internalTab === 'Subjects' ? 'Add Subject in Syllabus' : internalTab === 'Assignments' ? 'Add Assignment' : internalTab === 'Notes' ? 'New Note' : 'New Flashcard'}
+                        <Plus size={isMobile ? 16 : 18} style={{ flexShrink: 0 }} />
+                        {isMobile
+                            ? (internalTab === 'Subjects' ? 'Add Subject' : internalTab === 'Assignments' ? 'Add Assignment' : internalTab === 'Notes' ? 'New Note' : 'New Flashcard')
+                            : (internalTab === 'Subjects' ? 'Add Subject in Syllabus' : internalTab === 'Assignments' ? 'Add Assignment' : internalTab === 'Notes' ? 'New Note' : 'New Flashcard')}
                     </button>
                 </div>
             </div>
 
-            {/* Quick Metrics Overview Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><BookOpen size={24} /></div>
-                    <div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Active Subjects</span>
-                        <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)' }}>{subjects.length}</h2>
+            {/* Quick Metrics Overview Cards - a compact 2-column grid on
+                mobile (instead of each card stacking full-width) so all
+                four stats are glanceable without extra scrolling. Daily
+                Study Queue's count joins the other three here as a real
+                stat card; the actual interactive queue list further down
+                is unchanged and still owns all the real toggle/jump
+                functionality - this is just its at-a-glance count. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '14px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '9px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><BookOpen size={isMobile ? 18 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Active Subjects</span>
+                        <h2 style={{ fontSize: isMobile ? '18px' : '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{subjects.length}</h2>
                     </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981' }}><Award size={24} /></div>
-                    <div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Total Credits</span>
-                        <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalCredits} Credits</h2>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '14px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '9px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><Award size={isMobile ? 18 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Total Credits</span>
+                        <h2 style={{ fontSize: isMobile ? '18px' : '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{totalCredits}{isMobile ? '' : ' Credits'}</h2>
                     </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#F59E0B' }}><FileText size={24} /></div>
-                    <div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Pending Assignments</span>
-                        <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)' }}>{pendingAssignments}</h2>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '14px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '9px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#F59E0B', flexShrink: 0, display: 'flex' }}><FileText size={isMobile ? 18 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Pending Assignments</span>
+                        <h2 style={{ fontSize: isMobile ? '18px' : '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{pendingAssignments}</h2>
+                    </div>
+                </div>
+
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '14px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '9px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--accent)', flexShrink: 0, display: 'flex' }}><Layers size={isMobile ? 18 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Daily Study Queue</span>
+                        <h2 style={{ fontSize: isMobile ? '18px' : '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{dailyQueue.length}</h2>
                     </div>
                 </div>
             </div>
@@ -562,8 +576,19 @@ const StudyPage = ({ setActiveTab }) => {
             </div>
 
             {/* AI Study Assistant / Quick Doubt Solver - persistent across
-                all 4 tabs, same placement convention as the queue above. */}
-            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: 'var(--premium-shadow)' }}>
+                all 4 tabs, same placement convention as the queue above.
+                Given an explicitly glassmorphic treatment (backdrop blur +
+                a soft top-edge sheen) that works uniformly across all 4
+                themes, not just Dynamic's own automatic glass system -
+                --bg-surface is fully opaque under night/comfort/day, so a
+                plain blur there would be invisible; the inset highlight is
+                what reads as "glass" regardless of theme. */}
+            <div style={{
+                background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px',
+                padding: '22px', display: 'flex', flexDirection: 'column', gap: '14px',
+                boxShadow: 'var(--premium-shadow), inset 0 1px 0 rgba(255,255,255,0.07)',
+                backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+            }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Sparkles size={18} color="var(--accent)" />
                     <h3 style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Quick Doubt Solver</h3>
@@ -573,11 +598,11 @@ const StudyPage = ({ setActiveTab }) => {
                     <input
                         type="text" aria-label="Ask a question about your progress" value={doubtPrompt} onChange={(e) => setDoubtPrompt(e.target.value)}
                         placeholder="Ask about your progress, e.g. &quot;How am I doing in Data Structures?&quot; or &quot;What's due soon?&quot;"
-                        style={{ flex: 1, minWidth: 0, padding: '11px 14px', borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                        style={{ flex: 1, minWidth: 0, padding: '11px 16px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
                     />
                     <button
                         type="submit" disabled={!doubtPrompt.trim()}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '11px 16px', borderRadius: '12px', border: 'none', background: doubtPrompt.trim() ? 'var(--primary)' : 'var(--widget-bg)', color: doubtPrompt.trim() ? 'var(--text-on-primary)' : 'var(--text-muted)', fontWeight: '700', fontSize: '13px', cursor: doubtPrompt.trim() ? 'pointer' : 'default', fontFamily: 'inherit', flexShrink: 0 }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '11px 18px', borderRadius: '9999px', border: 'none', background: doubtPrompt.trim() ? 'var(--primary)' : 'var(--widget-bg)', color: doubtPrompt.trim() ? 'var(--text-on-primary)' : 'var(--text-muted)', fontWeight: '700', fontSize: '13px', cursor: doubtPrompt.trim() ? 'pointer' : 'default', fontFamily: 'inherit', flexShrink: 0 }}
                     >
                         <Send size={15} /> Ask
                     </button>
@@ -598,35 +623,43 @@ const StudyPage = ({ setActiveTab }) => {
                 )}
             </div>
 
-            {/* Navigation Tabs */}
-            <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto' }}>
-                <button 
+            {/* Navigation Tabs - fade-masked horizontal scroll (matching the
+                same pattern already used for Timetable's day selector) so
+                the row reads as an intentional scroller on mobile instead
+                of just clipping mid-label, plus taller mobile padding for
+                a real ~44px touch target. */}
+            <div style={{
+                display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto',
+                maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+                WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+            }}>
+                <button
                     onClick={() => setInternalTab('Subjects')}
-                    style={{ padding: '10px 16px', background: internalTab === 'Subjects' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Subjects' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Subjects' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                    style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: internalTab === 'Subjects' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Subjects' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Subjects' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
                     Subjects Overview
                 </button>
-                <button 
+                <button
                     onClick={() => setInternalTab('Assignments')}
-                    style={{ padding: '10px 16px', background: internalTab === 'Assignments' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Assignments' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Assignments' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                    style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: internalTab === 'Assignments' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Assignments' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Assignments' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
                     Assignments & Deadlines
                 </button>
-                <button 
+                <button
                     onClick={() => setInternalTab('Notes')}
-                    style={{ padding: '10px 16px', background: internalTab === 'Notes' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Notes' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Notes' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                    style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: internalTab === 'Notes' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Notes' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Notes' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
                     Notes & Knowledge Base
                 </button>
-                <button 
+                <button
                     onClick={() => setInternalTab('Flashcards')}
-                    style={{ padding: '10px 16px', background: internalTab === 'Flashcards' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Flashcards' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Flashcards' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                    style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: internalTab === 'Flashcards' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Flashcards' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Flashcards' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
                     Flashcards
                 </button>
-                <button 
+                <button
                     onClick={() => setInternalTab('Calculator')}
-                    style={{ padding: '10px 16px', background: internalTab === 'Calculator' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Calculator' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Calculator' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}
+                    style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: internalTab === 'Calculator' ? 'var(--widget-bg)' : 'transparent', color: internalTab === 'Calculator' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: internalTab === 'Calculator' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
                     CGPA & Attendance
                 </button>
@@ -670,7 +703,7 @@ const StudyPage = ({ setActiveTab }) => {
                             </div>
                         );
                     }) : (
-                        <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
+                        <div style={{ gridColumn: '1 / -1', padding: isMobile ? '32px 20px' : '40px', boxSizing: 'border-box', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
                             <BookOpen size={40} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
                             <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px' }}>No subjects added yet!</h3>
                             <span style={{ fontSize: '13px' }}>Add a subject in Syllabus to see it tracked here.</span>

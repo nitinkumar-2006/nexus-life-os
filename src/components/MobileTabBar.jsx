@@ -1,78 +1,41 @@
 // src/components/MobileTabBar.jsx
 //
-// Native-style mobile navigation: a fixed bottom tab bar (Home, Planner,
-// Study, Finance, Gym) plus a "More" tab that opens a swipe-to-dismiss
-// bottom sheet for every other module. Replaces the old hamburger + full-
-// height slide-out drawer on mobile - this is the ONLY navigation surface
-// rendered below the mobile breakpoint (see DashboardLayout.jsx); the
-// desktop Sidebar never mounts on mobile at all. AI is deliberately left
-// out of both the bar and the sheet - paused for this mobile pass per
-// explicit instruction; the desktop Sidebar/AI tab are completely
-// unaffected.
-import { useState, useEffect } from 'react';
-import { Headphones, Settings as SettingsIcon, MoreHorizontal } from 'lucide-react';
+// Native-style mobile navigation: a fixed, minimalist 5-icon bottom
+// dock - Home, Audio, AI, Profile, Settings - matching a standard
+// industry app's bottom nav (e.g. YouTube's own 5-tab bar). Every other
+// module (Planner, Study, Gym, Diet, Finance, Calendar, Analytics,
+// Syllabus, Daily Table) lives in MobileSidebarDrawer instead, reached
+// via the hamburger next to the Nexus logo in the header - this bar no
+// longer owns a "More" sheet at all. This is the ONLY primary
+// navigation surface rendered below the mobile breakpoint (see
+// DashboardLayout.jsx); the desktop Sidebar never mounts on mobile at
+// all.
+import { Command, Headphones, Cpu, User, Settings as SettingsIcon } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
-import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss.js';
-import { ALL_NAV_ITEMS, MOBILE_PRIMARY_TAB_NAMES } from '../constants/navItems.jsx';
 
-// Not part of ALL_NAV_ITEMS - the desktop Sidebar surfaces these two the
-// same way (Settings as its own footer button, Audio Hub only via the
-// Header's Focus Audio Studio shortcut), but on mobile the Header hides
-// that shortcut entirely, so without an entry here Audio Hub would be
-// completely unreachable on mobile. Both live in the More sheet.
-const EXTRA_MORE_ITEMS = [
-    { name: 'audio_hub', label: 'Audio & Focus', icon: Headphones },
-    { name: 'Settings', label: 'Settings', icon: SettingsIcon },
+// A deliberate, standalone 5-item list - not a filtered slice of
+// ALL_NAV_ITEMS, since Audio Hub isn't part of that shared list at all
+// (desktop reaches it via the header's own Focus Audio Studio shortcut
+// instead) and AI is treated here as a fixed, always-present essential
+// tab per this request's own explicit "essential tabs: Home, Audio, AI,
+// Profile, Settings" spec - unlike the desktop Sidebar/drawer, this bar
+// doesn't hide AI even if it's toggled off in the OS Module Manager,
+// since it's one of the bar's own fixed 5 slots, not an optional module
+// entry.
+const PRIMARY_TABS = [
+    { name: 'Home', icon: Command },
+    { name: 'audio_hub', label: 'Audio', icon: Headphones },
+    { name: 'AI', icon: Cpu },
+    { name: 'Profile', icon: User },
+    { name: 'Settings', icon: SettingsIcon },
 ];
 
 const MobileTabBar = ({ activeTab, setActiveTab }) => {
     const { tabSwitch } = useMicroFeedback();
-    const [isMoreOpen, setIsMoreOpen] = useState(false);
-    const [activeModules, setActiveModules] = useState({});
-
-    useEffect(() => {
-        const loadSettings = () => {
-            try {
-                const settings = JSON.parse(localStorage.getItem('nexus_global_settings')) || {};
-                setActiveModules(settings.activeModules || {
-                    planner: true, study: true, gym: true, diet: true, finance: true, calendar: true, analytics: true, ai: true
-                });
-            } catch (e) {
-                console.error('Failed to load mobile nav settings', e);
-            }
-        };
-        loadSettings();
-        window.addEventListener('nexus_settings_updated', loadSettings);
-        window.addEventListener('storage', loadSettings);
-        return () => {
-            window.removeEventListener('nexus_settings_updated', loadSettings);
-            window.removeEventListener('storage', loadSettings);
-        };
-    }, []);
-
-    const { swipeHandlers, translateY, isDragging } = useSwipeToDismiss(() => setIsMoreOpen(false));
-
-    const visibleNavItems = ALL_NAV_ITEMS.filter((item) => {
-        if (item.id === 'ai') return false; // paused on mobile
-        if (item.essential) return true;
-        return activeModules[item.id] !== false;
-    });
-
-    const primaryItems = MOBILE_PRIMARY_TAB_NAMES
-        .map((name) => visibleNavItems.find((i) => i.name === name))
-        .filter(Boolean);
-
-    const moreItems = [
-        ...visibleNavItems.filter((item) => !MOBILE_PRIMARY_TAB_NAMES.includes(item.name)),
-        ...EXTRA_MORE_ITEMS,
-    ];
-
-    const isMoreActive = moreItems.some((item) => item.name === activeTab);
 
     const handleNav = (tabName) => {
         tabSwitch();
         setActiveTab(tabName);
-        setIsMoreOpen(false);
     };
 
     const tabButtonStyle = (isActive) => ({
@@ -84,77 +47,24 @@ const MobileTabBar = ({ activeTab, setActiveTab }) => {
     });
 
     return (
-        <>
-            <nav
-                aria-label="Primary"
-                style={{
-                    position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,
-                    display: 'flex', alignItems: 'stretch',
-                    background: 'var(--sidebar-bg)',
-                    borderTop: '1px solid var(--border-premium)',
-                    paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-                    boxShadow: '0 -8px 24px rgba(0,0,0,0.18)',
-                }}
-            >
-                {primaryItems.map((item) => (
-                    <button key={item.name} onClick={() => handleNav(item.name)} style={tabButtonStyle(activeTab === item.name)}>
-                        <item.icon size={22} />
-                        <span style={{ fontSize: '10px', fontWeight: '700', whiteSpace: 'nowrap' }}>{item.name}</span>
-                    </button>
-                ))}
-                <button onClick={() => setIsMoreOpen(true)} style={tabButtonStyle(isMoreActive || isMoreOpen)}>
-                    <MoreHorizontal size={22} />
-                    <span style={{ fontSize: '10px', fontWeight: '700' }}>More</span>
+        <nav
+            aria-label="Primary"
+            style={{
+                position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,
+                display: 'flex', alignItems: 'stretch',
+                background: 'var(--sidebar-bg)',
+                borderTop: '1px solid var(--border-premium)',
+                paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+                boxShadow: '0 -8px 24px rgba(0,0,0,0.18)',
+            }}
+        >
+            {PRIMARY_TABS.map((item) => (
+                <button key={item.name} onClick={() => handleNav(item.name)} style={tabButtonStyle(activeTab === item.name)}>
+                    <item.icon size={22} />
+                    <span style={{ fontSize: '10px', fontWeight: '700', whiteSpace: 'nowrap' }}>{item.label || item.name}</span>
                 </button>
-            </nav>
-
-            {isMoreOpen && (
-                <>
-                    <div
-                        onClick={() => setIsMoreOpen(false)}
-                        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 190 }}
-                    />
-                    <div
-                        style={{
-                            position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 200,
-                            background: 'var(--sidebar-bg)',
-                            borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-                            borderTop: '1px solid var(--border-premium)',
-                            padding: '10px 16px calc(20px + env(safe-area-inset-bottom, 0px)) 16px',
-                            maxHeight: '70vh', overflowY: 'auto',
-                            boxShadow: '0 -12px 40px rgba(0,0,0,0.35)',
-                            transform: `translateY(${translateY}px)`,
-                            transition: isDragging ? 'none' : 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                            animation: 'nexusSheetSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                        }}
-                    >
-                        <div {...swipeHandlers} style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 12px 0' }}>
-                            <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: 'var(--border-premium)' }} />
-                        </div>
-                        <h4 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 4px 14px 4px' }}>More</h4>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
-                            {moreItems.map((item) => (
-                                <button
-                                    key={item.name}
-                                    onClick={() => handleNav(item.name)}
-                                    style={{
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
-                                        padding: '14px 6px', minHeight: '76px', borderRadius: '16px',
-                                        background: activeTab === item.name ? 'rgba(99,102,241,0.18)' : 'var(--widget-bg)',
-                                        border: activeTab === item.name ? '1px solid rgba(99,102,241,0.4)' : '1px solid var(--border-premium)',
-                                        color: activeTab === item.name ? 'var(--primary, #6366f1)' : 'var(--text-primary)',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    <item.icon size={20} />
-                                    <span style={{ fontSize: '11px', fontWeight: '700', textAlign: 'center', lineHeight: '1.2' }}>{item.label || item.name}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </>
-            )}
-        </>
+            ))}
+        </nav>
     );
 };
 

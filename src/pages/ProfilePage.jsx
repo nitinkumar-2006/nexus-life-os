@@ -82,6 +82,22 @@ const StreamingStatusWidget = () => {
     );
 };
 
+// A single, clean, minimalist stat card - the one shared shape behind
+// every quick-glance number in the profile header (Level, Hubs, Done,
+// Cache, Semester). One consistent size/shape so the whole row reads as
+// real, separated cards, not a mix of a floating avatar badge, a
+// standalone pill, and a 3-card grid all styled differently.
+const ProfileStatCard = ({ icon: Icon, iconColor, value, label }) => (
+    <div style={{
+        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px',
+        padding: '16px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', minWidth: 0,
+    }}>
+        <Icon size={18} color={iconColor} />
+        <span style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{value}</span>
+        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px', textAlign: 'center' }}>{label}</span>
+    </div>
+);
+
 const ProfilePage = () => {
     const isMobile = useIsMobile();
     const { settings, updateSetting } = useGlobalSettings();
@@ -397,18 +413,20 @@ const ProfilePage = () => {
                 </div>
 
                 {/* Profile Details Body */}
-                <div style={{ padding: '0 32px 32px 32px', position: 'relative' }}>
-                    {/* Dynamic Avatar */}
-                    <div style={{ 
-                        width: '110px', height: '110px', borderRadius: '50%', 
-                        color: 'var(--text-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                        fontSize: '42px', fontWeight: '800', marginTop: '-55px',
+                <div style={{ padding: isMobile ? '0 20px 28px 20px' : '0 32px 32px 32px', position: 'relative' }}>
+                    {/* Dynamic Avatar - centered on mobile (Instagram/
+                        LinkedIn-style centered mobile header) instead of
+                        pinned to the left edge, matching the rest of the
+                        mobile header below (name/bio/actions also
+                        centered). No badge pinned to its corner anymore -
+                        Level now lives as a real, separate card in the
+                        stats row below instead of crowding the avatar. */}
+                    <div style={{
+                        width: '112px', height: '112px', borderRadius: '50%',
+                        margin: isMobile ? '-56px auto 0 auto' : '-56px 0 0 0',
                         boxShadow: '0 8px 25px rgba(0,0,0,0.4)', position: 'relative', zIndex: 2,
                         flexShrink: 0, background: 'transparent'
                     }}>
-                        {/* Circular clip lives on its own inner layer so the floating
-                            Level badge below (intentionally positioned outside the
-                            circle) never gets cut off by the image's own overflow. */}
                         <div
                             data-diag="profile-avatar"
                             style={{
@@ -417,6 +435,7 @@ const ProfilePage = () => {
                                 background: profile.avatarUrl ? 'transparent' : 'var(--primary)',
                                 border: '6px solid var(--bg-surface)', boxSizing: 'border-box',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: 'var(--text-on-primary)', fontSize: '42px', fontWeight: '800',
                             }}
                         >
                             {profile.avatarUrl ? (
@@ -427,108 +446,103 @@ const ProfilePage = () => {
                                 />
                             ) : avatarInitial}
                         </div>
-                        
-                        {/* OS Level Badge */}
-                        <div style={{ position: 'absolute', bottom: '-10px', right: '-10px', background: 'var(--bg-surface)', border: '2px solid var(--border-premium)', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px', boxShadow: '0 4px 10px rgba(0,0,0,0.2)' }}>
-                            <Flame size={14} color="#F59E0B" /> Lvl {stats.level}
-                        </div>
                     </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px', marginTop: '20px' }}>
-                        <div style={{ flex: '1 1 450px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
-                                <h2 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)' }}>{displayName}</h2>
-                                {profile.name && <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 10px', background: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', borderRadius: '6px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>Verified</span>}
+                    {/* Identity block: name, verified badge, professional
+                        headline, bio, and ONE consolidated action row
+                        (Edit Profile + every real social link) - all in a
+                        single column now, not split across a left "info"
+                        side and a disconnected right "actions" column
+                        like before. This is the actual fix for the
+                        "scattered tags" complaint. */}
+                    <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', alignItems: isMobile ? 'center' : 'flex-start', textAlign: isMobile ? 'center' : 'left', gap: '2px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+                            <h2 style={{ fontSize: '26px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{displayName}</h2>
+                            {profile.name && <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 10px', background: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6', borderRadius: '6px', border: '1px solid rgba(59, 130, 246, 0.2)', flexShrink: 0 }}>Verified</span>}
+                        </div>
+
+                        <p style={{ fontSize: '15px', color: 'var(--text-secondary)', fontWeight: '600', margin: '4px 0 0 0' }}>
+                            {profile.role || 'Role Not Set'} <span style={{ color: 'var(--text-muted)' }}>•</span> {profile.college || 'Institution Not Set'}
+                        </p>
+
+                        {profile.quoteOfDay && (
+                            <div style={{ display: 'flex', gap: '10px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', borderLeft: '4px solid var(--accent)', marginTop: '14px', maxWidth: '600px', minWidth: 0, textAlign: 'left' }}>
+                                <Quote size={18} color="var(--accent)" style={{ opacity: 0.7, marginTop: '2px', flexShrink: 0 }} />
+                                <p style={{ fontSize: '14px', color: 'var(--text-primary)', fontStyle: 'italic', fontWeight: '500', lineHeight: '1.4', minWidth: 0, overflowWrap: 'break-word', margin: 0 }}>{profile.quoteOfDay}</p>
                             </div>
-                            
-                            <p style={{ fontSize: '15px', color: 'var(--text-secondary)', fontWeight: '600', marginBottom: '12px' }}>
-                                {profile.role || 'Role Not Set'} <span style={{ color: 'var(--text-muted)' }}>•</span> {profile.college || 'Institution Not Set'}
-                            </p>
-                            
-                            {profile.quoteOfDay && (
-                                <div style={{ display: 'flex', gap: '10px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', borderLeft: '4px solid var(--accent)', marginBottom: '16px', maxWidth: '600px', minWidth: 0 }}>
-                                    <Quote size={18} color="var(--accent)" style={{ opacity: 0.7, marginTop: '2px', flexShrink: 0 }} />
-                                    <p style={{ fontSize: '14px', color: 'var(--text-primary)', fontStyle: 'italic', fontWeight: '500', lineHeight: '1.4', minWidth: 0, overflowWrap: 'break-word' }}>{profile.quoteOfDay}</p>
-                                </div>
+                        )}
+
+                        <p style={{ fontSize: '14px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: '1.6', margin: '12px 0 0 0' }}>{profile.bio || 'Edit your profile to add a bio and configure your personal operating system.'}</p>
+
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '18px', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+                            <button
+                                onClick={() => !isEditing && setIsEditing(true)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 15px rgba(0,0,0,0.2)' }}
+                            >
+                                <Edit3 size={16} /> Edit Profile
+                            </button>
+                            {profile.githubUrl && (
+                                <a href={profile.githubUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', background: 'var(--surface-inset)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', textDecoration: 'none', fontWeight: '600' }}>
+                                    <GitBranch size={16} color="var(--text-muted)" /> GitHub <ArrowUpRight size={14} style={{ opacity: 0.5 }} />
+                                </a>
                             )}
-                            
-                            <p style={{ fontSize: '14px', color: 'var(--text-muted)', maxWidth: '600px', lineHeight: '1.6' }}>{profile.bio || 'Edit your profile to add a bio and configure your personal operating system.'}</p>
-
-                            <div style={{ display: 'flex', gap: '12px', marginTop: '16px', flexWrap: 'wrap' }}>
-                                {profile.githubUrl && (
-                                    <a href={profile.githubUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', background: 'var(--surface-inset)', padding: '8px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', textDecoration: 'none', fontWeight: '600', transition: 'all 0.2s' }}>
-                                        <GitBranch size={16} color="var(--text-muted)" /> GitHub <ArrowUpRight size={14} style={{ opacity: 0.5 }} />
-                                    </a>
-                                )}
-                                {profile.linkedinUrl && (
-                                    <a href={profile.linkedinUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', background: 'var(--surface-inset)', padding: '8px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', textDecoration: 'none', fontWeight: '600', transition: 'all 0.2s' }}>
-                                        <Globe size={16} color="#0A66C2" /> LinkedIn <ArrowUpRight size={14} style={{ opacity: 0.5 }} />
-                                    </a>
-                                )}
-                                {profile.portfolioUrl && (
-                                    <a href={profile.portfolioUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', background: 'var(--surface-inset)', padding: '8px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', textDecoration: 'none', fontWeight: '600', transition: 'all 0.2s' }}>
-                                        <Code size={16} color="var(--accent)" /> Portfolio <ArrowUpRight size={14} style={{ opacity: 0.5 }} />
-                                    </a>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Real-Time Live Counters, with the relocated
-                            Profile Completion + Edit Profile action group
-                            directly above the streaming connection widget -
-                            same right-aligned column, below the banner.
-                            justifyContent: flex-end (rather than the parent
-                            column's own default alignItems: flex-end alone)
-                            keeps this specific row's own two children
-                            hugging the right edge even while wrapping on
-                            narrow viewports. */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end' }}>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                {!isEditing && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '12px' }}>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600' }}>Profile</span>
-                                        <div style={{ width: '60px', height: '6px', background: 'var(--surface-inset)', borderRadius: '10px', overflow: 'hidden' }}>
-                                            <div style={{ width: `${completionPercentage}%`, height: '100%', background: completionPercentage === 100 ? '#10B981' : 'var(--accent)' }}></div>
-                                        </div>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: '800' }}>{completionPercentage}%</span>
-                                    </div>
-                                )}
-
-                                <button 
-                                    onClick={() => !isEditing && setIsEditing(true)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: isEditing ? 'var(--widget-bg)' : 'var(--primary)', color: isEditing ? 'var(--text-primary)' : 'var(--text-on-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: isEditing ? 'none' : '0 4px 15px rgba(0,0,0,0.2)' }}
-                                >
-                                    <Edit3 size={16} /> {isEditing ? 'Editing Mode Active' : 'Edit Profile'} 
-                                </button>
-                            </div>
-                            <StreamingStatusWidget />
-                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignContent: 'flex-start' }}>
-                                <div style={{ background: 'var(--widget-bg)', padding: '16px 24px', borderRadius: '16px', border: '1px solid var(--border-premium)', textAlign: 'center', minWidth: '100px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                    <CheckSquare size={20} color="var(--accent)" style={{ marginBottom: '4px' }}/>
-                                    <span style={{ display: 'block', fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.completedTasks}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px' }}>DONE</span>
-                                </div>
-                                <div style={{ background: 'var(--widget-bg)', padding: '16px 24px', borderRadius: '16px', border: '1px solid var(--border-premium)', textAlign: 'center', minWidth: '100px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                    <BookOpen size={20} color="#3B82F6" style={{ marginBottom: '4px' }}/>
-                                    <span style={{ display: 'block', fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)' }}>{stats.studyCount}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px' }}>HUBS</span>
-                                </div>
-                                <div style={{ background: 'var(--widget-bg)', padding: '16px 24px', borderRadius: '16px', border: '1px solid var(--border-premium)', textAlign: 'center', minWidth: '100px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                    <Database size={20} color="#10B981" style={{ marginBottom: '4px' }}/>
-                                    <span style={{ display: 'block', fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', marginTop: '4px' }}>{stats.storageSize}</span>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px' }}>CACHE</span>
-                                </div>
-                            </div>
+                            {profile.linkedinUrl && (
+                                <a href={profile.linkedinUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', background: 'var(--surface-inset)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', textDecoration: 'none', fontWeight: '600' }}>
+                                    <Globe size={16} color="#0A66C2" /> LinkedIn <ArrowUpRight size={14} style={{ opacity: 0.5 }} />
+                                </a>
+                            )}
+                            {profile.portfolioUrl && (
+                                <a href={profile.portfolioUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', background: 'var(--surface-inset)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', textDecoration: 'none', fontWeight: '600' }}>
+                                    <Code size={16} color="var(--accent)" /> Portfolio <ArrowUpRight size={14} style={{ opacity: 0.5 }} />
+                                </a>
+                            )}
                         </div>
                     </div>
 
-                    {/* Profile Navigation Tabs */}
-                    <div style={{ display: 'flex', gap: '12px', marginTop: '32px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '16px', flexWrap: 'wrap' }}>
-                        <button onClick={() => setActiveTabState('overview')} style={{ background: activeTab === 'overview' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'overview' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'overview' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}><Sparkles size={16} /> Overview & Targets</button>
-                        <button onClick={() => setActiveTabState('analytics')} style={{ background: activeTab === 'analytics' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'analytics' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'analytics' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}><BarChart size={16} /> Productivity & Trends</button>
-                        <button onClick={() => setActiveTabState('activity')} style={{ background: activeTab === 'activity' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'activity' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'activity' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}><Activity size={16} /> Activity Feed</button>
-                        <button onClick={() => setActiveTabState('badges')} style={{ background: activeTab === 'badges' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'badges' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'badges' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}><Trophy size={16} /> Badges & Storage</button>
-                        <button onClick={() => setActiveTabState('growth')} style={{ background: activeTab === 'growth' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'growth' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'growth' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}><Target size={16} /> Growth & Skills</button>
+                    {/* Organized stat cards - Level, Profile Completion,
+                        Hubs, Done, Cache, and Semester/Targets, each its
+                        own clean, minimal card sharing one consistent
+                        shape (ProfileStatCard), instead of a floating
+                        avatar badge, a standalone pill, and a 3-card grid
+                        that were all styled differently before. */}
+                    <div style={{ marginTop: '28px', paddingTop: '24px', borderTop: '1px solid var(--border-premium)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(110px, 1fr))', gap: '12px' }}>
+                            <ProfileStatCard icon={Flame} iconColor="#F59E0B" value={`Lvl ${stats.level}`} label="LEVEL" />
+                            <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '16px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                                <CheckCircle size={18} color={completionPercentage === 100 ? '#10B981' : 'var(--accent)'} />
+                                <span style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)' }}>{completionPercentage}%</span>
+                                <div style={{ width: '100%', height: '5px', background: 'var(--surface-inset)', borderRadius: '10px', overflow: 'hidden' }}>
+                                    <div style={{ width: `${completionPercentage}%`, height: '100%', background: completionPercentage === 100 ? '#10B981' : 'var(--accent)' }}></div>
+                                </div>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px' }}>PROFILE</span>
+                            </div>
+                            <ProfileStatCard icon={BookOpen} iconColor="#3B82F6" value={stats.studyCount} label="HUBS" />
+                            <ProfileStatCard icon={CheckSquare} iconColor="var(--accent)" value={stats.completedTasks} label="DONE" />
+                            <ProfileStatCard icon={Database} iconColor="#10B981" value={stats.storageSize} label="CACHE" />
+                            <ProfileStatCard icon={GraduationCap} iconColor="#A78BFA" value={profile.semester || 'Not Set'} label="SEMESTER" />
+                        </div>
+
+                        <div style={{ marginTop: '16px', display: 'flex', justifyContent: isMobile ? 'center' : 'flex-start' }}>
+                            <StreamingStatusWidget />
+                        </div>
+                    </div>
+
+                    {/* Profile Navigation Tabs - a clean, horizontally-
+                        scrollable pill row on mobile (Instagram/LinkedIn-
+                        style tab strip) instead of 5 icon+text buttons
+                        wrapping across multiple cramped lines. Desktop
+                        keeps its existing wrap-to-multiple-lines layout. */}
+                    <div style={{
+                        display: 'flex', gap: '12px', marginTop: '32px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '16px',
+                        flexWrap: isMobile ? 'nowrap' : 'wrap',
+                        overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch',
+                        marginLeft: isMobile ? '-4px' : 0, marginRight: isMobile ? '-4px' : 0, paddingLeft: isMobile ? '4px' : 0, paddingRight: isMobile ? '4px' : 0,
+                    }}>
+                        <button onClick={() => setActiveTabState('overview')} style={{ background: activeTab === 'overview' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'overview' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'overview' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', flexShrink: 0, whiteSpace: 'nowrap' }}><Sparkles size={16} /> Overview & Targets</button>
+                        <button onClick={() => setActiveTabState('analytics')} style={{ background: activeTab === 'analytics' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'analytics' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'analytics' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', flexShrink: 0, whiteSpace: 'nowrap' }}><BarChart size={16} /> Productivity & Trends</button>
+                        <button onClick={() => setActiveTabState('activity')} style={{ background: activeTab === 'activity' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'activity' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'activity' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', flexShrink: 0, whiteSpace: 'nowrap' }}><Activity size={16} /> Activity Feed</button>
+                        <button onClick={() => setActiveTabState('badges')} style={{ background: activeTab === 'badges' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'badges' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'badges' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', flexShrink: 0, whiteSpace: 'nowrap' }}><Trophy size={16} /> Badges & Storage</button>
+                        <button onClick={() => setActiveTabState('growth')} style={{ background: activeTab === 'growth' ? 'var(--primary-muted)' : 'var(--widget-bg)', color: activeTab === 'growth' ? 'var(--accent)' : 'var(--text-secondary)', border: activeTab === 'growth' ? '1px solid var(--primary-muted)' : '1px solid var(--border-premium)', padding: '10px 18px', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', flexShrink: 0, whiteSpace: 'nowrap' }}><Target size={16} /> Growth & Skills</button>
                     </div>
 
                     {/* Tab Contents */}

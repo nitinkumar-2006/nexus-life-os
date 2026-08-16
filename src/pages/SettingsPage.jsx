@@ -8,6 +8,7 @@ import {
     Check, X, Music, Lock, Unlock, Edit3, Mail, Thermometer, Sparkles,
     Image, LayoutGrid, Battery, BookOpen, ChevronDown,
     Clock, ClipboardList, CalendarDays, Utensils, RotateCcw,
+    Link2, Phone, Cpu, User, ArrowUpRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getAuthErrorMessage } from '../utils/authErrorMessages.js';
@@ -18,7 +19,8 @@ import { useSoundSettings, useSoundActions, SOUND_CHANNELS } from '../context/So
 import { getUiClickUrl, getTaskAlertUrl } from '../utils/noiseSynth.js';
 import { hashPin, isPinConfigured, isValidPinInput, verifyPin } from '../utils/pinSecurity.js';
 import { isBiometricSupported, isBiometricLockEnabled, registerBiometric, disableBiometricLock } from '../utils/biometricAuth.js';
-import { isQuickPinEnabled, saveQuickPin, clearQuickPin } from '../utils/quickPin.js';
+import { isValidPhoneNumber, isSyntheticPhoneEmail, syntheticEmailToPhone } from '../utils/phoneAuth.js';
+import { linkIdentifierToAccount, unlinkIdentifierFromAccount, getLinkedIdentifiers } from '../utils/accountLinking.js';
 import { doc, deleteDoc } from 'firebase/firestore';
 import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -45,9 +47,16 @@ const ToggleSwitch = ({ checked, onChange, compact = false }) => {
     const trackH = compact ? '18px' : '24px';
     const knobSize = compact ? '13px' : '18px';
     const knobOffOn = compact ? ['2px', '17px'] : ['3px', '23px'];
+    const fire = () => { playChannelSound('uiFeedback', getUiClickUrl); onChange(!checked); };
     return (
         <div
-            onClick={() => { playChannelSound('uiFeedback', getUiClickUrl); onChange(!checked); }}
+            role="switch"
+            aria-checked={checked}
+            tabIndex={0}
+            onClick={fire}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(); }
+            }}
             style={{
                 width: trackW, height: trackH, background: checked ? 'var(--primary)' : 'var(--surface-inset)',
                 borderRadius: '20px', position: 'relative', cursor: 'pointer', flexShrink: 0,
@@ -517,10 +526,52 @@ const SettingsConfirmModal = ({ title, message, onConfirm, onCancel, forceGlass 
     );
 };
 
-const SettingsPage = () => {
+
+// A single, clean, collapsible top-level category - the YouTube-style
+// "Settings menu" shape this whole page now follows: one accordion per
+// real concern (modules, security, display, audio, system/data) instead
+// of a dozen same-weight cards all visible on one long, congested page.
+// Every sub-card already inside each category (e.g. GitHub/Spotify inside
+// Security, or Cloud Sync inside System Defaults) keeps its own existing
+// look untouched - this only adds the outer grouping, spacing, and the
+// collapse/expand affordance around them.
+const SettingsSection = ({ icon: Icon, title, subtitle, defaultOpen = false, children }) => {
+    const [isOpen, setIsOpen] = useState(defaultOpen);
+    return (
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', overflow: 'hidden' }}>
+            <button
+                type="button"
+                onClick={() => setIsOpen((v) => !v)}
+                aria-expanded={isOpen}
+                style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', width: '100%',
+                    padding: '20px 24px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '11px', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Icon size={18} color="var(--accent)" />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                        <h2 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{title}</h2>
+                        {subtitle && <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '500' }}>{subtitle}</span>}
+                    </div>
+                </div>
+                <ChevronDown size={20} color="var(--text-secondary)" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+            </button>
+            {isOpen && (
+                <div style={{ padding: '0 24px 24px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const SettingsPage = ({ setActiveTab }) => {
     const isMobile = useIsMobile();
     const { user, isConfigured, logout, login, signup, loginWithGoogle, changePassword } = useAuth();
-    const { volume, setVolume, isMuted, toggleMute } = useAudioPlayer();
+    const { volume, setVolume, isMuted, toggleMute, crossfadeEnabled, setCrossfadeEnabled } = useAudioPlayer();
     const { isSyncing, syncStatus, syncError, lastSyncedAt, pushToCloud, pullFromCloud } = useCloudSync();
     const [activeSyncDirection, setActiveSyncDirection] = useState(null); // null | 'push' | 'pull'
     useEffect(() => { if (!isSyncing) setActiveSyncDirection(null); }, [isSyncing]);
@@ -548,6 +599,10 @@ const SettingsPage = () => {
         spotifyClientId: '',
         spotifyClientSecret: '',
         spotifyCredConfirmed: false,
+        openaiApiKey: '',
+        openaiApiKeyConfirmed: false,
+        geminiApiKey: '',
+        geminiApiKeyConfirmed: false,
         performanceMode: false,
         autoBackupFreq: 'Weekly',
         weightUnit: 'kg',
@@ -672,15 +727,6 @@ const SettingsPage = () => {
     const [pinError, setPinError] = useState('');
     const [biometricSupported] = useState(() => isBiometricSupported());
     const [biometricEnabled, setBiometricEnabled] = useState(() => isBiometricLockEnabled());
-    // Quick Sign-In PIN - a separate on/off + hash from the OS Lock PIN
-    // above (settings.appPin); see utils/quickPin.js for why they're kept
-    // apart. Mirrors the same draft/touched/error pattern used for the
-    // OS Lock PIN, minus "touched" - this one only ever has a single
-    // explicit Save action, never a shared multi-field save.
-    const [quickPinEnabled, setQuickPinEnabled] = useState(() => isQuickPinEnabled());
-    const [quickPinDraft, setQuickPinDraft] = useState('');
-    const [quickPinError, setQuickPinError] = useState('');
-    const [quickPinSaved, setQuickPinSaved] = useState(false);
     const [biometricStatus, setBiometricStatus] = useState('idle'); // 'idle' | 'registering' | 'error'
     const [biometricError, setBiometricError] = useState('');
     // 'idle' | 'checking' | 'connected' | 'invalid' | 'error'
@@ -752,6 +798,8 @@ const SettingsPage = () => {
             appleMusicToken: 'appleMusicTokenConfirmed',
             spotifyClientId: 'spotifyCredConfirmed',
             spotifyClientSecret: 'spotifyCredConfirmed',
+            openaiApiKey: 'openaiApiKeyConfirmed',
+            geminiApiKey: 'geminiApiKeyConfirmed',
         };
         if (CONFIRM_FLAG_FOR[key]) {
             const withConfirmCleared = { ...next, [CONFIRM_FLAG_FOR[key]]: false };
@@ -941,6 +989,67 @@ const SettingsPage = () => {
         };
     }, [settings.spotifyClientId, settings.spotifyClientSecret]);
 
+    // OpenAI: validates the key against the real /v1/models list endpoint -
+    // a lightweight, read-only call (no completion/generation request, so
+    // it doesn't spend meaningful credits) that only succeeds with a
+    // genuine, live key. Same debounced, race-safe pattern as GitHub above.
+    const [openaiKeyStatus, setOpenaiKeyStatus] = useState('idle');
+    useEffect(() => {
+        const key = settings.openaiApiKey.trim();
+        if (!key) {
+            setOpenaiKeyStatus('idle');
+            return undefined;
+        }
+        let cancelled = false;
+        setOpenaiKeyStatus('checking');
+        const timeoutId = setTimeout(() => {
+            fetch('https://api.openai.com/v1/models', {
+                headers: { Authorization: `Bearer ${key}` },
+            })
+                .then((res) => {
+                    if (cancelled) return;
+                    setOpenaiKeyStatus(res.ok ? 'connected' : 'invalid');
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setOpenaiKeyStatus('error');
+                });
+        }, 700);
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [settings.openaiApiKey]);
+
+    // Gemini: validates the key against the real /v1beta/models list
+    // endpoint (Google's own documented way to check a key without
+    // spending generation quota) - same debounced, race-safe pattern.
+    const [geminiKeyStatus, setGeminiKeyStatus] = useState('idle');
+    useEffect(() => {
+        const key = settings.geminiApiKey.trim();
+        if (!key) {
+            setGeminiKeyStatus('idle');
+            return undefined;
+        }
+        let cancelled = false;
+        setGeminiKeyStatus('checking');
+        const timeoutId = setTimeout(() => {
+            fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`)
+                .then((res) => {
+                    if (cancelled) return;
+                    setGeminiKeyStatus(res.ok ? 'connected' : 'invalid');
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setGeminiKeyStatus('error');
+                });
+        }, 700);
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [settings.geminiApiKey]);
+
     // The PIN genuinely needs its own, explicit save step - unlike every
     // other preference on this page, it requires async hashing and
     // 4-digit validation before it's safe to persist, so it can't just
@@ -998,30 +1107,6 @@ const SettingsPage = () => {
         }
     };
 
-    const handleSaveQuickPin = async (e) => {
-        e.preventDefault();
-        if (!isValidPinInput(quickPinDraft) || quickPinDraft === '') {
-            setQuickPinError('PIN must be exactly 4 digits.');
-            return;
-        }
-        try {
-            await saveQuickPin(quickPinDraft);
-            setQuickPinEnabled(true);
-            setQuickPinDraft('');
-            setQuickPinError('');
-            setQuickPinSaved(true);
-            setTimeout(() => setQuickPinSaved(false), 2500);
-        } catch (err) {
-            setQuickPinError('Could not save PIN right now. Please try again.');
-        }
-    };
-
-    const handleDisableQuickPin = () => {
-        clearQuickPin();
-        setQuickPinEnabled(false);
-        setQuickPinDraft('');
-        setQuickPinError('');
-    };
 
     const [settingsConfirm, setSettingsConfirm] = useState(null); // null | { title, message, onConfirm }
     const [settingsToast, setSettingsToast] = useState(null); // null | { message, type: 'success' | 'error' }
@@ -1085,6 +1170,17 @@ const SettingsPage = () => {
     const [pwError, setPwError] = useState('');
     const [pwSuccess, setPwSuccess] = useState(false);
     const [pwLoading, setPwLoading] = useState(false);
+
+    // Linked Sign-In Methods - lets an already-signed-in account attach
+    // its OTHER identifier (email if it signed up via phone, phone if it
+    // signed up via email) via utils/accountLinking.js, so logging in
+    // with either one afterward reaches this exact same account.
+    const [linkedExpanded, setLinkedExpanded] = useState(false);
+    const [linkedIdentifiers, setLinkedIdentifiers] = useState({});
+    const [linkDraft, setLinkDraft] = useState('');
+    const [linkError, setLinkError] = useState('');
+    const [linkSuccess, setLinkSuccess] = useState(false);
+    const [linkLoading, setLinkLoading] = useState(false);
 
     // Firebase's own error codes are technical (auth/wrong-password,
     // auth/email-already-in-use, etc.) - this maps the ones a real user is
@@ -1152,6 +1248,76 @@ const SettingsPage = () => {
             setPwLoading(false);
         }
     };
+
+    // Whichever of email/phone this account did NOT sign up with - the
+    // only one it makes sense to offer linking for. isSyntheticPhoneEmail
+    // tells apart "this account's real Firebase email IS a phone number
+    // in disguise" (primary = phone, offer linking an email) from "this
+    // account's real Firebase email is a genuine email" (primary = email,
+    // offer linking a phone).
+    const primaryIsPhone = user ? isSyntheticPhoneEmail(user.email) : false;
+    const missingLinkType = primaryIsPhone ? 'email' : 'phone';
+
+    // Pre-fills +91 the moment this field's own role becomes "link a
+    // phone number" - same convenience as LoginPage's own phone input.
+    // Only ever fires once per account (missingLinkType is fixed for a
+    // given account's whole session), and only touches an empty draft -
+    // never overwrites anything already typed.
+    useEffect(() => {
+        if (missingLinkType === 'phone' && linkDraft === '') setLinkDraft('+91 ');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [missingLinkType]);
+
+    const handleLinkIdentifier = async (e) => {
+        e.preventDefault();
+        setLinkError('');
+        setLinkSuccess(false);
+        if (missingLinkType === 'phone' && !isValidPhoneNumber(linkDraft)) {
+            setLinkError('Enter a valid mobile number (7-15 digits, with country code).');
+            return;
+        }
+        if (missingLinkType === 'email' && !linkDraft.trim()) {
+            setLinkError('Enter a valid email address.');
+            return;
+        }
+        setLinkLoading(true);
+        try {
+            await linkIdentifierToAccount(linkDraft.trim(), missingLinkType, user);
+            setLinkedIdentifiers((prev) => ({ ...prev, [missingLinkType]: linkDraft.trim() }));
+            setLinkDraft('');
+            setLinkSuccess(true);
+            setTimeout(() => setLinkSuccess(false), 3000);
+        } catch (err) {
+            setLinkError(err.message || 'Could not link that right now. Please try again.');
+        } finally {
+            setLinkLoading(false);
+        }
+    };
+
+    const handleUnlinkIdentifier = async (type) => {
+        const value = linkedIdentifiers[type];
+        if (!value) return;
+        setLinkError('');
+        setLinkLoading(true);
+        try {
+            await unlinkIdentifierFromAccount(value, type, user);
+            setLinkedIdentifiers((prev) => { const next = { ...prev }; delete next[type]; return next; });
+        } catch (err) {
+            setLinkError(err.message || 'Could not remove that link right now. Please try again.');
+        } finally {
+            setLinkLoading(false);
+        }
+    };
+
+    // Loads whatever's already linked to this account the moment a real
+    // session exists, so the section shows real, current state rather
+    // than starting blank until the user happens to expand it.
+    useEffect(() => {
+        if (!isConfigured || !user) { setLinkedIdentifiers({}); return; }
+        let cancelled = false;
+        getLinkedIdentifiers(user.uid).then((linked) => { if (!cancelled) setLinkedIdentifiers(linked); });
+        return () => { cancelled = true; };
+    }, [isConfigured, user]);
 
     const handleFactoryReset = async () => {
         setSettingsConfirm({
@@ -1318,8 +1484,346 @@ const SettingsPage = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><LayoutDashboard size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>OS Module Manager</h3></div>
+
+                <SettingsSection icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab && setActiveTab('Profile')}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '14px 18px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', cursor: 'pointer', width: '100%', fontFamily: 'inherit', textAlign: 'left' }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                            <User size={16} color="var(--accent)" />
+                            <div style={{ minWidth: 0 }}>
+                                <strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Manage Full Profile</strong>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Avatar, bio, headline, and social links</span>
+                            </div>
+                        </div>
+                        <ArrowUpRight size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                    </button>
+
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cloud size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Cloud Sync & Account Management</h3></div>
+
+                    {isConfigured && user ? (
+                        <>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#10B981', boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)', flexShrink: 0, display: 'inline-block' }} />
+                                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Signed in as <strong style={{ color: 'var(--text-primary)' }}>{isSyntheticPhoneEmail(user.email) ? syntheticEmailToPhone(user.email) : user.email}</strong> - manage sync status and sign out below.</span>
+                            </div>
+
+                            {/* Real password create/update section - only
+                                shown once signed in. The "Current Password"
+                                field is only shown for a user who genuinely
+                                already has a real password credential
+                                linked (user.providerData contains
+                                'password') - a Google-only user has no
+                                current password to provide, so this is
+                                genuinely their first time setting one, not
+                                changing an existing one. */}
+                            <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', marginTop: '4px' }}>
+                                {/* Collapsible accordion header - precisely
+                                    matches the Custom Background / Productivity
+                                    Widget accordion template above: same icon
+                                    placement, same ChevronDown rotation/
+                                    transition, same hover behavior, so this
+                                    section reads as visually consistent with
+                                    every other collapsible in this module.
+                                    Defaults closed (passwordExpanded starts
+                                    false) so this form doesn't clutter the
+                                    page until the user genuinely wants it. */}
+                                <button
+                                    type="button"
+                                    onClick={() => setPasswordExpanded((v) => !v)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                        background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%',
+                                        fontFamily: 'inherit', marginBottom: passwordExpanded ? '10px' : 0,
+                                    }}
+                                >
+                                    <h4 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                                        <Lock size={14} color="var(--accent)" /> {user.providerData.some((p) => p.providerId === 'password') ? 'Change Password' : 'Set a Password'}
+                                    </h4>
+                                    <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: passwordExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+                                </button>
+                                {passwordExpanded && (
+                                <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {user.providerData.some((p) => p.providerId === 'password') && (
+                                        <input
+                                            id="settings-pw-current" name="current-password" type="password" autoComplete="current-password" aria-label="Current password"
+                                            placeholder="Current password" value={pwCurrentPassword}
+                                            onChange={(e) => { setPwCurrentPassword(e.target.value); setPwError(''); setPwSuccess(false); }}
+                                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                        />
+                                    )}
+                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                        <input
+                                            id="settings-pw-new" name="new-password" type="password" autoComplete="new-password" aria-label="New password"
+                                            placeholder="New password" value={pwNewPassword}
+                                            onChange={(e) => { setPwNewPassword(e.target.value); setPwError(''); setPwSuccess(false); }}
+                                            style={{ flex: '1 1 160px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                        />
+                                        <input
+                                            id="settings-pw-confirm" name="confirm-new-password" type="password" autoComplete="new-password" aria-label="Confirm new password"
+                                            placeholder="Confirm new password" value={pwConfirmPassword}
+                                            onChange={(e) => { setPwConfirmPassword(e.target.value); setPwError(''); setPwSuccess(false); }}
+                                            style={{ flex: '1 1 160px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                        />
+                                    </div>
+                                    <PasswordStrengthIndicator password={pwNewPassword} />
+                                    {pwError && <span style={{ fontSize: '12px', color: '#EF4444', fontWeight: '600' }}>{pwError}</span>}
+                                    {pwSuccess && <span style={{ fontSize: '12px', color: '#10B981', fontWeight: '600' }}>Password updated successfully.</span>}
+                                    <button
+                                        type="submit"
+                                        disabled={pwLoading || !pwNewPassword || !pwConfirmPassword}
+                                        style={{
+                                            alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 18px', borderRadius: '10px',
+                                            background: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? 'var(--widget-bg)' : 'var(--primary)',
+                                            color: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? 'var(--text-muted)' : 'var(--text-on-primary)',
+                                            border: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? '1px solid var(--border-premium)' : 'none',
+                                            fontWeight: '700', fontSize: '12px', fontFamily: 'inherit',
+                                            cursor: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? 'default' : 'pointer',
+                                        }}
+                                    >
+                                        {pwLoading ? 'Updating…' : 'Update Password'}
+                                    </button>
+                                </form>
+                                )}
+                            </div>
+
+                            {/* Linked Sign-In Methods - real cross-credential
+                                account linking (utils/accountLinking.js). The
+                                account's own primary identifier (whichever it
+                                actually signed up with) is never offered for
+                                removal here - unlinking it would permanently
+                                strand the account with no way back to its own
+                                original sign-in method. Same collapsible-
+                                accordion visual pattern as Change Password
+                                above, so this reads as one consistent family
+                                of sections rather than a bolted-on extra. */}
+                            <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', marginTop: '4px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setLinkedExpanded((v) => !v)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                        background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%',
+                                        fontFamily: 'inherit', marginBottom: linkedExpanded ? '10px' : 0,
+                                    }}
+                                >
+                                    <h4 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                                        <Link2 size={14} color="var(--accent)" /> Linked Sign-In Methods
+                                    </h4>
+                                    <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: linkedExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+                                </button>
+                                {linkedExpanded && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                            {primaryIsPhone ? <Phone size={13} /> : <Mail size={13} />}
+                                            Primary: <strong style={{ color: 'var(--text-primary)' }}>{primaryIsPhone ? syntheticEmailToPhone(user.email) : user.email}</strong>
+                                        </div>
+
+                                        {linkedIdentifiers[missingLinkType] ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px' }}>
+                                                <span style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                                    {missingLinkType === 'phone' ? <Phone size={13} /> : <Mail size={13} />}
+                                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linkedIdentifiers[missingLinkType]}</span>
+                                                </span>
+                                                <button
+                                                    type="button" onClick={() => handleUnlinkIdentifier(missingLinkType)} disabled={linkLoading}
+                                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: linkLoading ? 'default' : 'pointer', fontSize: '12px', fontWeight: '700', flexShrink: 0 }}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <form onSubmit={handleLinkIdentifier} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                                <input
+                                                    id="settings-link-identifier" name="linkIdentifier"
+                                                    type={missingLinkType === 'phone' ? 'tel' : 'email'}
+                                                    inputMode={missingLinkType === 'phone' ? 'tel' : 'email'}
+                                                    autoComplete={missingLinkType === 'phone' ? 'tel' : 'email'}
+                                                    aria-label={missingLinkType === 'phone' ? 'Mobile number to link' : 'Email to link'}
+                                                    placeholder={missingLinkType === 'phone' ? '98765 43210' : 'you@example.com'}
+                                                    value={linkDraft}
+                                                    onChange={(e) => { setLinkDraft(e.target.value); setLinkError(''); }}
+                                                    style={{ flex: '1 1 180px', minWidth: 0, padding: '10px 14px', borderRadius: '10px', border: `1px solid ${linkError ? '#EF4444' : 'var(--border-premium)'}`, background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                                />
+                                                <button
+                                                    type="submit" disabled={linkLoading || !linkDraft.trim()}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', borderRadius: '10px',
+                                                        background: (linkLoading || !linkDraft.trim()) ? 'var(--widget-bg)' : 'var(--primary)',
+                                                        color: (linkLoading || !linkDraft.trim()) ? 'var(--text-muted)' : 'var(--text-on-primary)',
+                                                        border: (linkLoading || !linkDraft.trim()) ? '1px solid var(--border-premium)' : 'none',
+                                                        fontWeight: '700', fontSize: '12px', fontFamily: 'inherit',
+                                                        cursor: (linkLoading || !linkDraft.trim()) ? 'default' : 'pointer', flexShrink: 0,
+                                                    }}
+                                                >
+                                                    <Link2 size={13} /> {linkLoading ? 'Linking…' : `Link ${missingLinkType === 'phone' ? 'Number' : 'Email'}`}
+                                                </button>
+                                            </form>
+                                        )}
+                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                            {missingLinkType === 'phone'
+                                                ? 'Link a mobile number so you can sign in with either your email or this number, using the same password.'
+                                                : 'Link an email so you can sign in with either your mobile number or this email, using the same password.'}
+                                        </span>
+                                        {linkError && <span style={{ fontSize: '12px', color: '#EF4444', fontWeight: '600' }}>{linkError}</span>}
+                                        {linkSuccess && <span style={{ fontSize: '12px', color: '#10B981', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}><CheckCircle size={13} /> Linked successfully.</span>}
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : isConfigured ? (
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                            <form onSubmit={handleAuthSubmit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                <div>
+                                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>{authMode === 'signup' ? 'Create a Cloud Account' : 'Sign In to Cloud Sync'}</strong>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                        {authMode === 'signup' ? 'Sign up to back up and sync your data across devices.' : 'Sign in to enable backup and sync across devices.'}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    <div style={{ flex: '1 1 180px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px' }}>
+                                        <Mail size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                                        <input
+                                            id="settings-auth-email" name="email" type="email" autoComplete="email" aria-label="Email"
+                                            placeholder="Email" value={authEmail}
+                                            onChange={(e) => { setAuthEmail(e.target.value); setAuthError(''); }}
+                                            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                        />
+                                    </div>
+                                    <div style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px' }}>
+                                        <Lock size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                                        <input
+                                            id="settings-auth-password" name="password" type="password" autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'} aria-label="Password"
+                                            placeholder="Password" value={authPassword}
+                                            onChange={(e) => { setAuthPassword(e.target.value); setAuthError(''); }}
+                                            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                        />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                                    <button
+                                        type="submit"
+                                        disabled={authLoading || !authEmail.trim() || !authPassword}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '12px',
+                                            background: (authLoading || !authEmail.trim() || !authPassword) ? 'var(--widget-bg)' : 'var(--primary)',
+                                            color: (authLoading || !authEmail.trim() || !authPassword) ? 'var(--text-muted)' : 'var(--text-on-primary)',
+                                            border: (authLoading || !authEmail.trim() || !authPassword) ? '1px solid var(--border-premium)' : 'none',
+                                            fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
+                                            cursor: (authLoading || !authEmail.trim() || !authPassword) ? 'default' : 'pointer',
+                                        }}
+                                    >
+                                        {authLoading ? 'Please wait…' : authMode === 'signup' ? 'Register' : 'Login'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setAuthMode((m) => (m === 'signup' ? 'login' : 'signup')); setAuthError(''); }}
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--accent)', fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}
+                                    >
+                                        {authMode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Create one'}
+                                    </button>
+                                </div>
+                            </form>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border-premium)' }} />
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px' }}>OR</span>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border-premium)' }} />
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={handleGoogleSignIn}
+                                disabled={authLoading}
+                                style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '10px 20px', borderRadius: '12px',
+                                    background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)',
+                                    fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', cursor: authLoading ? 'default' : 'pointer', opacity: authLoading ? 0.6 : 1,
+                                }}
+                            >
+                                {/* Real, official Google "G" mark colors - not a
+                                    single-tone icon, since Google's own brand
+                                    guidelines call for the full multi-color mark
+                                    on a "Sign in with Google" button. */}
+                                <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+                                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z" />
+                                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.9 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+                                    <path fill="#4CAF50" d="M24 44c5.4 0 10.3-1.8 14-5.5l-6.4-5.4C29.5 34.8 26.9 36 24 36c-5.3 0-9.7-3.1-11.3-7.6l-6.6 5.1C9.6 39.6 16.3 44 24 44z" />
+                                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.6l6.4 5.4C40.8 36.4 44 30.7 44 24c0-1.3-.1-2.7-.4-3.5z" />
+                                </svg>
+                                Continue with Google
+                            </button>
+
+                            {authError && <span style={{ fontSize: '12px', color: '#EF4444', fontWeight: '600' }}>{authError}</span>}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <CloudOff size={16} color="var(--text-muted)" />
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cloud sync isn't configured yet - all data stays on this device.</span>
+                        </div>
+                    )}
+                    </div>
+
+                    <div style={{ marginTop: '10px', padding: '20px', background: isConfigured ? 'rgba(99, 102, 241, 0.06)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                        {isConfigured && user ? (
+                            <>
+                                <div>
+                                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                        {/* Real, visual status indicator - green while
+                                            healthy, red during a genuine sync error, so
+                                            this reads unambiguously as a live status
+                                            light at a glance. */}
+                                        <span style={{
+                                            width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0, display: 'inline-block',
+                                            background: syncStatus === 'error' ? '#EF4444' : '#10B981',
+                                            boxShadow: syncStatus === 'error' ? '0 0 6px rgba(239, 68, 68, 0.6)' : '0 0 6px rgba(16, 185, 129, 0.6)',
+                                        }} />
+                                        Synced as {user.email}
+                                    </strong>
+                                    <span style={{ fontSize: '12px', color: syncStatus === 'error' ? '#EF4444' : 'var(--text-secondary)', fontWeight: syncStatus === 'error' ? '700' : '400' }}>
+                                        {syncStatus === 'error'
+                                            ? `Sync Error - Retry${syncError ? ` (${syncError})` : ''}`
+                                            : isSyncing ? 'Syncing…' : lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}.` : 'Not synced yet.'}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    {/* Real, dedicated Re-Sync button - only shown
+                                        during a genuine error state, per this
+                                        request's own explicit "clear 'Re-Sync' button
+                                        that triggers a fresh scan" ask. Calls
+                                        pullFromCloud (checking what's actually on the
+                                        server) rather than reusing Sync Now's own push
+                                        action - a real, distinct recovery action from
+                                        the normal happy-path manual sync below. */}
+                                    {syncStatus === 'error' && (
+                                        <button type="button" onClick={pullFromCloud} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}><RotateCcw size={15} /> {isSyncing ? 'Retrying…' : 'Re-Sync'}</button>
+                                    )}
+                                    <button type="button" onClick={pushToCloud} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}><RefreshCw size={15} /> {isSyncing ? 'Syncing…' : 'Sync Now'}</button>
+                                    <button type="button" onClick={logout} title="Sign Out" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: '#EF4444', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}><LogOut size={15} /> Sign Out</button>
+                                </div>
+                            </>
+                        ) : isConfigured ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Cloud size={16} color="var(--text-muted)" />
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Not signed in yet - use the Cloud Sync &amp; Account Management card above to log in or create an account.
+                                </span>
+                            </div>
+                        ) : (
+                            <div>
+                                <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}><CloudOff size={16} color="var(--text-muted)" /> Cloud Sync Not Configured</strong>
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Running in local-only mode - all data stays on this device. Add your Firebase project credentials to src/firebase/config.js to enable cross-device sync.
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </SettingsSection>
+
+                <SettingsSection icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                         {Object.keys(settings.activeModules).map(mod => (
                             <div key={mod} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
@@ -1328,29 +1832,30 @@ const SettingsPage = () => {
                             </div>
                         ))}
                     </div>
-                </div>
+                </SettingsSection>
 
-                {/* Three independent, explicit column stacks - Security & API
-                    alone in column 1; Display & Environment followed by Master
-                    Audio Mixer & Channels in column 2; System Defaults followed
-                    by Automation & Backup in column 3. Standard CSS Grid
-                    row-based auto-placement genuinely cannot produce this
-                    exact structure from a simple DOM order (it wraps back to
-                    column 1 at the start of every new row, regardless of which
-                    column the preceding card was in) - three explicit flex
-                    columns is what correctly, robustly groups cards by column
-                    regardless of each card's own height. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', alignItems: 'flex-start' }}>
-                    <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
+                <SettingsSection icon={Shield} title="Security & API Integrations" subtitle="OS lock, biometrics, and every connected credential">
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Shield size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Security & API</h3></div>
                     <div>
                         <label htmlFor="appPin" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            <span>OS Lock PIN</span>
+                            <span>App PIN</span>
                             <span style={{ color: isPinConfigured(settings.appPin) ? 'var(--success)' : 'var(--text-muted)', fontWeight: '600' }}>
                                 {isPinConfigured(settings.appPin) ? 'Lock Enabled' : 'Lock Disabled'}
                             </span>
                         </label>
+                        {/* One PIN, one setup flow - previously two nearly-
+                            identical "type a 4-digit PIN" sections (this one
+                            for locking individual modules while already
+                            inside the app, a separate "Quick Sign-In PIN"
+                            below for skipping your password on this device)
+                            asked for what looked like the same thing twice.
+                            Setting a PIN here now does both jobs at once -
+                            see utils/quickPin.js for how QuickPinUnlockScreen
+                            reads this exact same value. */}
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+                            One PIN for everything: unlock the app on this device instead of retyping your password, and gate individual modules below.
+                        </span>
                         <input
                             id="appPin" name="appPin" type="password" inputMode="numeric" maxLength="4"
                             placeholder={isPinConfigured(settings.appPin) ? 'Enter a new 4-digit PIN, or clear to disable' : 'Enter a 4-digit PIN to enable'}
@@ -1428,54 +1933,15 @@ const SettingsPage = () => {
                             )}
                         </div>
                     )}
-                    {/* Quick Sign-In PIN - only meaningful with a real, live
-                        Firebase session to gate (see AppRoot.jsx's Gate +
-                        QuickPinUnlockScreen.jsx); hidden entirely in
-                        local-only mode where there's no sign-in to skip. */}
-                    {isConfigured && user && (
-                        <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: quickPinEnabled ? '0' : '10px' }}>
-                                <div style={{ minWidth: 0 }}>
-                                    <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Quick Sign-In PIN</strong>
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Skip retyping your password on this device - unlock with a 4-digit PIN instead</span>
-                                </div>
-                                <span style={{ fontSize: '11px', fontWeight: '700', color: quickPinEnabled ? 'var(--success)' : 'var(--text-muted)', flexShrink: 0 }}>
-                                    {quickPinEnabled ? 'Enabled' : 'Disabled'}
-                                </span>
-                            </div>
-                            {quickPinEnabled ? (
-                                <button
-                                    type="button" onClick={handleDisableQuickPin}
-                                    style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                    <Unlock size={14} /> Disable Quick PIN
-                                </button>
-                            ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                    <input
-                                        id="quickPin" name="quickPin" type="password" inputMode="numeric" maxLength="4"
-                                        aria-label="Quick Sign-In PIN"
-                                        placeholder="Enter a 4-digit PIN"
-                                        value={quickPinDraft}
-                                        onChange={(e) => { setQuickPinDraft(e.target.value.replace(/\D/g, '').slice(0, 4)); setQuickPinError(''); }}
-                                        style={{ flex: '1 1 140px', minWidth: 0, padding: '10px 14px', borderRadius: '12px', border: `1px solid ${quickPinError ? '#EF4444' : 'var(--border-premium)'}`, background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', letterSpacing: '4px', boxSizing: 'border-box' }}
-                                    />
-                                    <button
-                                        type="button" onClick={handleSaveQuickPin}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
-                                    >
-                                        <Save size={14} /> Enable
-                                    </button>
-                                </div>
-                            )}
-                            {quickPinError && <span style={{ fontSize: '11px', color: '#EF4444', marginTop: '6px', display: 'block' }}>{quickPinError}</span>}
-                            {quickPinSaved && (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: '700', color: 'var(--success)', marginTop: '8px' }}>
-                                    <CheckCircle size={13} /> Quick PIN Enabled
-                                </span>
-                            )}
-                        </div>
-                    )}
+                    {/* Sub-group label - visually separates the two real
+                        concerns this one card covers (device lock vs. API
+                        integrations) so it reads as two clearly organized
+                        groups instead of one long, undifferentiated list
+                        of fields. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '4px 0 -6px 0' }}>
+                        <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', whiteSpace: 'nowrap' }}>API Integrations</span>
+                        <div style={{ flex: 1, height: '1px', background: 'var(--border-premium)' }} />
+                    </div>
                     <LockedApiField label="GitHub API Token" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.githubToken}>
                         <div>
                             <label htmlFor="githubToken" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -1641,11 +2107,118 @@ const SettingsPage = () => {
                         </div>
                     </LockedApiField>
                 </div>
-                    </div>
 
-                    <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Monitor size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Display & Environment</h3></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cpu size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>AI API Integrations</h3></div>
+
+                    <LockedApiField label="OpenAI (ChatGPT) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.openaiApiKey}>
+                        <div>
+                            <label htmlFor="openaiApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>OpenAI (ChatGPT) API Key</span>
+                                <span style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    color: settings.openaiApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                                    fontWeight: '700', fontSize: '12px',
+                                }}>
+                                    {settings.openaiApiKeyConfirmed && <Check size={13} />}
+                                    {settings.openaiApiKeyConfirmed ? 'Connected' : 'Not Connected'}
+                                </span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    id="openaiApiKey" name="openaiApiKey" type="password" placeholder="sk-xxxxxxxxxxxxxxxxxxxx"
+                                    value={settings.openaiApiKey} onChange={(e) => handleChange('openaiApiKey', e.target.value)}
+                                    style={{
+                                        flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
+                                        border: `1px solid ${(openaiKeyStatus === 'invalid' || openaiKeyStatus === 'error') ? '#EF4444' : openaiKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => confirmApiField('openaiApiKeyConfirmed')}
+                                    disabled={openaiKeyStatus !== 'connected'}
+                                    title={openaiKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
+                                        background: openaiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: openaiKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${openaiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
+                                        cursor: openaiKeyStatus === 'connected' ? 'pointer' : 'default',
+                                        opacity: openaiKeyStatus === 'connected' ? 1 : 0.6,
+                                    }}
+                                >
+                                    <Check size={14} /> Confirm
+                                </button>
+                            </div>
+                            <span style={{ fontSize: '11px', color: (openaiKeyStatus === 'invalid' || openaiKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {openaiKeyStatus === 'checking' && 'Checking…'}
+                                {openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed && 'Key verified - click Confirm to save'}
+                                {openaiKeyStatus === 'connected' && settings.openaiApiKeyConfirmed && 'Key valid and connected'}
+                                {openaiKeyStatus === 'invalid' && 'Invalid API key'}
+                                {openaiKeyStatus === 'error' && 'Could not reach OpenAI to verify'}
+                                {openaiKeyStatus === 'idle' && 'Enter a key to verify it'}
+                            </span>
+                        </div>
+                    </LockedApiField>
+
+                    <LockedApiField label="Google (Gemini) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.geminiApiKey}>
+                        <div>
+                            <label htmlFor="geminiApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>Google (Gemini) API Key</span>
+                                <span style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    color: settings.geminiApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                                    fontWeight: '700', fontSize: '12px',
+                                }}>
+                                    {settings.geminiApiKeyConfirmed && <Check size={13} />}
+                                    {settings.geminiApiKeyConfirmed ? 'Connected' : 'Not Connected'}
+                                </span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    id="geminiApiKey" name="geminiApiKey" type="password" placeholder="AIzaSyxxxxxxxxxxxxxxxxxxxx"
+                                    value={settings.geminiApiKey} onChange={(e) => handleChange('geminiApiKey', e.target.value)}
+                                    style={{
+                                        flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
+                                        border: `1px solid ${(geminiKeyStatus === 'invalid' || geminiKeyStatus === 'error') ? '#EF4444' : geminiKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => confirmApiField('geminiApiKeyConfirmed')}
+                                    disabled={geminiKeyStatus !== 'connected'}
+                                    title={geminiKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
+                                        background: geminiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: geminiKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${geminiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
+                                        cursor: geminiKeyStatus === 'connected' ? 'pointer' : 'default',
+                                        opacity: geminiKeyStatus === 'connected' ? 1 : 0.6,
+                                    }}
+                                >
+                                    <Check size={14} /> Confirm
+                                </button>
+                            </div>
+                            <span style={{ fontSize: '11px', color: (geminiKeyStatus === 'invalid' || geminiKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {geminiKeyStatus === 'checking' && 'Checking…'}
+                                {geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed && 'Key verified - click Confirm to save'}
+                                {geminiKeyStatus === 'connected' && settings.geminiApiKeyConfirmed && 'Key valid and connected'}
+                                {geminiKeyStatus === 'invalid' && 'Invalid API key'}
+                                {geminiKeyStatus === 'error' && 'Could not reach Gemini to verify'}
+                                {geminiKeyStatus === 'idle' && 'Enter a key to verify it'}
+                            </span>
+                        </div>
+                    </LockedApiField>
+                </div>
+
+                </SettingsSection>
+
+                <SettingsSection icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and glass visual customization">
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>System Theme</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose your visual environment</span></div>
                         <select id="themeMode" name="themeMode" aria-label="System Theme" value={settings.themeMode} onChange={(e) => handleChange('themeMode', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
@@ -1667,137 +2240,11 @@ const SettingsPage = () => {
                             <option value="12 Hour (AM/PM)" style={{ background: 'var(--surface-inset)' }}>12 Hour (AM/PM)</option><option value="24 Hour" style={{ background: 'var(--surface-inset)' }}>24 Hour</option>
                         </select>
                     </div>
-                </div>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Music size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Master Audio Mixer & Channels</h3></div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Live volume and mute per channel - drag applies instantly. Tap the note icon to manage custom sounds.</span>
-                    <SoundChannelCard channelKey="uiFeedback" icon={<Sliders size={14} color="var(--accent)" />} onManage={() => setManageSoundsChannel('uiFeedback')} />
-                    <SoundChannelCard channelKey="taskAlerts" icon={<Bell size={14} color="var(--accent)" />} onManage={() => setManageSoundsChannel('taskAlerts')} />
-
-                    {/* Master Volume - the real, shared Music/Audio player
-                        volume (not a UI-sound channel), separated visually
-                        from the rows above since it drives a genuinely
-                        different thing: whatever track is actually playing
-                        in the Audio Hub, in real time, both ways. */}
-                    <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                            <Play size={14} color="var(--accent)" />
-                            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>Master Volume</span>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>· Music &amp; Audio player</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--bg-main)', padding: '10px 16px', borderRadius: '14px', border: '1px solid var(--border-premium)' }}>
-                            <button
-                                type="button" onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'}
-                                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
-                            >
-                                {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                            </button>
-                            <SmoothRangeSlider
-                                id="master-volume-slider" ariaLabel="Master volume"
-                                value={volume} min="0" max="1" step="0.05" width="100%"
-                                onChange={(v) => setVolume(v)}
-                            />
-                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', width: '32px', textAlign: 'right', fontWeight: '700', flexShrink: 0 }}>
-                                {isMuted ? '--' : `${Math.round(volume * 100)}%`}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                    </div>
-
-                    <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: '24px', minWidth: 0 }}>
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Sliders size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>System Defaults</h3></div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '16px' }}>
-                        <div><label htmlFor="currency" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><DollarSign size={14}/> Currency</label>
-                            <select id="currency" name="currency" value={globalSettings.currencySymbol} onChange={(e) => updateGlobalSetting('currencySymbol', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="₹" style={{ background: 'var(--surface-inset)' }}>₹ INR</option><option value="$" style={{ background: 'var(--surface-inset)' }}>$ USD</option><option value="€" style={{ background: 'var(--surface-inset)' }}>€ EUR</option></select>
-                        </div>
-                        <div><label htmlFor="weightUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Activity size={14}/> Weight Unit</label>
-                            <select id="weightUnit" name="weightUnit" value={settings.weightUnit} onChange={(e) => handleChange('weightUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="kg" style={{ background: 'var(--surface-inset)' }}>Kilograms (kg)</option><option value="lbs" style={{ background: 'var(--surface-inset)' }}>Pounds (lbs)</option></select>
-                        </div>
-                        <div><label htmlFor="temperatureUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Thermometer size={14}/> Temperature Unit</label>
-                            <select id="temperatureUnit" name="temperatureUnit" value={settings.temperatureUnit} onChange={(e) => handleChange('temperatureUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="°C" style={{ background: 'var(--surface-inset)' }}>Celsius (°C)</option><option value="°F" style={{ background: 'var(--surface-inset)' }}>Fahrenheit (°F)</option></select>
-                        </div>
-                    </div>
-                </div>
-
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cloud size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Automation & Backup</h3></div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Auto-Backup Frequency</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Automatically back up to the cloud this often while the app is open</span></div>
-                        <select id="autoBackupFreq" name="autoBackupFreq" aria-label="Auto-Backup Frequency" value={settings.autoBackupFreq} onChange={(e) => handleChange('autoBackupFreq', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: 'border-box' }}>
-                            <option value="Daily" style={{ background: 'var(--surface-inset)' }}>Daily</option><option value="Weekly" style={{ background: 'var(--surface-inset)' }}>Weekly</option><option value="Monthly" style={{ background: 'var(--surface-inset)' }}>Monthly</option>
-                        </select>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            {!isConfigured || !user
-                                ? 'Sign in above to enable cloud backup.'
-                                : isSyncing
-                                    ? 'Backing up…'
-                                    : lastSyncedAt
-                                        ? `Last backed up ${lastSyncedAt.toLocaleString()}.`
-                                        : 'Not backed up yet.'}
-                        </span>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <button
-                                type="button"
-                                onClick={() => { setActiveSyncDirection('push'); pushToCloud(); }}
-                                disabled={!isConfigured || !user || isSyncing}
-                                style={{
-                                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 12px',
-                                    background: 'var(--surface-inset)', color: 'var(--text-primary)',
-                                    border: '1px solid var(--border-premium)', borderRadius: '12px',
-                                    fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
-                                    cursor: (!isConfigured || !user || isSyncing) ? 'default' : 'pointer',
-                                    opacity: (!isConfigured || !user || isSyncing) ? 0.6 : 1,
-                                    minWidth: 0,
-                                }}
-                            >
-                                <RefreshCw size={15} /> {activeSyncDirection === 'push' && isSyncing ? 'Backing Up…' : 'Backup Now'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setSettingsConfirm({
-                                    title: 'Restore from Cloud',
-                                    message: 'This will overwrite your local data with your most recent cloud backup. Any changes made only on this device since your last backup will be lost. Continue?',
-                                    onConfirm: () => {
-                                        setSettingsConfirm(null);
-                                        setActiveSyncDirection('pull');
-                                        pullFromCloud();
-                                    },
-                                })}
-                                disabled={!isConfigured || !user || isSyncing}
-                                style={{
-                                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 12px',
-                                    background: 'var(--surface-inset)', color: 'var(--text-primary)',
-                                    border: '1px solid var(--border-premium)', borderRadius: '12px',
-                                    fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
-                                    cursor: (!isConfigured || !user || isSyncing) ? 'default' : 'pointer',
-                                    opacity: (!isConfigured || !user || isSyncing) ? 0.6 : 1,
-                                    minWidth: 0,
-                                }}
-                            >
-                                <Download size={15} /> {activeSyncDirection === 'pull' && isSyncing ? 'Restoring…' : 'Restore Data'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                    </div>
-                </div>
-
-                {/* Glassmorphism & Visual Customization - inserted here,
-                    directly above Storage & Data Management, without
-                    touching any card in the 3-column grid above it.
-                    The glow perimeter is this card's one signature touch -
-                    thematically fitting since the card is literally about
-                    glassmorphism - built from the app's own --primary-rgb
-                    token rather than a new, unrelated color. */}
-                <div style={{
-                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px',
-                    padding: '24px', display: 'flex', flexDirection: 'column', gap: '4px',
-                    boxShadow: '0 0 0 1px rgba(var(--primary-rgb), 0.06), 0 0 32px rgba(var(--primary-rgb), 0.05), inset 0 1px 0 rgba(255,255,255,0.04)',
+                    <div style={{
+                        background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px',
+                        padding: '24px', display: 'flex', flexDirection: 'column', gap: '4px',
+                        boxShadow: '0 0 0 1px rgba(var(--primary-rgb), 0.06), 0 0 32px rgba(var(--primary-rgb), 0.05), inset 0 1px 0 rgba(255,255,255,0.04)',
                     position: 'relative', overflow: 'hidden',
                 }}>
                     {/* Faint top sheen - a single, quiet gradient line rather
@@ -1884,11 +2331,14 @@ const SettingsPage = () => {
                     </div>
                 </div>
 
-                {/* Custom Background / Wallpaper Selector - genuinely
-                    swaps the live background component in DashboardLayout,
-                    not just a visual preview. Wrapped in a real, clickable
-                    accordion - the grid only renders in the DOM while
-                    genuinely expanded. */}
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Battery size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Performance / Battery Saver Mode</h3></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Reduce Blur & Motion</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cuts backdrop blur and freezes background animations for low-end devices</span></div>
+                        <ToggleSwitch checked={settings.performanceSaverMode} onChange={(v) => handleChange('performanceSaverMode', v)} />
+                    </div>
+                    </div>
+
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: wallpaperExpanded ? '18px' : 0 }}>
                     <button
                         type="button"
@@ -1944,9 +2394,6 @@ const SettingsPage = () => {
                     )}
                 </div>
 
-                {/* Productivity Widget Customization - genuinely filters
-                    the real dashboard queue in HomePage.jsx by each real
-                    item's true source module, not a cosmetic-only toggle. */}
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: widgetExpanded ? '16px' : 0 }}>
                     <button
                         type="button"
@@ -2001,217 +2448,134 @@ const SettingsPage = () => {
                     )}
                 </div>
 
-                {/* Performance / Battery Saver Mode - genuinely toggles the
-                    real nexus-battery-saver CSS class (forced-low blur +
-                    frozen animations, including the sky itself). */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Battery size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Performance / Battery Saver Mode</h3></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Reduce Blur & Motion</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cuts backdrop blur and freezes background animations for low-end devices</span></div>
-                        <ToggleSwitch checked={settings.performanceSaverMode} onChange={(v) => handleChange('performanceSaverMode', v)} />
+                </SettingsSection>
+
+                <SettingsSection icon={Music} title="Master Audio Mixer & Channels" subtitle="UI sounds, task alerts, and playback volume">
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Live volume and mute per channel - drag applies instantly. Tap the note icon to manage custom sounds.</span>
+                    <SoundChannelCard channelKey="uiFeedback" icon={<Sliders size={14} color="var(--accent)" />} onManage={() => setManageSoundsChannel('uiFeedback')} />
+                    <SoundChannelCard channelKey="taskAlerts" icon={<Bell size={14} color="var(--accent)" />} onManage={() => setManageSoundsChannel('taskAlerts')} />
+
+                    {/* Master Volume - the real, shared Music/Audio player
+                        volume (not a UI-sound channel), separated visually
+                        from the rows above since it drives a genuinely
+                        different thing: whatever track is actually playing
+                        in the Audio Hub, in real time, both ways. */}
+                    <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                            <Play size={14} color="var(--accent)" />
+                            <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>Master Volume</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>· Music &amp; Audio player</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--bg-main)', padding: '10px 16px', borderRadius: '14px', border: '1px solid var(--border-premium)' }}>
+                            <button
+                                type="button" onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'}
+                                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                            >
+                                {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                            </button>
+                            <SmoothRangeSlider
+                                id="master-volume-slider" ariaLabel="Master volume"
+                                value={volume} min="0" max="1" step="0.05" width="100%"
+                                onChange={(v) => setVolume(v)}
+                            />
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', width: '32px', textAlign: 'right', fontWeight: '700', flexShrink: 0 }}>
+                                {isMuted ? '--' : `${Math.round(volume * 100)}%`}
+                            </span>
+                        </div>
                     </div>
-                </div>
 
-                {/* Cloud Sync & Account Management - a real, dedicated card
-                    housing the real Firebase Authentication login/signup
-                    form (signInWithEmailAndPassword / createUserWithEmail
-                    AndPassword, via the existing, real useAuth() context).
-                    Genuinely inserted between Performance/Battery Saver and
-                    Storage & Data Management, per this request's exact
-                    placement instruction. The card itself is now ALWAYS
-                    physically rendered - never conditional on isConfigured
-                    or user - per this request's explicit "must be
-                    physically rendered, never hidden or conditional" ask.
-                    Its own internal content honestly reflects whichever of
-                    the 3 real auth states currently applies, so a signed-in
-                    user sees a real confirmation here (not a redundant,
-                    duplicate login form - that's still never shown twice on
-                    the same page), rather than the whole card vanishing. */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cloud size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Cloud Sync & Account Management</h3></div>
+                    {/* Off by default - see AudioPlayerContext.jsx's own
+                        comment on why: this was previously invisible,
+                        always-on behavior that read as "audio glitches /
+                        two tracks playing at once" with zero explanation.
+                        Still a real, working feature for anyone who wants
+                        it - just opt-in and clearly labeled now. */}
+                    <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ minWidth: 0 }}>
+                            <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Crossfade Between Tracks</strong>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Smoothly blend into the next track over 4 seconds instead of a clean cut</span>
+                        </div>
+                        <ToggleSwitch checked={crossfadeEnabled} onChange={() => setCrossfadeEnabled((v) => !v)} />
+                    </div>
+                </SettingsSection>
 
-                    {isConfigured && user ? (
-                        <>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#10B981', boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)', flexShrink: 0, display: 'inline-block' }} />
-                                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Signed in as <strong style={{ color: 'var(--text-primary)' }}>{user.email}</strong> - manage sync status and sign out below in Storage &amp; Data Management.</span>
-                            </div>
+                <SettingsSection icon={Sliders} title="System Defaults" subtitle="Currency, weight, and temperature units">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '16px' }}>
+                        <div><label htmlFor="currency" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><DollarSign size={14}/> Currency</label>
+                            <select id="currency" name="currency" value={globalSettings.currencySymbol} onChange={(e) => updateGlobalSetting('currencySymbol', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="₹" style={{ background: 'var(--surface-inset)' }}>₹ INR</option><option value="$" style={{ background: 'var(--surface-inset)' }}>$ USD</option><option value="€" style={{ background: 'var(--surface-inset)' }}>€ EUR</option></select>
+                        </div>
+                        <div><label htmlFor="weightUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Activity size={14}/> Weight Unit</label>
+                            <select id="weightUnit" name="weightUnit" value={settings.weightUnit} onChange={(e) => handleChange('weightUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="kg" style={{ background: 'var(--surface-inset)' }}>Kilograms (kg)</option><option value="lbs" style={{ background: 'var(--surface-inset)' }}>Pounds (lbs)</option></select>
+                        </div>
+                        <div><label htmlFor="temperatureUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Thermometer size={14}/> Temperature Unit</label>
+                            <select id="temperatureUnit" name="temperatureUnit" value={settings.temperatureUnit} onChange={(e) => handleChange('temperatureUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="°C" style={{ background: 'var(--surface-inset)' }}>Celsius (°C)</option><option value="°F" style={{ background: 'var(--surface-inset)' }}>Fahrenheit (°F)</option></select>
+                        </div>
+                    </div>
+                </SettingsSection>
 
-                            {/* Real password create/update section - only
-                                shown once signed in. The "Current Password"
-                                field is only shown for a user who genuinely
-                                already has a real password credential
-                                linked (user.providerData contains
-                                'password') - a Google-only user has no
-                                current password to provide, so this is
-                                genuinely their first time setting one, not
-                                changing an existing one. */}
-                            <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', marginTop: '4px' }}>
-                                {/* Collapsible accordion header - precisely
-                                    matches the Custom Background / Productivity
-                                    Widget accordion template above: same icon
-                                    placement, same ChevronDown rotation/
-                                    transition, same hover behavior, so this
-                                    section reads as visually consistent with
-                                    every other collapsible in this module.
-                                    Defaults closed (passwordExpanded starts
-                                    false) so this form doesn't clutter the
-                                    page until the user genuinely wants it. */}
-                                <button
-                                    type="button"
-                                    onClick={() => setPasswordExpanded((v) => !v)}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
-                                        background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%',
-                                        fontFamily: 'inherit', marginBottom: passwordExpanded ? '10px' : 0,
-                                    }}
-                                >
-                                    <h4 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                                        <Lock size={14} color="var(--accent)" /> {user.providerData.some((p) => p.providerId === 'password') ? 'Change Password' : 'Set a Password'}
-                                    </h4>
-                                    <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: passwordExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
-                                </button>
-                                {passwordExpanded && (
-                                <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    {user.providerData.some((p) => p.providerId === 'password') && (
-                                        <input
-                                            id="settings-pw-current" name="current-password" type="password" autoComplete="current-password" aria-label="Current password"
-                                            placeholder="Current password" value={pwCurrentPassword}
-                                            onChange={(e) => { setPwCurrentPassword(e.target.value); setPwError(''); setPwSuccess(false); }}
-                                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                                        />
-                                    )}
-                                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                        <input
-                                            id="settings-pw-new" name="new-password" type="password" autoComplete="new-password" aria-label="New password"
-                                            placeholder="New password" value={pwNewPassword}
-                                            onChange={(e) => { setPwNewPassword(e.target.value); setPwError(''); setPwSuccess(false); }}
-                                            style={{ flex: '1 1 160px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                                        />
-                                        <input
-                                            id="settings-pw-confirm" name="confirm-new-password" type="password" autoComplete="new-password" aria-label="Confirm new password"
-                                            placeholder="Confirm new password" value={pwConfirmPassword}
-                                            onChange={(e) => { setPwConfirmPassword(e.target.value); setPwError(''); setPwSuccess(false); }}
-                                            style={{ flex: '1 1 160px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                                        />
-                                    </div>
-                                    <PasswordStrengthIndicator password={pwNewPassword} />
-                                    {pwError && <span style={{ fontSize: '12px', color: '#EF4444', fontWeight: '600' }}>{pwError}</span>}
-                                    {pwSuccess && <span style={{ fontSize: '12px', color: '#10B981', fontWeight: '600' }}>Password updated successfully.</span>}
-                                    <button
-                                        type="submit"
-                                        disabled={pwLoading || !pwNewPassword || !pwConfirmPassword}
-                                        style={{
-                                            alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 18px', borderRadius: '10px',
-                                            background: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? 'var(--widget-bg)' : 'var(--primary)',
-                                            color: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? 'var(--text-muted)' : 'var(--text-on-primary)',
-                                            border: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? '1px solid var(--border-premium)' : 'none',
-                                            fontWeight: '700', fontSize: '12px', fontFamily: 'inherit',
-                                            cursor: (pwLoading || !pwNewPassword || !pwConfirmPassword) ? 'default' : 'pointer',
-                                        }}
-                                    >
-                                        {pwLoading ? 'Updating…' : 'Update Password'}
-                                    </button>
-                                </form>
-                                )}
-                            </div>
-                        </>
-                    ) : isConfigured ? (
-                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                            <form onSubmit={handleAuthSubmit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                                <div>
-                                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>{authMode === 'signup' ? 'Create a Cloud Account' : 'Sign In to Cloud Sync'}</strong>
-                                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                        {authMode === 'signup' ? 'Sign up to back up and sync your data across devices.' : 'Sign in to enable backup and sync across devices.'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                    <div style={{ flex: '1 1 180px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px' }}>
-                                        <Mail size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                                        <input
-                                            id="settings-auth-email" name="email" type="email" autoComplete="email" aria-label="Email"
-                                            placeholder="Email" value={authEmail}
-                                            onChange={(e) => { setAuthEmail(e.target.value); setAuthError(''); }}
-                                            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                                        />
-                                    </div>
-                                    <div style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px' }}>
-                                        <Lock size={15} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                                        <input
-                                            id="settings-auth-password" name="password" type="password" autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'} aria-label="Password"
-                                            placeholder="Password" value={authPassword}
-                                            onChange={(e) => { setAuthPassword(e.target.value); setAuthError(''); }}
-                                            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
-                                        />
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                                    <button
-                                        type="submit"
-                                        disabled={authLoading || !authEmail.trim() || !authPassword}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '12px',
-                                            background: (authLoading || !authEmail.trim() || !authPassword) ? 'var(--widget-bg)' : 'var(--primary)',
-                                            color: (authLoading || !authEmail.trim() || !authPassword) ? 'var(--text-muted)' : 'var(--text-on-primary)',
-                                            border: (authLoading || !authEmail.trim() || !authPassword) ? '1px solid var(--border-premium)' : 'none',
-                                            fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
-                                            cursor: (authLoading || !authEmail.trim() || !authPassword) ? 'default' : 'pointer',
-                                        }}
-                                    >
-                                        {authLoading ? 'Please wait…' : authMode === 'signup' ? 'Register' : 'Login'}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => { setAuthMode((m) => (m === 'signup' ? 'login' : 'signup')); setAuthError(''); }}
-                                        style={{ background: 'transparent', border: 'none', color: 'var(--accent)', fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}
-                                    >
-                                        {authMode === 'signup' ? 'Already have an account? Sign in' : 'Need an account? Create one'}
-                                    </button>
-                                </div>
-                            </form>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ flex: 1, height: '1px', background: 'var(--border-premium)' }} />
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px' }}>OR</span>
-                                <div style={{ flex: 1, height: '1px', background: 'var(--border-premium)' }} />
-                            </div>
-
+                <SettingsSection icon={Cloud} title="Automation & Backup" subtitle="Cloud backup schedule, local export, and factory reset">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Auto-Backup Frequency</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Automatically back up to the cloud this often while the app is open</span></div>
+                        <select id="autoBackupFreq" name="autoBackupFreq" aria-label="Auto-Backup Frequency" value={settings.autoBackupFreq} onChange={(e) => handleChange('autoBackupFreq', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: 'border-box' }}>
+                            <option value="Daily" style={{ background: 'var(--surface-inset)' }}>Daily</option><option value="Weekly" style={{ background: 'var(--surface-inset)' }}>Weekly</option><option value="Monthly" style={{ background: 'var(--surface-inset)' }}>Monthly</option>
+                        </select>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                            {!isConfigured || !user
+                                ? 'Sign in above to enable cloud backup.'
+                                : isSyncing
+                                    ? 'Backing up…'
+                                    : lastSyncedAt
+                                        ? `Last backed up ${lastSyncedAt.toLocaleString()}.`
+                                        : 'Not backed up yet.'}
+                        </span>
+                        <div style={{ display: 'flex', gap: '10px' }}>
                             <button
                                 type="button"
-                                onClick={handleGoogleSignIn}
-                                disabled={authLoading}
+                                onClick={() => { setActiveSyncDirection('push'); pushToCloud(); }}
+                                disabled={!isConfigured || !user || isSyncing}
                                 style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '10px 20px', borderRadius: '12px',
-                                    background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)',
-                                    fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', cursor: authLoading ? 'default' : 'pointer', opacity: authLoading ? 0.6 : 1,
+                                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 12px',
+                                    background: 'var(--surface-inset)', color: 'var(--text-primary)',
+                                    border: '1px solid var(--border-premium)', borderRadius: '12px',
+                                    fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
+                                    cursor: (!isConfigured || !user || isSyncing) ? 'default' : 'pointer',
+                                    opacity: (!isConfigured || !user || isSyncing) ? 0.6 : 1,
+                                    minWidth: 0,
                                 }}
                             >
-                                {/* Real, official Google "G" mark colors - not a
-                                    single-tone icon, since Google's own brand
-                                    guidelines call for the full multi-color mark
-                                    on a "Sign in with Google" button. */}
-                                <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
-                                    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z" />
-                                    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.9 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.5 6 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-                                    <path fill="#4CAF50" d="M24 44c5.4 0 10.3-1.8 14-5.5l-6.4-5.4C29.5 34.8 26.9 36 24 36c-5.3 0-9.7-3.1-11.3-7.6l-6.6 5.1C9.6 39.6 16.3 44 24 44z" />
-                                    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.6l6.4 5.4C40.8 36.4 44 30.7 44 24c0-1.3-.1-2.7-.4-3.5z" />
-                                </svg>
-                                Continue with Google
+                                <RefreshCw size={15} /> {activeSyncDirection === 'push' && isSyncing ? 'Backing Up…' : 'Backup Now'}
                             </button>
-
-                            {authError && <span style={{ fontSize: '12px', color: '#EF4444', fontWeight: '600' }}>{authError}</span>}
+                            <button
+                                type="button"
+                                onClick={() => setSettingsConfirm({
+                                    title: 'Restore from Cloud',
+                                    message: 'This will overwrite your local data with your most recent cloud backup. Any changes made only on this device since your last backup will be lost. Continue?',
+                                    onConfirm: () => {
+                                        setSettingsConfirm(null);
+                                        setActiveSyncDirection('pull');
+                                        pullFromCloud();
+                                    },
+                                })}
+                                disabled={!isConfigured || !user || isSyncing}
+                                style={{
+                                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 12px',
+                                    background: 'var(--surface-inset)', color: 'var(--text-primary)',
+                                    border: '1px solid var(--border-premium)', borderRadius: '12px',
+                                    fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
+                                    cursor: (!isConfigured || !user || isSyncing) ? 'default' : 'pointer',
+                                    opacity: (!isConfigured || !user || isSyncing) ? 0.6 : 1,
+                                    minWidth: 0,
+                                }}
+                            >
+                                <Download size={15} /> {activeSyncDirection === 'pull' && isSyncing ? 'Restoring…' : 'Restore Data'}
+                            </button>
                         </div>
-                    ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <CloudOff size={16} color="var(--text-muted)" />
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cloud sync isn't configured yet - all data stays on this device.</span>
-                        </div>
-                    )}
-                </div>
+                    </div>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><HardDrive size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Storage & Data Management</h3></div>
-                    
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><HardDrive size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Storage & Data Management</h3></div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '20px' }}>
                         <div style={{ flex: '1 1 300px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -2250,66 +2614,13 @@ const SettingsPage = () => {
                         <button onClick={() => handleClearSpecific(['nexus_planner', 'nexus_study', 'nexus_syllabus', 'nexus_gym', 'nexus_finance', 'nexus_calendar'], 'Analytics (Planner, Study, Gym, Finance & Calendar source data)')} style={{ padding: '8px 14px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Clear Analytics Data</button>
                     </div>
 
-                    <div style={{ marginTop: '10px', padding: '20px', background: isConfigured ? 'rgba(99, 102, 241, 0.06)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                        {isConfigured && user ? (
-                            <>
-                                <div>
-                                    <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                        {/* Real, visual status indicator - green while
-                                            healthy, red during a genuine sync error, so
-                                            this reads unambiguously as a live status
-                                            light at a glance. */}
-                                        <span style={{
-                                            width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0, display: 'inline-block',
-                                            background: syncStatus === 'error' ? '#EF4444' : '#10B981',
-                                            boxShadow: syncStatus === 'error' ? '0 0 6px rgba(239, 68, 68, 0.6)' : '0 0 6px rgba(16, 185, 129, 0.6)',
-                                        }} />
-                                        Synced as {user.email}
-                                    </strong>
-                                    <span style={{ fontSize: '12px', color: syncStatus === 'error' ? '#EF4444' : 'var(--text-secondary)', fontWeight: syncStatus === 'error' ? '700' : '400' }}>
-                                        {syncStatus === 'error'
-                                            ? `Sync Error - Retry${syncError ? ` (${syncError})` : ''}`
-                                            : isSyncing ? 'Syncing…' : lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}.` : 'Not synced yet.'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', gap: '10px' }}>
-                                    {/* Real, dedicated Re-Sync button - only shown
-                                        during a genuine error state, per this
-                                        request's own explicit "clear 'Re-Sync' button
-                                        that triggers a fresh scan" ask. Calls
-                                        pullFromCloud (checking what's actually on the
-                                        server) rather than reusing Sync Now's own push
-                                        action - a real, distinct recovery action from
-                                        the normal happy-path manual sync below. */}
-                                    {syncStatus === 'error' && (
-                                        <button type="button" onClick={pullFromCloud} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}><RotateCcw size={15} /> {isSyncing ? 'Retrying…' : 'Re-Sync'}</button>
-                                    )}
-                                    <button type="button" onClick={pushToCloud} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}><RefreshCw size={15} /> {isSyncing ? 'Syncing…' : 'Sync Now'}</button>
-                                    <button type="button" onClick={logout} title="Sign Out" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: '#EF4444', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}><LogOut size={15} /> Sign Out</button>
-                                </div>
-                            </>
-                        ) : isConfigured ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <Cloud size={16} color="var(--text-muted)" />
-                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                    Not signed in yet - use the Cloud Sync &amp; Account Management card above to log in or create an account.
-                                </span>
-                            </div>
-                        ) : (
-                            <div>
-                                <strong style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}><CloudOff size={16} color="var(--text-muted)" /> Cloud Sync Not Configured</strong>
-                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                    Running in local-only mode - all data stays on this device. Add your Firebase project credentials to src/firebase/config.js to enable cross-device sync.
-                                </span>
-                            </div>
-                        )}
-                    </div>
-
                     <div style={{ marginTop: '10px', padding: '20px', background: 'rgba(239, 68, 68, 0.05)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                         <div><strong style={{ fontSize: '15px', color: '#EF4444', display: 'block', marginBottom: '4px' }}>Factory Reset OS</strong><span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Wipes all configurations, profiles, and module data permanently.</span></div>
                         <button type="button" onClick={() => requestHighRiskAction('factoryReset')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: '#EF4444', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}><Trash2 size={16} /> Factory Reset Data</button>
                     </div>
-                </div>
+                    </div>
+                </SettingsSection>
+
 
             </div>
 

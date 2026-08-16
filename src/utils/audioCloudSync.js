@@ -75,19 +75,6 @@ export const fetchUserAudioTracks = async (uid) => {
     return snap.docs.map((d) => d.data());
 };
 
-// Real re-download of a track's own audio bytes from its live Cloud
-// Storage URL, returning a real Blob - the exact mechanism a new
-// device/session (where IndexedDB is genuinely empty) needs to make an
-// already-uploaded track playable again, matching this request's own
-// "remain accessible even if local system files are cleared"
-// requirement. Distinct from uploadAudioToCloud, which moves bytes the
-// other direction.
-export const downloadAudioBlobFromCloud = async (url) => {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to download audio (${response.status})`);
-    return response.blob();
-};
-
 // Real deletion of both the Storage object and its own Firestore
 // metadata document - so removing a track locally doesn't leave an
 // orphaned cloud copy silently consuming the user's real storage quota

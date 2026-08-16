@@ -44,17 +44,33 @@ html.no-initial-transition .sidebar {
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-* { 
-    margin: 0; 
-    padding: 0; 
-    box-sizing: border-box; 
-    font-family: 'Inter', sans-serif; 
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Inter', sans-serif;
     /* Improves sub-pixel antialiasing crispness on WebKit/macOS browsers
        and Firefox on macOS - a real, standard rendering improvement, safe
        to apply globally since it only affects HOW text is rendered at the
        pixel level, not its own color or layout. */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* This app builds virtually every element with an inline style object,
+       almost none of which set their own line-height - verified live
+       (15 of 16 sampled text nodes on a single page) that they were all
+       falling back to the browser's own "normal" keyword. "normal" isn't
+       a fixed, predictable value: it's derived from Inter's own internal
+       font metrics, and computes to genuinely fractional pixel heights
+       (e.g. 16.66px for a 14px line) that land text on a half-pixel
+       boundary at a 2x device pixel ratio - exactly what reads as
+       soft/blurry, "fat" anti-aliased text on real phone screens. A
+       single, deliberate, unitless default here (inherited by every
+       element that doesn't set its own, exactly like font-smoothing
+       above) replaces that unpredictable per-element fallback everywhere
+       at once. Unitless so it scales proportionally with each element's
+       own font-size rather than fighting the badge/heading/body text
+       already living at very different sizes throughout this app. */
+    line-height: 1.4;
     /* Removes the default gray flash Chrome/Safari show on every tap -
        a genuine, common "this feels like a website, not an app" tell on
        mobile that a real native or PWA-wrapped app never has. */
@@ -380,9 +396,15 @@ html.nexus-battery-saver [data-diag="sky-root"] * {
 }
 
 /* SCROLLBAR HIDING */
-::-webkit-scrollbar { width: 6px; }
+/* `height` (not just `width`) is what actually controls a HORIZONTAL
+   scrollbar's thickness - without it, every horizontally-scrolling row
+   (playlist/album carousels, Recently Played, etc.) fell back to the
+   browser's default ~15-17px scrollbar instead of this same thin style,
+   which is exactly what read as a bulky/thick bar on those rows. */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+* { scrollbar-width: thin; }
 
 /* DYNAMIC-THEME GLASS MODALS - for specific, high-stakes confirmation
    dialogs (destructive/critical actions) that should render with an

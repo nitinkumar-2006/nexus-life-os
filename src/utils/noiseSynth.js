@@ -97,6 +97,19 @@ const PROFILES = {
         return normalize(signal);
     },
     whiteNoise: () => normalize(generateWhiteNoise(SAMPLE_RATE * DURATION_SECONDS)),
+    // Warm, low-passed "vinyl hiss" bed with a soft, steady low-frequency
+    // pulse - not a literal drum sample, but enough rhythmic character to
+    // read as lofi/chill rather than pure ambient texture. Same 100%-
+    // reliable, zero-network synth approach as every other profile here -
+    // replaces what used to be a direct Pixabay CDN hotlink (see
+    // audioLibraryMock.js), which is exactly the kind of unstable,
+    // rate-limited link this whole module exists to avoid.
+    lofi: () => {
+        const length = SAMPLE_RATE * DURATION_SECONDS;
+        let signal = lowPass(generateWhiteNoise(length), 0.015);
+        signal = addBursts(signal, SAMPLE_RATE, { minGapSec: 0.58, maxGapSec: 0.62, burstMs: 140, burstAmp: 0.35, tone: 85 });
+        return normalize(signal);
+    },
 };
 
 const encodeWavBlob = (samples, sampleRate) => {

@@ -20,7 +20,21 @@ import { Mail, Phone, Lock, User as UserIcon, LogIn, UserPlus, AlertCircle, KeyR
 import { useAuth } from '../context/AuthContext.jsx';
 import { getAuthErrorMessage } from '../utils/authErrorMessages.js';
 import { isValidPhoneNumber, phoneToSyntheticEmail } from '../utils/phoneAuth.js';
+import { resolveAuthEmailForIdentifier, registerPrimaryIdentifier } from '../utils/accountLinking.js';
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+
+// A real, minimal "G" mark (not a generic icon-font glyph) so the button
+// reads as genuinely "Google" at a glance, matching the multi-color brand
+// mark rather than a plain monochrome icon.
+const GoogleGlyph = () => (
+    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.62z"/>
+        <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.96v2.33A9 9 0 0 0 9 18z"/>
+        <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.03l2.99-2.33z"/>
+        <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.97l2.99 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+    </svg>
+);
 
 const glassInputStyle = (hasError) => ({
     width: '100%', padding: '13px 14px 13px 42px', borderRadius: '14px',
@@ -30,19 +44,48 @@ const glassInputStyle = (hasError) => ({
 });
 
 const LoginPage = () => {
-    const { signup, login, resetPassword } = useAuth();
+    const { signup, login, loginWithGoogle, resetPassword } = useAuth();
+    const isMobile = useIsMobile();
     const [mode, setMode] = useState('login'); // 'login' | 'signup'
     const [identifierType, setIdentifierType] = useState('email'); // 'email' | 'phone'
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
-    const [phone, setPhone] = useState('');
+    // Pre-filled with the +91 country code so most users never have to
+    // type it themselves - still fully editable for anyone outside India.
+    const [phone, setPhone] = useState('+91 ');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    // Separate from isSubmitting so the two buttons never fight over one
+    // shared "Please wait..." state - a person could otherwise start the
+    // password form, decide to use Google instead, and see stale loading
+    // state left over from whichever attempt they abandoned.
+    const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
     const [showForgotPassword, setShowForgotPassword] = useState(false);
     const [resetEmail, setResetEmail] = useState('');
     const [resetStatus, setResetStatus] = useState('idle'); // 'idle' | 'sending' | 'sent' | 'error'
     const [resetError, setResetError] = useState('');
+
+    // Desktop only, per explicit request - avoids Google's OAuth popup
+    // redirect awkwardness on mobile browsers/WebViews (small viewport,
+    // easy to lose the popup, harder to complete 2FA) rather than
+    // attempting a mobile-specific redirect flow. Email/phone + password
+    // and Quick Sign-In PIN already cover mobile sign-in completely.
+    const handleGoogleSignIn = async () => {
+        setError('');
+        setIsGoogleSubmitting(true);
+        try {
+            await loginWithGoogle();
+        } catch (err) {
+            // A user closing the popup themselves is a real, common,
+            // benign action - surfaced as the same honest error text
+            // authErrorMessages.js already maps it to, not styled as a
+            // harsher failure than it is.
+            setError(getAuthErrorMessage(err));
+        } finally {
+            setIsGoogleSubmitting(false);
+        }
+    };
 
     const handleResetPassword = async (e) => {
         e.preventDefault();
@@ -70,14 +113,33 @@ const LoginPage = () => {
             return;
         }
 
-        const resolvedEmail = identifierType === 'phone' ? phoneToSyntheticEmail(phone) : email.trim();
+        // The account's own primary identifier, exactly as before - always
+        // a valid fallback even when nothing's been linked (the normal,
+        // common case), and when there's no signal either way (offline,
+        // Firestore unreachable) below.
+        const legacyDerivedEmail = identifierType === 'phone' ? phoneToSyntheticEmail(phone) : email.trim();
+        const rawIdentifier = identifierType === 'phone' ? phone : email.trim();
 
         setIsSubmitting(true);
         try {
             if (mode === 'signup') {
-                await signup(resolvedEmail, password, name);
+                const newUser = await signup(legacyDerivedEmail, password, name);
+                // Best-effort, deliberately not awaited-with-blocking-error-
+                // handling beyond its own internal try/catch (see
+                // accountLinking.js) - a brand-new account already exists by
+                // this point regardless of whether this succeeds.
+                registerPrimaryIdentifier(rawIdentifier, identifierType, legacyDerivedEmail, newUser.uid);
             } else {
-                await login(resolvedEmail, password);
+                // Resolves a LINKED identifier (added later from Settings/
+                // Profile) to the real account it was linked to - e.g.
+                // someone who originally signed up with email now signing
+                // in with the mobile number they linked afterward. Falls
+                // straight through to the exact same behavior as before
+                // whenever nothing is linked or the lookup itself can't
+                // complete, so this can only ever add capability, never
+                // regress the existing sign-in path.
+                const linked = await resolveAuthEmailForIdentifier(rawIdentifier, identifierType);
+                await login(linked?.authEmail || legacyDerivedEmail, password);
             }
         } catch (err) {
             setError(getAuthErrorMessage(err));
@@ -185,7 +247,7 @@ const LoginPage = () => {
                         <label htmlFor="login-page-phone" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#CBD5E1', marginBottom: '6px' }}><Phone size={13} /> Mobile Number</label>
                         <div style={{ position: 'relative' }}>
                             <Phone size={16} color="#64748B" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                            <input id="login-page-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" style={glassInputStyle(false)} />
+                            <input id="login-page-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" style={glassInputStyle(false)} />
                         </div>
                     </div>
                 )}
@@ -224,6 +286,31 @@ const LoginPage = () => {
                     {isSubmitting ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
                     <style>{'@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
                 </button>
+
+                {/* Desktop-only Google Sign-in - see handleGoogleSignIn above
+                    for why this is hidden on mobile. Works for both login
+                    and signup: Firebase's own signInWithPopup call already
+                    handles a brand-new vs returning Google identity as one
+                    real call (see AuthContext.jsx's loginWithGoogle), so
+                    this doesn't need its own mode branch. */}
+                {!isMobile && (
+                    <>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '2px 0' }}>
+                            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>or</span>
+                            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleGoogleSignIn}
+                            disabled={isGoogleSubmitting}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '13px', background: 'rgba(255,255,255,0.95)', color: '#1F2937', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '14px', fontWeight: '700', fontSize: '14px', cursor: isGoogleSubmitting ? 'default' : 'pointer', opacity: isGoogleSubmitting ? 0.7 : 1, minHeight: '48px' }}
+                        >
+                            {isGoogleSubmitting ? <Loader2 size={17} style={{ animation: 'spin 0.8s linear infinite' }} /> : <GoogleGlyph />}
+                            {isGoogleSubmitting ? 'Please wait...' : 'Continue with Google'}
+                        </button>
+                    </>
+                )}
 
                 <button
                     type="button"

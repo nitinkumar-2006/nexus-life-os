@@ -1,8 +1,9 @@
 // src/pages/CalendarPage.jsx
-import { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, Sparkles, Bell, Cpu, ShieldCheck } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { parseIcsToEvents, eventsToIcs, importIcsFromUrl } from '../utils/calendarSync.js';
 
 const CalendarPage = () => {
     const isMobile = useIsMobile();
@@ -54,6 +55,91 @@ const CalendarPage = () => {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('All');
+
+    // Calendar Sync - real, file-based ICS import/export (see
+    // utils/calendarSync.js) plus a best-effort remote feed URL fetch.
+    // Imported events flow straight into the same `events` state/
+    // persistence effect every manually-added event already uses, so
+    // they're genuinely saved and show up in the month grid/agenda
+    // immediately - not a separate, disconnected "preview".
+    const icsFileInputRef = useRef(null);
+    const [feedUrl, setFeedUrl] = useState('');
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncMessage, setSyncMessage] = useState('');
+    const [syncIsError, setSyncIsError] = useState(false);
+
+    useEffect(() => {
+        if (!syncMessage) return undefined;
+        const timeoutId = setTimeout(() => setSyncMessage(''), 6000);
+        return () => clearTimeout(timeoutId);
+    }, [syncMessage]);
+
+    const handleIcsFileImport = async (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const imported = parseIcsToEvents(text);
+            if (imported.length === 0) {
+                setSyncIsError(true);
+                setSyncMessage(`No parseable events found in "${file.name}".`);
+                return;
+            }
+            setEvents((prev) => [...imported, ...prev]);
+            setSyncIsError(false);
+            setSyncMessage(`Imported ${imported.length} event${imported.length === 1 ? '' : 's'} from ${file.name}.`);
+        } catch (err) {
+            setSyncIsError(true);
+            setSyncMessage('Could not read that file - make sure it is a valid .ics export.');
+        }
+    };
+
+    const handleExportIcs = () => {
+        if (events.length === 0) {
+            setSyncIsError(true);
+            setSyncMessage('Add at least one event before exporting.');
+            return;
+        }
+        const icsContent = eventsToIcs(events);
+        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'nexus-schedule.ics';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setSyncIsError(false);
+        setSyncMessage(`Exported ${events.length} event${events.length === 1 ? '' : 's'} as nexus-schedule.ics.`);
+    };
+
+    const handleFeedImport = async () => {
+        if (!feedUrl.trim() || isSyncing) return;
+        setIsSyncing(true);
+        setSyncMessage('');
+        try {
+            const imported = await importIcsFromUrl(feedUrl.trim());
+            if (imported.length === 0) {
+                setSyncIsError(true);
+                setSyncMessage('That feed loaded but had no parseable events.');
+            } else {
+                setEvents((prev) => [...imported, ...prev]);
+                setSyncIsError(false);
+                setSyncMessage(`Synced ${imported.length} event${imported.length === 1 ? '' : 's'} from the feed.`);
+            }
+        } catch (err) {
+            // A genuine, common cause here is the feed's own server not
+            // sending permissive CORS headers to this origin - real,
+            // outside this app's control, not something to hide behind a
+            // vague "something went wrong".
+            setSyncIsError(true);
+            setSyncMessage(`Couldn't fetch that feed (${err.message || 'network/CORS error'}). Try downloading the .ics file instead and importing it above.`);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
 
     useEffect(() => {
         localStorage.setItem('nexus_calendar_events', JSON.stringify(events));
@@ -321,101 +407,177 @@ const CalendarPage = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
             
             {/* Header Section */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Master Schedule Hub</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Coordinate studies, workouts, reminders, and AI schedule intelligence.</p>
-                </div>
-                
-                <button 
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px' }}>
+                <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Hub</h1>
+
+                <button
                     onClick={() => {
                         setNewEvent(prev => ({...prev, date: selectedDateStr}));
                         setIsAddModalOpen(true);
                     }}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '12px 18px' : '10px 20px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
                 >
-                    <Plus size={18} /> Schedule Event
+                    <Plus size={isMobile ? 16 : 18} /> Schedule Event
                 </button>
             </div>
 
-            {/* Quick Metrics */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><CalendarIcon size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Total Events</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalCount} Scheduled</h2></div>
+            {/* Quick Metrics - compact 3-column grid on mobile */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><CalendarIcon size={isMobile ? 16 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{isMobile ? 'Events' : 'Total Events'}</span>
+                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalCount}{isMobile ? '' : ' Scheduled'}</h2>
+                    </div>
                 </div>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981' }}><CheckCircle size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Completion Rate</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{completionRate}%</h2></div>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><CheckCircle size={isMobile ? 16 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{isMobile ? 'Done %' : 'Completion Rate'}</span>
+                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{completionRate}%</h2>
+                    </div>
                 </div>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#3B82F6' }}><Sparkles size={24} /></div>
-                    <div><span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>AI Assistant</span><h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>Active</h2></div>
+                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
+                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#3B82F6', flexShrink: 0, display: 'flex' }}><Sparkles size={isMobile ? 16 : 24} /></div>
+                    <div style={{ minWidth: 0 }}>
+                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>AI Assistant</span>
+                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Active</h2>
+                    </div>
                 </div>
             </div>
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px' }}>
-                <button onClick={() => setActiveTab('Agenda')} style={{ padding: '10px 16px', background: activeTab === 'Agenda' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Agenda' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Agenda' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px' }}>Agenda & Timeline</button>
-                <button onClick={() => setActiveTab('AIAssistant')} style={{ padding: '10px 16px', background: activeTab === 'AIAssistant' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'AIAssistant' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'AIAssistant' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}><Cpu size={14} /> AI Schedule Assistant</button>
+            {/* Tabs - fade-masked horizontal scroll with taller mobile
+                touch targets, matching Timetable/Study/Syllabus/Gym. */}
+            <div style={{
+                display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px',
+                overflowX: 'auto',
+                maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+                WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+            }}>
+                <button onClick={() => setActiveTab('Agenda')} style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: activeTab === 'Agenda' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Agenda' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Agenda' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', flexShrink: 0 }}>Agenda & Timeline</button>
+                <button onClick={() => setActiveTab('AIAssistant')} style={{ padding: isMobile ? '13px 16px' : '10px 16px', background: activeTab === 'AIAssistant' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'AIAssistant' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'AIAssistant' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', flexShrink: 0 }}><Cpu size={14} /> AI Schedule Assistant</button>
             </div>
 
             {/* TAB CONTENT: AGENDA & CALENDAR */}
             {activeTab === 'Agenda' && (
-                // NEW: Side-by-Side Flex Layout
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                    
-                    {/* LEFT COLUMN: Compact Calendar Widget */}
-                    <div style={{ flex: '1 1 320px', maxWidth: '380px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '20px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                                {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-                            </h3>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                                <button onClick={() => changeMonth(-1)} style={{ padding: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer' }}><ChevronLeft size={16} /></button>
-                                <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: '6px 10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '11px' }}>Today</button>
-                                <button onClick={() => changeMonth(1)} style={{ padding: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer' }}><ChevronRight size={16} /></button>
+                // Side-by-side on desktop, stacks full-width on mobile.
+                <div style={{ display: 'flex', gap: isMobile ? '16px' : '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+                    {/* LEFT COLUMN: Compact Calendar Widget + Sync card */}
+                    <div style={{ flex: '1 1 320px', width: '100%', maxWidth: isMobile ? '100%' : '380px', display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '20px', boxSizing: 'border-box' }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                                    {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                                </h3>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                    <button onClick={() => changeMonth(-1)} style={{ padding: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer' }}><ChevronLeft size={16} /></button>
+                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: '6px 10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '11px' }}>Today</button>
+                                    <button onClick={() => changeMonth(1)} style={{ padding: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer' }}><ChevronRight size={16} /></button>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', textAlign: 'center', marginBottom: '4px' }}>
+                                {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                                    <span key={day} style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>{day}</span>
+                                ))}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+                                {renderCalendarGrid()}
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', textAlign: 'center', marginBottom: '4px' }}>
-                            {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                                <span key={day} style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>{day}</span>
-                            ))}
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
-                            {renderCalendarGrid()}
+                        {/* Calendar Sync - real, file-based ICS import/export
+                            plus a best-effort remote feed URL fetch (see
+                            utils/calendarSync.js). Native device calendar
+                            sync genuinely isn't possible from a plain
+                            browser tab - said plainly below rather than
+                            faked. */}
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <RefreshCw size={15} color="var(--accent)" />
+                                <h3 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Sync</h3>
+                            </div>
+
+                            <input
+                                ref={icsFileInputRef} type="file" accept=".ics,text/calendar"
+                                onChange={handleIcsFileImport} style={{ display: 'none' }} aria-label="Import .ics calendar file"
+                            />
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    type="button" onClick={() => icsFileInputRef.current && icsFileInputRef.current.click()}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >
+                                    <Upload size={13} /> Import .ics
+                                </button>
+                                <button
+                                    type="button" onClick={handleExportIcs}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >
+                                    <Download size={13} /> Export
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <label htmlFor="calendarFeedUrl" style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>External Feed URL (optional)</label>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    <input
+                                        id="calendarFeedUrl" type="url" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)}
+                                        placeholder="https://.../calendar.ics"
+                                        style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', boxSizing: 'border-box' }}
+                                    />
+                                    <button
+                                        type="button" onClick={handleFeedImport} disabled={!feedUrl.trim() || isSyncing}
+                                        style={{ flexShrink: 0, padding: '9px 14px', borderRadius: '9999px', border: 'none', background: feedUrl.trim() ? 'var(--primary)' : 'var(--surface-inset)', color: feedUrl.trim() ? 'var(--text-on-primary)' : 'var(--text-muted)', fontWeight: '700', fontSize: '12px', cursor: feedUrl.trim() && !isSyncing ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                                    >
+                                        {isSyncing ? '...' : 'Sync'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {syncMessage && (
+                                <span style={{ fontSize: '11px', fontWeight: '600', color: syncIsError ? '#EF4444' : '#10B981', lineHeight: 1.4 }}>{syncMessage}</span>
+                            )}
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                Native device calendar sync needs an installed app wrapper and isn't available in a browser tab yet - file import/export above works fully today.
+                            </span>
                         </div>
                     </div>
 
                     {/* RIGHT COLUMN: Timeline Details */}
-                    <div style={{ flex: '2 1 500px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        
-                        {/* Filters */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+                    <div style={{ flex: '2 1 500px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', minWidth: 0, boxSizing: 'border-box' }}>
+
+                        {/* Filters - pill category row (fade-masked horizontal
+                            scroll on mobile) + a search bar that stacks
+                            full-width below it on mobile instead of a fixed
+                            200px box that didn't fit. */}
+                        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '12px' }}>
+                            <div style={{
+                                display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px',
+                                maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+                                WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
+                            }}>
                                 {['All', 'Study', 'Fitness', 'Finance'].map(cat => (
-                                    <button key={cat} onClick={() => setSelectedCategoryFilter(cat)} style={{ padding: '6px 12px', background: selectedCategoryFilter === cat ? 'var(--primary)' : 'var(--widget-bg)', color: selectedCategoryFilter === cat ? 'var(--text-on-primary)' : 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>{cat}</button>
+                                    <button key={cat} onClick={() => setSelectedCategoryFilter(cat)} style={{ padding: '7px 14px', background: selectedCategoryFilter === cat ? 'var(--primary)' : 'var(--widget-bg)', color: selectedCategoryFilter === cat ? 'var(--text-on-primary)' : 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{cat}</button>
                                 ))}
                             </div>
-                            <div style={{ position: 'relative' }}>
-                                <input type="text" aria-label="Search events" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '8px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', width: '200px' }} />
+                            <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto' }}>
+                                <input type="text" aria-label="Search events" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '9px 14px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', width: isMobile ? '100%' : '200px', boxSizing: 'border-box' }} />
                             </div>
                         </div>
 
                         {/* List */}
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+                            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '0' }}>
                                 <div>
-                                    <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                                    <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
                                         Schedule for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}
                                     </h3>
                                     <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>{filteredEvents.length} events found</span>
                                 </div>
-                                {/* NEW: Integrated Add Button for specific date */}
-                                <button 
+                                <button
                                     onClick={() => { setNewEvent(prev => ({...prev, date: selectedDateStr})); setIsAddModalOpen(true); }}
-                                    style={{ padding: '8px 14px', background: 'var(--widget-bg)', color: 'var(--primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                    style={{ padding: '9px 16px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', flexShrink: 0 }}
                                 >
                                     <Plus size={14} /> Add Here
                                 </button>
@@ -423,24 +585,29 @@ const CalendarPage = () => {
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {filteredEvents.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                                    <div style={{ textAlign: 'center', padding: isMobile ? '32px 16px' : '40px 0', boxSizing: 'border-box', color: 'var(--text-muted)' }}>
                                         <CalendarIcon size={32} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
                                         <p style={{ fontSize: '14px' }}>No events scheduled for this day.</p>
                                     </div>
                                 ) : (
                                     filteredEvents.map(ev => (
-                                        <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: ev.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: '16px 20px', borderRadius: '14px', border: '1px solid var(--border-premium)', gap: '16px', flexWrap: 'wrap' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                                <div onClick={() => (ev.fromTimetable ? toggleTimetableEventCompletion(ev) : toggleEventCompletion(ev.id))} style={{ cursor: 'pointer', color: ev.completed ? '#10B981' : 'var(--text-muted)' }}>
-                                                    {ev.completed ? <CheckCircle size={24} /> : <div style={{ width: '24px', height: '24px', border: '2px solid var(--text-muted)', borderRadius: '50%' }}></div>}
+                                        <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: ev.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: isMobile ? '14px 16px' : '16px 20px', borderRadius: '14px', border: '1px solid var(--border-premium)', gap: '16px', flexWrap: 'wrap', boxSizing: 'border-box' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '12px' : '16px', minWidth: 0 }}>
+                                                <div onClick={() => (ev.fromTimetable ? toggleTimetableEventCompletion(ev) : toggleEventCompletion(ev.id))} style={{ cursor: 'pointer', color: ev.completed ? '#10B981' : 'var(--text-muted)', flexShrink: 0 }}>
+                                                    {ev.completed ? <CheckCircle size={22} /> : <div style={{ width: '22px', height: '22px', border: '2px solid var(--text-muted)', borderRadius: '50%' }}></div>}
                                                 </div>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <h4 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', textDecoration: 'none', opacity: ev.completed ? 0.7 : 1 }}>{ev.title}</h4>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                        <h4 style={{ fontSize: isMobile ? '14px' : '15px', fontWeight: '700', color: 'var(--text-primary)', textDecoration: 'none', opacity: ev.completed ? 0.7 : 1, margin: 0 }}>{ev.title}</h4>
                                                         <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', background: 'var(--surface-inset)', color: getCategoryColor(ev.category), borderRadius: '6px', border: '1px solid var(--border-premium)' }}>{ev.category}</span>
                                                         {ev.fromTimetable && (
                                                             <span title="Synced from the Daily Timetable - edit or delete it there" style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', background: 'var(--surface-inset)', color: 'var(--text-muted)', borderRadius: '6px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                 <Clock size={10} /> From Timetable
+                                                            </span>
+                                                        )}
+                                                        {ev.importedFromIcs && (
+                                                            <span title="Imported from an external .ics calendar" style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', background: 'var(--surface-inset)', color: 'var(--accent)', borderRadius: '6px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <RefreshCw size={10} /> Synced
                                                             </span>
                                                         )}
                                                     </div>
@@ -449,7 +616,7 @@ const CalendarPage = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
                                                 <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', borderRadius: '6px', background: ev.priority === 'High' ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface-inset)', color: ev.priority === 'High' ? '#EF4444' : 'var(--text-secondary)' }}>
                                                     {ev.priority}
                                                 </span>

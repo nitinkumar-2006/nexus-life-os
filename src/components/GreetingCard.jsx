@@ -210,10 +210,21 @@ const GreetingCard = ({ setActiveTab }) => {
                 </div>
             </div>
 
-            {/* Right Section: Clock */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'center' : 'flex-start', gap: '12px', flexShrink: 0 }}>
-                <Clock size={isMobile ? 22 : 28} color="var(--accent)" />
-                <div style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '700', fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)', letterSpacing: '0.5px', lineHeight: '1' }}>
+            {/* Right Section: Clock - on mobile this now gets the exact
+                same structured "widget chip" treatment (widget-bg/border/
+                16px radius/full width) as the music player above it, so
+                the two read as one consistent, deliberately-designed pair
+                instead of one boxed element and one bare floating number.
+                Desktop keeps its existing plain, left-aligned inline
+                treatment unchanged. */}
+            <div style={isMobile ? {
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px',
+                padding: '10px 20px', width: '100%', boxSizing: 'border-box', flexShrink: 0,
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)',
+            } : { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '12px', flexShrink: 0 }}>
+                <Clock size={isMobile ? 18 : 28} color="var(--accent)" />
+                <div style={{ fontSize: isMobile ? '16px' : '24px', fontWeight: '700', fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)', letterSpacing: '0.5px', lineHeight: '1' }}>
                     {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: is12Hour })}
                 </div>
             </div>

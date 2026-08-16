@@ -10,12 +10,135 @@
 // rather than introducing any new colors, classes, or glass treatments of
 // its own. GreetingCard, the sidebar, the header, and every global CSS
 // class (dashboard-grid/col-12) are untouched.
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import GreetingCard from '../components/GreetingCard';
 import AIDailyBriefingCard from '../components/AIDailyBriefingCard.jsx';
-import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical } from 'lucide-react';
+import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical, Search, X } from 'lucide-react';
 import { useTaskRegistry } from '../context/TaskRegistryContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+
+// ---------------------------------------------------------------------------
+// Mobile-only Spotlight-style search bar, placed at the very top of the
+// Home page content. Desktop already has this exact search experience
+// in the global Header (hidden on mobile there since its own real width
+// doesn't fit next to the hamburger + logo + right-side icon cluster) -
+// this is the mobile-visible equivalent, same section list + live
+// Planner task search, just embedded in the page instead of the header.
+// ---------------------------------------------------------------------------
+const SPOTLIGHT_SECTIONS = [
+    { name: 'Home Dashboard', route: 'Home' },
+    { name: 'Planner Matrix', route: 'Planner' },
+    { name: 'Study Hub', route: 'Study' },
+    { name: 'Syllabus', route: 'Syllabus' },
+    { name: 'Gym & Fitness', route: 'Gym' },
+    { name: 'Diet & Nutrition', route: 'Diet' },
+    { name: 'Finance Wallet', route: 'Finance' },
+    { name: 'Calendar', route: 'Calendar' },
+    { name: 'Analytics', route: 'Analytics' },
+    { name: 'AI Intelligence Hub', route: 'AI' },
+    { name: 'User Profile', route: 'Profile' },
+    { name: 'System Settings', route: 'Settings' },
+];
+
+const HomeSpotlightSearch = ({ setActiveTab }) => {
+    const [query, setQuery] = useState('');
+    const [isOpen, setIsOpen] = useState(false);
+    const wrapRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (wrapRef.current && !wrapRef.current.contains(e.target)) setIsOpen(false);
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const results = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return SPOTLIGHT_SECTIONS.map((s) => ({ title: s.name, route: s.route, type: 'Section' }));
+        const matches = SPOTLIGHT_SECTIONS.filter((s) => s.name.toLowerCase().includes(q)).map((s) => ({ title: s.name, route: s.route, type: 'Section' }));
+        try {
+            const planner = JSON.parse(localStorage.getItem('nexus_planner_tasks') || '[]');
+            planner.forEach((t) => {
+                if (t.title && t.title.toLowerCase().includes(q)) matches.push({ title: t.title, route: 'Planner', type: 'Task' });
+            });
+        } catch (e) { /* malformed planner data - section matches above still work */ }
+        return matches;
+    }, [query]);
+
+    const handleSelect = (route) => {
+        if (typeof setActiveTab === 'function') setActiveTab(route);
+        setIsOpen(false);
+        setQuery('');
+    };
+
+    return (
+        <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
+            {/* True capsule/pill shape (borderRadius: 9999px) and a
+                slimmer vertical padding - matches a macOS Spotlight
+                pop-up's own clean, thin, fully-rounded silhouette rather
+                than the app's usual 16px "rounded rectangle" card
+                language. */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                background: 'var(--widget-bg)', padding: '12px 18px',
+                borderRadius: '9999px', border: '1px solid var(--border-premium)',
+                boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+            }}>
+                <Search size={17} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                <input
+                    id="home-spotlight-search" name="homeSpotlightSearch"
+                    type="text" aria-label="Search Nexus"
+                    value={query}
+                    onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+                    onFocus={() => setIsOpen(true)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && results[0]) { e.preventDefault(); handleSelect(results[0].route); }
+                        else if (e.key === 'Escape') { setIsOpen(false); e.currentTarget.blur(); }
+                    }}
+                    placeholder="Search Nexus..."
+                    // A real fix for the reported blurry/cramped text, not
+                    // a cosmetic tweak: with no explicit line-height, this
+                    // input's line box computed to a genuinely fractional
+                    // 16.66px (verified live) - at a 2x device pixel ratio
+                    // that lands the text baseline on a half-pixel, which
+                    // is exactly what reads as soft/anti-aliased "blur" on
+                    // real screens. A whole-number line-height keeps every
+                    // dimension in this bar landing on clean device pixels.
+                    style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '15px', lineHeight: '20px', fontWeight: '500', outline: 'none' }}
+                />
+                {query && (
+                    <button onClick={() => { setQuery(''); setIsOpen(false); }} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
+                        <X size={15} />
+                    </button>
+                )}
+            </div>
+
+            {isOpen && results.length > 0 && (
+                <div style={{
+                    position: 'absolute', top: 'calc(100% + 8px)', left: 0, right: 0, maxHeight: '300px', overflowY: 'auto',
+                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '8px', zIndex: 60,
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.25)',
+                }}>
+                    {results.slice(0, 8).map((res, idx) => (
+                        <div
+                            key={`${res.route}_${idx}`}
+                            onClick={() => handleSelect(res.route)}
+                            style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '11px 12px', borderRadius: '12px', background: 'var(--widget-bg)',
+                                color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginBottom: '4px',
+                            }}
+                        >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{res.title}</span>
+                            <span style={{ fontSize: '10px', padding: '2px 6px', background: 'var(--bg-main)', borderRadius: '4px', color: 'var(--accent)', flexShrink: 0, marginLeft: '8px' }}>{res.type}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 // ---------------------------------------------------------------------------
 // Category -> destination page + accent color + priority tag. Mock/curated
@@ -242,7 +365,7 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                 background: isActive ? 'var(--bg-surface-hover)' : 'var(--bg-surface)',
                 border: isActive ? '1px solid var(--accent)' : '1px solid var(--border-premium)',
                 display: 'flex', flexDirection: 'column',
-                padding: isMobile ? (isActive ? '18px 16px' : '14px 16px') : (isActive ? '22px 26px' : '16px 26px'),
+                padding: isMobile ? (isActive ? '15px 14px' : '12px 14px') : (isActive ? '22px 26px' : '16px 26px'),
                 borderRadius: '18px', opacity: opacityLevel,
                 boxShadow: isActive ? 'var(--premium-shadow)' : 'none',
                 transition: 'all 0.3s ease',
@@ -500,6 +623,7 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <input
+                                id={`queue-card-note-${item.id}`} name={`queueCardNote-${item.id}`}
                                 value={noteDraft}
                                 onChange={(e) => setNoteDraft(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') handleNoteSave(e); }}
@@ -845,6 +969,24 @@ const HomePage = ({ setActiveTab }) => {
                 }
             `}</style>
 
+            {/* Mobile-only Spotlight search - desktop already has this
+                exact experience in the Header (hidden on mobile there).
+                Ordered first, always, regardless of the greeting/schedule
+                drag-reorder below - a search entry point genuinely
+                belongs fixed at the very top, not something a widget
+                drag should be able to bury. */}
+            {isMobile && (
+                // Negative margins pull the bar right up against the header
+                // above (down to a few px of real breathing room, not the
+                // page's full 16px top padding) and tighten the grid's
+                // usual 24px gap before the greeting card below - scoped to
+                // just this one instance, not the shared dashboard-grid/
+                // page-padding rules other pages still rely on.
+                <div className="col-12" style={{ order: -1, marginTop: '-13px', marginBottom: '-12px' }}>
+                    <HomeSpotlightSearch setActiveTab={setActiveTab} />
+                </div>
+            )}
+
             <div
                 className="col-12"
                 draggable
@@ -878,7 +1020,7 @@ const HomePage = ({ setActiveTab }) => {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleWidgetDrop('schedule')}
                 onDragEnd={() => setDraggedWidget(null)}
-                style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px', order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
+                style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', marginTop: '10px', order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
             >
                 <div
                     title="Drag to reorder"
@@ -896,10 +1038,11 @@ const HomePage = ({ setActiveTab }) => {
 
                 {masterQueue.length === 0 ? (
                     <div style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                        padding: '48px 24px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: isMobile ? '8px' : '10px',
+                        padding: isMobile ? '32px 20px' : '48px 24px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px',
+                        textAlign: 'center',
                     }}>
-                        <Clock size={28} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+                        <Clock size={isMobile ? 24 : 28} color="var(--text-muted)" style={{ opacity: 0.5 }} />
                         <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '600' }}>No tasks in your queue yet</span>
                         <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Add a task in the Planner, Timetable, Gym, or Diet and it'll show up here automatically.</span>
                     </div>

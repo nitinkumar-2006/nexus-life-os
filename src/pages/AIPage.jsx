@@ -4,12 +4,11 @@ import {
     Cpu, Sparkles, Send, Bot, User, ShieldCheck, RefreshCw, ArrowUpRight, Flame,
     DollarSign, BookOpen, CheckCircle, Trash2, Code, Utensils, PanelLeftClose, PanelLeftOpen,
     PanelRightClose, PanelRightOpen, Plus, MessageSquare, Copy, Check, Clock, Activity,
-    Wallet, Layers, ChevronRight, X,
+    Wallet, Layers, ChevronRight, X, Menu,
 } from 'lucide-react';
 import { generateNexusAIResponse } from '../utils/nexusAIEngine.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import AIDailyBriefingCard from '../components/AIDailyBriefingCard.jsx';
 
 // Real personas - each genuinely changes response routing (not just a
 // cosmetic label): when the active persona is non-'general' and the
@@ -23,6 +22,28 @@ const PERSONAS = [
     { id: 'finance', label: 'Finance Advisor', icon: DollarSign, accent: '#3B82F6' },
     { id: 'nutrition', label: 'Nutrition Expert', icon: Utensils, accent: '#10B981' },
 ];
+
+// Hoisted out of the starter-grid JSX so the new Plus-icon attachment
+// menu's own "Quick Prompts" item can reuse the exact same real list
+// (mid-conversation, not just on a fresh/empty chat) instead of a
+// second, duplicated copy that could drift out of sync.
+const QUICK_PROMPTS = [
+    { text: 'Debug my Java/React code', icon: Code },
+    { text: 'Analyze my weekly calories', icon: Utensils },
+    { text: 'Plan my schedule for today', icon: Clock },
+    { text: 'How is my gym consistency?', icon: Flame },
+    { text: 'Check my monthly budget status', icon: DollarSign },
+    { text: 'Show my study progress', icon: BookOpen },
+];
+
+// Shared row style for every item in the Plus-icon attachment popup -
+// hoisted since it's identical across all of New Chat / Switch Assistant
+// Mode / each Quick Prompt row.
+const ATTACH_MENU_ROW_STYLE = {
+    width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
+    background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)',
+    fontSize: '13px', fontWeight: '600', textAlign: 'left', cursor: 'pointer', lineHeight: 1.4,
+};
 
 // Real, lightweight token rules for basic syntax highlighting - no
 // external library is installed in this app (confirmed via direct
@@ -335,6 +356,37 @@ const AIPage = () => {
     const streamTimeoutRef = useRef(null);
     const streamIntervalRef = useRef(null);
 
+    // ChatGPT-style "+" attachment menu embedded in the chat input bar -
+    // real actions this app already has (new chat, quick prompts, switch
+    // assistant mode), not illustrative dummy items.
+    const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+    const attachMenuRef = useRef(null);
+    const attachBtnRef = useRef(null);
+    // The popup renders with position:fixed (so the chat card's
+    // overflow:hidden never clips it) - its screen coordinates are read
+    // from the button once, right when it opens. The input bar's own
+    // position is stable while the menu is open (only the message list
+    // above it scrolls internally), so a single read on open is enough.
+    const [attachMenuPos, setAttachMenuPos] = useState({ left: 16, bottom: 90 });
+    const toggleAttachMenu = () => {
+        setAttachMenuOpen((prev) => {
+            const next = !prev;
+            if (next && attachBtnRef.current) {
+                const rect = attachBtnRef.current.getBoundingClientRect();
+                setAttachMenuPos({ left: rect.left, bottom: window.innerHeight - rect.top + 10 });
+            }
+            return next;
+        });
+    };
+    useEffect(() => {
+        if (!attachMenuOpen) return;
+        const onOutsideClick = (e) => {
+            if (attachMenuRef.current && !attachMenuRef.current.contains(e.target)) setAttachMenuOpen(false);
+        };
+        document.addEventListener('mousedown', onOutsideClick);
+        return () => document.removeEventListener('mousedown', onOutsideClick);
+    }, [attachMenuOpen]);
+
     // Cleans up any in-flight "thinking" timeout or streaming interval if
     // the user navigates away mid-response - prevents a dangling timer
     // from calling updateActiveSessionMessages after this component has unmounted.
@@ -439,16 +491,52 @@ const AIPage = () => {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', height: 'calc(100vh - 140px)', animation: 'fadeInScale 0.3s ease', position: 'relative', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+        <div style={{
+            display: 'flex', flexDirection: 'column', gap: '16px',
+            // Mobile: sized to exactly fill the real space this page
+            // actually sits in - glass-panel's own 16px top padding plus
+            // its 76px bottom padding (see DashboardLayout.jsx; that
+            // bottom padding is what keeps content clear of the fixed
+            // MobileTabBar) plus the device's own safe-area inset, the
+            // same env() this app already uses for that padding and for
+            // MobileTabBar itself. This is a genuine exact fit (16 + this
+            // height + 76 + safe-area == 100vh), not the old, disconnected
+            // "100vh - 140px" guess, which left the card ~60px shorter
+            // than the space actually available - real dead space between
+            // the chat card and the bottom nav dock rather than the small,
+            // intentional-looking gap glass-panel's own padding already
+            // provides. Desktop is untouched (different chrome above it,
+            // no bottom dock to clear).
+            height: isMobile ? 'calc(100vh - 92px - env(safe-area-inset-bottom, 0px))' : 'calc(100vh - 140px)',
+            animation: 'fadeInScale 0.3s ease', position: 'relative', width: '100%', boxSizing: 'border-box', minWidth: 0,
+        }}>
 
-            <div>
-                <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Nexus AI Intelligence Core</h1>
-                <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Context-aware assistant integrated with specialized domain coaches.</p>
-            </div>
-
-            <div style={{ flexShrink: 0 }}>
-                <AIDailyBriefingCard isMobile={isMobile} />
-            </div>
+            {/* Desktop keeps the full title + subtitle. Mobile gets a
+                genuinely minimal ChatGPT-style top bar instead - just a
+                menu toggle, the app name, and New Chat. The global
+                DashboardLayout header is hidden entirely on this page on
+                mobile (see DashboardLayout.jsx), so this replaces it as
+                the ONLY chrome above the chat - everything this bar used
+                to also carry (chat history, personas, the Chat/Coaches
+                view switch, Live Context, Clear Chat) now lives inside
+                the menu drawer instead, categorized like ChatGPT's own
+                side menu, rather than crowding a second row up top. */}
+            {!isMobile ? (
+                <div>
+                    <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Nexus AI Intelligence Core</h1>
+                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Context-aware assistant integrated with specialized domain coaches.</p>
+                </div>
+            ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <button type="button" onClick={() => setSidebarOpen(true)} title="Open menu" aria-label="Open menu" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0 }}>
+                        <Menu size={18} />
+                    </button>
+                    <h1 style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, flex: 1, textAlign: 'center' }}>Nexus AI</h1>
+                    <button type="button" onClick={() => createNewSession()} title="New chat" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0 }}>
+                        <Plus size={17} />
+                    </button>
+                </div>
+            )}
 
             {/* Main 3-column body: Sidebar | Chat | Context Inspector.
                 minWidth: 0 here is what actually lets the flex children
@@ -457,16 +545,32 @@ const AIPage = () => {
                 common cause of a flex layout that looks fine at a zoomed-
                 out size (more logical px available) but overflows at
                 100% zoom (less logical px available for the exact same
-                real content). */}
-            <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: 'clamp(8px, 1.2vw, 14px)', flex: 1, minHeight: 0, minWidth: 0 }}>
+                real content). Always nowrap (not just on desktop): the
+                sidebar/inspector panels are both position:fixed overlays
+                on every viewport size, so the center chat column is the
+                ONLY normal-flow child here. flex-wrap:'wrap' with a
+                single flex item breaks the cross-axis stretch that
+                min-height:0 depends on - the line sizes to the item's own
+                content height instead of the row's actual available
+                height, letting the chat column (and the input bar inside
+                it) grow past the viewport and get pushed down behind the
+                bottom nav instead of staying clipped/scrollable. This was
+                the real, remaining cause of the "input drifts on scroll"
+                bug - the min-height:0 additions elsewhere were correct
+                but couldn't take effect while this stayed 'wrap'. */}
+            <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 'clamp(8px, 1.2vw, 14px)', flex: 1, minHeight: 0, minWidth: 0 }}>
 
                 {/* LEFT: Chat History Sidebar - real, multi-session store,
                     not just the flat, single-thread history from before.
                     Width is now a real, responsive clamp() instead of a
                     fixed 240px, so it genuinely narrows on tighter
                     viewports rather than staying rigid while the center
-                    column is squeezed to compensate. */}
-                {sidebarOpen && (
+                    column is squeezed to compensate. Desktop-only inline
+                    layout - mobile gets its own slide-over overlay
+                    version below instead, matching a native chat app's
+                    history drawer rather than squeezing a column into a
+                    narrow viewport. */}
+                {sidebarOpen && !isMobile && (
                     <div data-diag="ai-left-sidebar" style={{ width: 'clamp(190px, 20vw, 240px)', flexShrink: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', overflow: 'hidden', boxSizing: 'border-box' }}>
                         <button
                             type="button" onClick={() => createNewSession()}
@@ -498,12 +602,181 @@ const AIPage = () => {
                     </div>
                 )}
 
-                {/* CENTER: main chat column */}
-                <div data-diag="ai-center-chat" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Mobile: the ChatGPT-style side menu - now the ONLY place
+                    chat history, assistant personas, the Chat/Coaches view
+                    switch, and the Live Context/Clear Chat tools live on
+                    mobile (all previously crowded into the main page as
+                    horizontally-scrolling pills and extra top-bar icons).
+                    Categorized into clear labeled sections, same real
+                    slide-over-with-backdrop pattern already used here. */}
+                {isMobile && (
+                    <>
+                        <div
+                            onClick={() => setSidebarOpen(false)}
+                            aria-hidden="true"
+                            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.5)', opacity: sidebarOpen ? 1 : 0, pointerEvents: sidebarOpen ? 'auto' : 'none', transition: 'opacity 0.25s ease' }}
+                        />
+                        <div style={{
+                            position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 301, width: 'min(300px, 82vw)',
+                            background: 'var(--bg-surface)', borderRight: '1px solid var(--border-premium)',
+                            padding: '16px', paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
+                            paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+                            display: 'flex', flexDirection: 'column', gap: '14px', boxSizing: 'border-box',
+                            overflowY: 'auto',
+                            transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+                            transition: 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+                            boxShadow: sidebarOpen ? '8px 0 24px rgba(0,0,0,0.3)' : 'none',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                                <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)' }}>Nexus AI</span>
+                                <button type="button" onClick={() => setSidebarOpen(false)} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}><X size={18} /></button>
+                            </div>
+
+                            <button
+                                type="button" onClick={() => { createNewSession(); setSidebarOpen(false); }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}
+                            >
+                                <Plus size={16} /> New Chat
+                            </button>
+
+                            {/* Assistant Mode - the personas that used to be
+                                a horizontally-scrolling pill row up top. */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px' }}>Assistant Mode</span>
+                                {PERSONAS.map((p) => {
+                                    const PIcon = p.icon;
+                                    const active = activePersona === p.id;
+                                    return (
+                                        <button
+                                            key={p.id} type="button"
+                                            onClick={() => {
+                                                setActivePersona(p.id);
+                                                setSessions((prev) => prev.map((s) => s.id === activeSession?.id ? { ...s, persona: p.id } : s));
+                                                setSidebarOpen(false);
+                                            }}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                                                background: active ? 'rgba(var(--primary-rgb), 0.15)' : 'transparent',
+                                                border: active ? `1px solid ${p.accent}` : '1px solid transparent',
+                                                color: active ? p.accent : 'var(--text-secondary)', fontSize: '13px', fontWeight: active ? '700' : '600',
+                                            }}
+                                        >
+                                            <PIcon size={15} style={{ flexShrink: 0 }} /> {p.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div style={{ height: '1px', background: 'var(--border-premium)', flexShrink: 0 }} />
+
+                            {/* View - the Chat Assistant / Specialized
+                                Coaches switch that used to be a second tab
+                                row in the main content. */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px' }}>View</span>
+                                <button
+                                    type="button" onClick={() => { setActiveTab('Chat'); setSidebarOpen(false); }}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                                        background: activeTab === 'Chat' ? 'var(--widget-bg)' : 'transparent',
+                                        border: activeTab === 'Chat' ? '1px solid var(--border-premium)' : '1px solid transparent',
+                                        color: activeTab === 'Chat' ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '13px', fontWeight: activeTab === 'Chat' ? '700' : '600',
+                                    }}
+                                >
+                                    <Bot size={15} style={{ flexShrink: 0 }} /> AI Chat Assistant
+                                </button>
+                                <button
+                                    type="button" onClick={() => { setActiveTab('Coaches'); setSidebarOpen(false); }}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                                        background: activeTab === 'Coaches' ? 'var(--widget-bg)' : 'transparent',
+                                        border: activeTab === 'Coaches' ? '1px solid var(--border-premium)' : '1px solid transparent',
+                                        color: activeTab === 'Coaches' ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '13px', fontWeight: activeTab === 'Coaches' ? '700' : '600',
+                                    }}
+                                >
+                                    <Cpu size={15} style={{ flexShrink: 0 }} /> Specialized AI Coaches
+                                </button>
+                            </div>
+
+                            <div style={{ height: '1px', background: 'var(--border-premium)', flexShrink: 0 }} />
+
+                            {/* Tools - Live Context and Clear Chat, moved
+                                off the old top bar's icon row. */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px' }}>Tools</span>
+                                <button
+                                    type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true); }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', background: 'transparent', border: '1px solid transparent', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '600' }}
+                                >
+                                    <ShieldCheck size={15} style={{ flexShrink: 0 }} /> Live Context
+                                </button>
+                                <button
+                                    type="button" onClick={() => { setSidebarOpen(false); clearChat(); }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', background: 'transparent', border: '1px solid transparent', color: '#EF4444', fontSize: '13px', fontWeight: '600' }}
+                                >
+                                    <Trash2 size={15} style={{ flexShrink: 0 }} /> Clear This Chat
+                                </button>
+                            </div>
+
+                            <div style={{ height: '1px', background: 'var(--border-premium)', flexShrink: 0 }} />
+
+                            {/* Chat History - the only section that scrolls
+                                independently, so the fixed sections above
+                                stay put regardless of how many sessions
+                                exist. */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minHeight: '80px' }}>
+                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px', flexShrink: 0 }}>Chat History</span>
+                                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {[...sessions].sort((a, b) => b.updatedAt - a.updatedAt).map((s) => {
+                                        const isActive = s.id === activeSession?.id;
+                                        return (
+                                            <div
+                                                key={s.id} onClick={() => { setActiveSessionId(s.id); setSidebarOpen(false); }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', borderRadius: '10px', cursor: 'pointer', background: isActive ? 'var(--widget-bg)' : 'transparent', border: isActive ? '1px solid var(--border-premium)' : '1px solid transparent' }}
+                                            >
+                                                <MessageSquare size={14} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} style={{ flexShrink: 0 }} />
+                                                <span style={{ flex: 1, minWidth: 0, fontSize: '13px', fontWeight: isActive ? '700' : '600', color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.title}>{s.title}</span>
+                                                <button
+                                                    type="button" onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} title="Delete chat"
+                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', color: 'var(--text-muted)', flexShrink: 0, opacity: 0.7 }}
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* CENTER: main chat column - minHeight: 0 is the real
+                    fix for the reported "input bar drifts/scrolls with
+                    the messages" bug: this column sits between two
+                    siblings that both already had it (the row above and
+                    the Chat-tab wrapper below), but was missing it right
+                    here. Without min-height:0 on every link in a nested
+                    flex-column chain, a child can't shrink below its own
+                    content size, so the message list's intended
+                    "overflow-y: auto, bounded height" never actually
+                    took effect - the whole page grew to fit all the
+                    messages instead, and the outer page-level scroll
+                    that produced dragged the input bar (just an ordinary
+                    child in that flow) up and down with it, instead of
+                    the input staying pinned while only the messages
+                    above it scrolled. */}
+                <div data-diag="ai-center-chat" style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
                     {/* Top bar: sidebar/inspector toggles + Persona & Model
                         Switcher pills - real, interactive mode transitions,
-                        not a decorative label row. */}
+                        not a decorative label row. Desktop-only now in its
+                        entirety - on mobile, personas/history/context/wipe
+                        all live in the menu drawer instead (see the drawer
+                        above), so the main chat column stays genuinely
+                        clean with zero secondary chrome, matching this
+                        request's own "clean chat area" ask. */}
+                    {!isMobile && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button type="button" onClick={() => setSidebarOpen((v) => !v)} title={sidebarOpen ? 'Hide chat history' : 'Show chat history'} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '9px', padding: '5px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', flexShrink: 0 }}>
                             {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
@@ -549,30 +822,32 @@ const AIPage = () => {
                             <Trash2 size={13} /> Wipe
                         </button>
                     </div>
+                    )}
 
-                    {/* Navigation Tabs - vertical padding now matches the
-                        persona/toggle row above exactly, so the two rows
-                        read as genuinely aligned rather than just visually
-                        close. */}
+                    {/* Navigation Tabs - desktop-only, same reasoning as
+                        the row above: this switch now lives in the mobile
+                        drawer's own "View" section instead. */}
+                    {!isMobile && (
                     <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', flexShrink: 0 }}>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('Chat')}
                             style={{ padding: '6px 14px', background: activeTab === 'Chat' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Chat' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Chat' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', lineHeight: 1.4 }}
                         >
                             <Bot size={14} /> AI Chat Assistant
                         </button>
-                        <button 
+                        <button
                             onClick={() => setActiveTab('Coaches')}
                             style={{ padding: '6px 14px', background: activeTab === 'Coaches' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Coaches' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Coaches' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', lineHeight: 1.4 }}
                         >
                             <Cpu size={14} /> Specialized AI Coaches
                         </button>
                     </div>
+                    )}
 
                     {/* TAB CONTENT: CHAT ASSISTANT */}
                     {activeTab === 'Chat' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 }}>
-                            <div style={{ flex: 1, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '22px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            <div style={{ flex: 1, minHeight: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '22px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
                                 {messages.length <= 1 ? (
                                     /* Floating Starter Grid - shown on a new/empty chat
@@ -583,14 +858,7 @@ const AIPage = () => {
                                         </div>
                                         <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>What would you like to know?</p>
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', width: '100%', maxWidth: '720px' }}>
-                                            {[
-                                                { text: 'Debug my Java/React code', icon: Code },
-                                                { text: 'Analyze my weekly calories', icon: Utensils },
-                                                { text: 'Plan my schedule for today', icon: Clock },
-                                                { text: 'How is my gym consistency?', icon: Flame },
-                                                { text: 'Check my monthly budget status', icon: DollarSign },
-                                                { text: 'Show my study progress', icon: BookOpen },
-                                            ].map((card, idx) => (
+                                            {QUICK_PROMPTS.map((card, idx) => (
                                                 <button
                                                     key={idx} type="button" onClick={() => handleQuickPrompt(card.text)}
                                                     style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}
@@ -603,7 +871,7 @@ const AIPage = () => {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px', paddingRight: '8px' }}>
+                                    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px', paddingRight: '8px' }}>
                                         {messages.map(msg => (
                                             <div key={msg.id} style={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', gap: '12px', alignItems: 'flex-start' }}>
                                                 {msg.sender === 'ai' && (
@@ -639,21 +907,59 @@ const AIPage = () => {
                                     </div>
                                 )}
 
-                                <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '12px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-premium)' }}>
-                                    <input
-                                        type="text"
-                                        aria-label="Chat message"
-                                        placeholder="Ask your AI coach about your budget, gym consistency, or request code..."
-                                        value={inputPrompt} onChange={(e) => setInputPrompt(e.target.value)}
-                                        style={{ flex: 1, padding: '14px 18px', borderRadius: '14px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}
-                                    />
-                                    <button 
-                                        type="submit" 
-                                        disabled={isGenerating || !inputPrompt.trim()}
-                                        style={{ padding: '0 24px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '14px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', opacity: (!inputPrompt.trim() || isGenerating) ? 0.6 : 1, transition: 'all 0.2s' }}
-                                    >
-                                        <Send size={18} /> Send
-                                    </button>
+                                <form onSubmit={handleSendMessage} style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-premium)', flexShrink: 0 }}>
+                                    {/* Unified ChatGPT-style pill: the Plus button, text
+                                        input, and Send button all live inside ONE rounded
+                                        container instead of three separate boxes. */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 6px 6px 6px', borderRadius: '26px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}>
+                                        <div ref={attachMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+                                            <button
+                                                type="button"
+                                                ref={attachBtnRef}
+                                                onClick={toggleAttachMenu}
+                                                aria-label="Open attachment menu"
+                                                aria-expanded={attachMenuOpen}
+                                                style={{ width: '38px', height: '38px', borderRadius: '50%', background: attachMenuOpen ? 'var(--primary)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: attachMenuOpen ? 'var(--text-on-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s, color 0.2s' }}
+                                            >
+                                                <Plus size={19} style={{ transform: attachMenuOpen ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }} />
+                                            </button>
+
+                                            {attachMenuOpen && (
+                                                <div style={{ position: 'fixed', left: attachMenuPos.left, bottom: attachMenuPos.bottom, width: '260px', maxWidth: 'calc(100vw - 32px)', maxHeight: '50vh', overflowY: 'auto', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', boxShadow: '0 12px 32px rgba(0,0,0,0.4)', padding: '8px', zIndex: 250 }}>
+                                                    <button type="button" onClick={() => { createNewSession(); setAttachMenuOpen(false); }} style={ATTACH_MENU_ROW_STYLE}>
+                                                        <MessageSquare size={16} color="var(--accent)" style={{ flexShrink: 0 }} /> New Chat
+                                                    </button>
+                                                    <button type="button" onClick={() => { setSidebarOpen(true); setAttachMenuOpen(false); }} style={ATTACH_MENU_ROW_STYLE}>
+                                                        <Layers size={16} color="var(--accent)" style={{ flexShrink: 0 }} /> Switch Assistant Mode
+                                                    </button>
+                                                    <div style={{ margin: '8px 10px 4px', fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Quick Prompts</div>
+                                                    {QUICK_PROMPTS.map((qp, idx) => (
+                                                        <button key={idx} type="button" onClick={() => { handleQuickPrompt(qp.text); setAttachMenuOpen(false); }} style={ATTACH_MENU_ROW_STYLE}>
+                                                            <qp.icon size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                                                            <span style={{ fontSize: '13px', fontWeight: '600', lineHeight: 1.3 }}>{qp.text}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <input
+                                            type="text"
+                                            aria-label="Chat message"
+                                            placeholder="Ask anything"
+                                            value={inputPrompt} onChange={(e) => setInputPrompt(e.target.value)}
+                                            style={{ flex: 1, minWidth: 0, padding: '10px 6px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '14px', lineHeight: '20px', outline: 'none' }}
+                                        />
+
+                                        <button
+                                            type="submit"
+                                            disabled={isGenerating || !inputPrompt.trim()}
+                                            aria-label="Send message"
+                                            style={{ width: '38px', height: '38px', flexShrink: 0, background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (!inputPrompt.trim() || isGenerating) ? 0.5 : 1, transition: 'opacity 0.2s' }}
+                                        >
+                                            <Send size={16} />
+                                        </button>
+                                    </div>
                                 </form>
                             </div>
                         </div>
@@ -728,8 +1034,10 @@ const AIPage = () => {
                 </div>
 
                 {/* RIGHT: Live Context Inspector - real, live-computed
-                    data the AI genuinely, currently has access to. */}
-                {inspectorOpen && (
+                    data the AI genuinely, currently has access to.
+                    Desktop-only inline layout; mobile's equivalent
+                    slide-over drawer (from the right) is right below. */}
+                {inspectorOpen && !isMobile && (
                     <div data-diag="ai-right-context-panel" style={{ width: 'clamp(170px, 17vw, 210px)', flexShrink: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <ShieldCheck size={16} color="#10B981" />
@@ -745,6 +1053,41 @@ const AIPage = () => {
                             </div>
                         ))}
                     </div>
+                )}
+
+                {isMobile && (
+                    <>
+                        <div
+                            onClick={() => setInspectorOpen(false)}
+                            aria-hidden="true"
+                            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.5)', opacity: inspectorOpen ? 1 : 0, pointerEvents: inspectorOpen ? 'auto' : 'none', transition: 'opacity 0.25s ease' }}
+                        />
+                        <div style={{
+                            position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 301, width: 'min(280px, 80vw)',
+                            background: 'var(--bg-surface)', borderLeft: '1px solid var(--border-premium)',
+                            padding: '16px', paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
+                            display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box',
+                            transform: inspectorOpen ? 'translateX(0)' : 'translateX(100%)',
+                            transition: 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
+                            boxShadow: inspectorOpen ? '-8px 0 24px rgba(0,0,0,0.3)' : 'none',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                                    <ShieldCheck size={16} color="#10B981" /> Live Context
+                                </span>
+                                <button type="button" onClick={() => setInspectorOpen(false)} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}><X size={17} /></button>
+                            </div>
+                            {liveContext.map((ctx) => (
+                                <div key={ctx.label} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 12px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                                        <ctx.icon size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
+                                        <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={ctx.label}>{ctx.label}</span>
+                                    </div>
+                                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ctx.value}>{ctx.value}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </>
                 )}
             </div>
 

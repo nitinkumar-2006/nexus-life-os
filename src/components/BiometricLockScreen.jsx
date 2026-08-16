@@ -118,7 +118,7 @@ const BiometricLockScreen = ({ onUnlock }) => {
             )}
 
             {showPinFallback && (
-                <div style={{ width: '280px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                <div style={{ width: '280px', maxWidth: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
                     <div style={{
                         width: '72px', height: '72px', borderRadius: '50%',
                         background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)',

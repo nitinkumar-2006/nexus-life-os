@@ -4,7 +4,7 @@
 // this component is never rendered below the mobile breakpoint (see
 // DashboardLayout.jsx), so it carries no isMobile/drawer branches.
 import { useState, useEffect } from 'react';
-import { Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Settings, PanelLeftClose, Menu } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import { ALL_NAV_ITEMS } from '../constants/navItems.jsx';
 
@@ -114,7 +114,15 @@ const NexusSidebarComponent = ({ activeTab, setActiveTab, isCollapsed, setIsColl
                         }}
                         title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
                     >
-                        {isCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+                        {/* Same hamburger glyph mobile's menu trigger uses -
+                            this button already defaults to (and always
+                            starts on) the slim, icon-only collapsed view;
+                            the icon now visually reads as "the menu" on
+                            both platforms instead of a different panel
+                            icon here. Clicking it never covers more than a
+                            modest 224px sidebar - it has never taken over
+                            the full screen. */}
+                        {isCollapsed ? <Menu size={17} /> : <PanelLeftClose size={17} />}
                     </button>
                 </div>
 
