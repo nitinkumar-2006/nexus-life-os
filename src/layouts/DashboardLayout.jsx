@@ -19,6 +19,7 @@ import AIPage from '../pages/AIPage.jsx';
 import ProfilePage from '../pages/ProfilePage.jsx';
 import SettingsPage from '../pages/SettingsPage.jsx'; // Imported Settings Page
 import AudioHubPage from '../pages/AudioHubPage.jsx';
+import WeatherPage from '../pages/WeatherPage.jsx';
 import ProtectedModuleGate from '../components/ProtectedModuleGate.jsx';
 import DynamicBackground from '../components/DynamicBackground.jsx';
 import AlternateBackgrounds from '../components/AlternateBackgrounds.jsx';
@@ -30,6 +31,8 @@ import { TaskRegistryProvider } from '../context/TaskRegistryContext.jsx';
 import { GlobalUserSettingsProvider } from '../context/GlobalUserSettingsContext.jsx';
 import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { Capacitor } from '@capacitor/core';
+import PermissionsOnboarding, { PERMISSIONS_ONBOARDING_KEY } from '../components/PermissionsOnboarding.jsx';
 
 const DashboardLayout = () => {
     // Startup Launchpad: reads the real, saved landing-page preference and
@@ -48,6 +51,14 @@ const DashboardLayout = () => {
     });
     const [isCollapsed, setIsCollapsed] = useState(true);
     const isMobile = useIsMobile();
+    // First-launch permissions walkthrough (see PermissionsOnboarding.jsx) -
+    // native app only (nothing to request in a browser tab) and only ever
+    // shown once, gated by its own completion flag in localStorage. Lazy
+    // useState initializer so this check runs exactly once, not on every
+    // render.
+    const [showPermissionsOnboarding, setShowPermissionsOnboarding] = useState(
+        () => Capacitor.isNativePlatform() && localStorage.getItem(PERMISSIONS_ONBOARDING_KEY) !== 'true'
+    );
     // Compact icon-only mobile drawer (MobileSidebarDrawer) - the
     // hamburger's own open state, session-only like every other panel
     // toggle in this app. Closed automatically on every real nav click
@@ -207,9 +218,15 @@ const DashboardLayout = () => {
             case 'Profile': return <ErrorBoundary moduleName="Profile" key="Profile"><ProfilePage /></ErrorBoundary>;
             case 'Settings': return <ErrorBoundary moduleName="Settings" key="Settings"><SettingsPage setActiveTab={setActiveTab} /></ErrorBoundary>; // Fully functional settings page render
             case 'audio_hub': return <ErrorBoundary moduleName="Audio Hub" key="AudioHub"><AudioHubPage /></ErrorBoundary>;
+            case 'weather': return <ErrorBoundary moduleName="Weather Hub" key="Weather"><WeatherPage setActiveTab={setActiveTab} /></ErrorBoundary>;
             default: return <ErrorBoundary moduleName="Home" key="Default"><HomePage setActiveTab={setActiveTab} /></ErrorBoundary>;
         }
     };
+
+    // Shared by both the Header's render condition and the content
+    // wrapper's own top padding below - see the padding comment for why
+    // both need this exact same condition.
+    const isHeaderHiddenOnMobile = isMobile && (activeTab === 'AI' || activeTab === 'audio_hub');
 
     return (
         <GlobalUserSettingsProvider>
@@ -219,6 +236,9 @@ const DashboardLayout = () => {
             <StreamingProvider>
             <AudioPlayerProvider>
                 <div style={{ position: 'relative', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+                    {showPermissionsOnboarding && (
+                        <PermissionsOnboarding onComplete={() => setShowPermissionsOnboarding(false)} />
+                    )}
                     {wallpaper === 'sky' ? (isDynamic && <DynamicBackground onPhaseChange={setSkyPhase} isSidebarCollapsed={isCollapsed} />) : <AlternateBackgrounds wallpaper={wallpaper} />}
 
                     <div
@@ -255,11 +275,20 @@ const DashboardLayout = () => {
                                 Chat) instead, so this global bar would just
                                 be redundant chrome eating into the chat's
                                 own full-screen space. Bottom-tab navigation
-                                (Home/Audio/AI/Profile/Settings) stays fully
-                                reachable regardless - this only removes the
-                                secondary hamburger entry point while
-                                specifically on this one page. */}
-                            {!(isMobile && activeTab === 'AI') && (
+                                (Home/Finance/Calendar/AI/Settings) stays
+                                fully reachable regardless - this only
+                                removes the secondary hamburger entry point
+                                while specifically on this one page.
+                                Audio Hub gets the same treatment, per
+                                explicit request: its own persistent mini-
+                                player bar already sits pinned at the
+                                bottom, so this global header was genuinely
+                                redundant chrome above an already-compact
+                                page, eating into space that matters most on
+                                a small screen. Deliberately NOT extended to
+                                Profile/Settings (or any other page) - the
+                                request was specific to Audio only. */}
+                            {!isHeaderHiddenOnMobile && (
                                 <Header setActiveTab={setActiveTab} isMobile={isMobile} onOpenMenu={() => setIsMobileNavOpen((v) => !v)} />
                             )}
                             <div style={{ flex: 1, overflowY: 'auto', willChange: 'scroll-position', minWidth: 0 }}>
@@ -272,8 +301,20 @@ const DashboardLayout = () => {
                                     MobileTabBar (its own ~52px of tab buttons
                                     plus the device's safe-area inset) so the
                                     last card in any module is never hidden
-                                    behind it. */}
-                                <div className="glass-panel" style={{ padding: isMobile ? '16px 12px calc(76px + env(safe-area-inset-bottom, 0px)) 12px' : '32px 40px 40px 40px' }}>
+                                    behind it.
+                                    Top padding is status-bar/notch-aware
+                                    ONLY when isHeaderHiddenOnMobile - on
+                                    every other page the just-fixed Header
+                                    above this div already clears the status
+                                    bar itself (see header.jsx), so adding
+                                    the safe-area inset again here too would
+                                    double up into extra dead space below an
+                                    already-cleared header. AI/Audio Hub have
+                                    no header on mobile, so their own content
+                                    starts flush at the very top of
+                                    .nexus-app-shell with nothing else
+                                    clearing the status bar for them. */}
+                                <div className="glass-panel" style={{ padding: isMobile ? `${isHeaderHiddenOnMobile ? 'calc(16px + env(safe-area-inset-top, 0px))' : '16px'} 12px calc(76px + env(safe-area-inset-bottom, 0px)) 12px` : '32px 40px 40px 40px' }}>
                                     <ProtectedModuleGate
                                         moduleId={activeTab}
                                         moduleLabel={MODULE_LABELS[activeTab] || activeTab}

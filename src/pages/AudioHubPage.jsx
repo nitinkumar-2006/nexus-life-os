@@ -994,7 +994,27 @@ const AudioHubPage = () => {
             // browsing area scrolling internally - not position:fixed/
             // sticky, which would need to know the sidebar's own dynamic
             // width or risk clipping inside an overflow:hidden ancestor.
-            height: isMobile ? 'calc(100vh - 152px - env(safe-area-inset-bottom, 0px))' : 'calc(100vh - 164px)',
+            // Mobile constant is 73px (16px top offset from the page
+            // wrapper's own padding + the 57px bottom-nav bar), not
+            // 152px - that older value included room for the global
+            // Header, which no longer renders on this page on mobile
+            // (hidden per an explicit request). Leaving 152px here after
+            // that change left this container 79px shorter than the real
+            // available space - live-measured: mini-player bottom edge
+            // landed at y=676 while the bottom nav's own top edge was at
+            // y=755, a real, visible dead gap, which is also what made
+            // the scrubber (already correctly pinned to the mini-player's
+            // own top edge) read as "floating" - closing this gap removes
+            // the empty space around it entirely. Desktop's 164px is
+            // untouched since the header is still shown there.
+            // Also now subtracts safe-area-inset-top, same reasoning as
+            // AIPage.jsx's identical addition: glass-panel's own top
+            // padding on this page became `16px + that inset` once the
+            // status bar stopped being cleared by the (hidden-on-mobile)
+            // global Header - without this, the page's real total height
+            // would exceed 100vh by that inset, pushing the mini-player
+            // bar's bottom edge back behind the bottom nav.
+            height: isMobile ? 'calc(100vh - 73px - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px))' : 'calc(100vh - 164px)',
         }}>
 
             {/* Compact top bar - just the section tabs now (the back arrow

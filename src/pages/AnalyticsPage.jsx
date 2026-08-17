@@ -117,8 +117,7 @@ const AnalyticsPage = () => {
             {/* Header Section */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Life Intelligence Center</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Cross-module analytics, performance trends, and AI-driven life insights.</p>
+                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Analytics Hub</h1>
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px' }}>

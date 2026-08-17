@@ -9,6 +9,9 @@ import {
 import { generateNexusAIResponse } from '../utils/nexusAIEngine.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 // Real personas - each genuinely changes response routing (not just a
 // cosmetic label): when the active persona is non-'general' and the
@@ -191,6 +194,9 @@ const renderMessageText = (text) => {
 
 const AIPage = () => {
     const isMobile = useIsMobile();
+    // Contextual first-visit tour (see TourGuide.jsx) - mobile only; the
+    // menu-toggle step in particular only exists in the mobile top bar.
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('ai'));
     // 1. DEEP INTEGRATION: Pulling data from ALL Nexus modules
     const [plannerTasks] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_planner_tasks')) || []; } catch (e) { return []; } });
     const [timetableData] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_timetable_data')) || {}; } catch (e) { return {}; } });
@@ -500,16 +506,25 @@ const AIPage = () => {
             // MobileTabBar) plus the device's own safe-area inset, the
             // same env() this app already uses for that padding and for
             // MobileTabBar itself. This is a genuine exact fit (16 + this
-            // height + 76 + safe-area == 100vh), not the old, disconnected
-            // "100vh - 140px" guess, which left the card ~60px shorter
-            // than the space actually available - real dead space between
-            // the chat card and the bottom nav dock rather than the small,
-            // intentional-looking gap glass-panel's own padding already
-            // provides. Desktop is untouched (different chrome above it,
-            // no bottom dock to clear).
-            height: isMobile ? 'calc(100vh - 92px - env(safe-area-inset-bottom, 0px))' : 'calc(100vh - 140px)',
+            // height + 76 + safe-area-bottom == 100vh), not the old,
+            // disconnected "100vh - 140px" guess, which left the card ~60px
+            // shorter than the space actually available - real dead space
+            // between the chat card and the bottom nav dock rather than the
+            // small, intentional-looking gap glass-panel's own padding
+            // already provides. Desktop is untouched (different chrome
+            // above it, no bottom dock to clear).
+            // Also now subtracts safe-area-inset-top: glass-panel's own top
+            // padding on this page became `16px + that inset` (see
+            // DashboardLayout.jsx's isHeaderHiddenOnMobile) once the global
+            // Header - hidden here on mobile - stopped being what cleared
+            // the status bar for this page. Leaving this height calc as it
+            // was would make the page's real total height (top padding +
+            // this + bottom padding) exceed 100vh by exactly that inset,
+            // pushing the bottom of the chat card behind the bottom nav.
+            height: isMobile ? 'calc(100vh - 92px - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px))' : 'calc(100vh - 140px)',
             animation: 'fadeInScale 0.3s ease', position: 'relative', width: '100%', boxSizing: 'border-box', minWidth: 0,
         }}>
+            {showTour && <TourGuide tourId="ai" steps={TOUR_STEPS.ai} onFinish={() => setShowTour(false)} />}
 
             {/* Desktop keeps the full title + subtitle. Mobile gets a
                 genuinely minimal ChatGPT-style top bar instead - just a
@@ -528,7 +543,7 @@ const AIPage = () => {
                 </div>
             ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                    <button type="button" onClick={() => setSidebarOpen(true)} title="Open menu" aria-label="Open menu" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0 }}>
+                    <button type="button" onClick={() => setSidebarOpen(true)} title="Open menu" aria-label="Open menu" data-tour-id="ai-menu" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0 }}>
                         <Menu size={18} />
                     </button>
                     <h1 style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, flex: 1, textAlign: 'center' }}>Nexus AI</h1>
@@ -911,7 +926,7 @@ const AIPage = () => {
                                     {/* Unified ChatGPT-style pill: the Plus button, text
                                         input, and Send button all live inside ONE rounded
                                         container instead of three separate boxes. */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 6px 6px 6px', borderRadius: '26px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}>
+                                    <div data-tour-id="ai-input" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 6px 6px 6px', borderRadius: '26px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}>
                                         <div ref={attachMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
                                             <button
                                                 type="button"
@@ -919,6 +934,7 @@ const AIPage = () => {
                                                 onClick={toggleAttachMenu}
                                                 aria-label="Open attachment menu"
                                                 aria-expanded={attachMenuOpen}
+                                                data-tour-id="ai-plus"
                                                 style={{ width: '38px', height: '38px', borderRadius: '50%', background: attachMenuOpen ? 'var(--primary)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: attachMenuOpen ? 'var(--text-on-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s, color 0.2s' }}
                                             >
                                                 <Plus size={19} style={{ transform: attachMenuOpen ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }} />

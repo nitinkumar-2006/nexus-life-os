@@ -136,6 +136,49 @@ button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
     text-shadow: 0 1px 4px rgba(15, 23, 42, 0.55);
 }
 
+/* CUSTOM WALLPAPER TEXT-COLOR FIX - the actual root cause, found after
+   the card-floor fix below (which predates this rule and was already
+   correct on its own terms) turned out to only cover text sitting
+   INSIDE a --bg-surface/--widget-bg card. A page heading like Settings'
+   own "System Settings" <h1> sits directly on the raw wallpaper with no
+   card behind it at all, and still rendered as dark-navy-on-dark-navy
+   (confirmed live via getComputedStyle: color: rgb(15,23,42), the exact
+   --text-primary dawn/day sets) - the card fix structurally can't reach
+   text like that.
+   The real problem: --text-primary/secondary/muted switch to DARK navy
+   specifically during the dawn/day sky-phase, on the assumption that
+   Animated Sky's own bright blue sky is what's actually behind the
+   text. That assumption is simply never true for a custom wallpaper -
+   checked every one of the 24 in AlternateBackgrounds.jsx, and every
+   single one (including the brightest-looking picker swatch, Prism
+   Glass) paints a dark base layer first (Prism Glass: #0A0A0F) with
+   only translucent color accents on top. A custom wallpaper has no
+   "time of day" concept at all; it's a static dark image regardless of
+   the real-world sky-phase clock. So the fix isn't to chase every place
+   dark text can render unprotected (an endless, easy-to-miss list) -
+   it's to stop dark text from ever being selected in the first place
+   once a custom wallpaper is active: force the same light values the
+   dusk/night phases already use (proven correct, unchanged) for EVERY
+   sky-phase whenever data-custom-wallpaper is true. Higher specificity
+   than the bare per-phase --text-primary rules above (an extra class +
+   attribute selector) is what makes this win regardless of which phase
+   is actually active. */
+:root[data-theme="dynamic"] .nexus-app-shell[data-custom-wallpaper="true"] {
+    --text-primary: #FFFFFF;
+    --text-secondary: #E2E8F0;
+    --text-muted: #94A3B8;
+    --text-main: #FFFFFF;
+    /* Same gap as --text-primary above, one token over: dawn/day's own
+       base rule (variables.css) sets --player-bar-bg to solid WHITE to
+       pair with that phase's normally-dark text - real, confirmed live
+       (a stark opaque white bar at the bottom of Audio Hub, completely
+       breaking the dark glassmorphic look, with the mini-player's own
+       light icons/text now unreadable on it once text went light here
+       too). Forced dark to match the light text this rule already
+       guarantees, exactly like dusk/night's own --player-bar-bg. */
+    --player-bar-bg: #0F172A;
+}
+
 /* CUSTOM WALLPAPER CARD CONTRAST FIX - genuinely scoped to the exact
    combination where this issue actually occurs: Dynamic theme active
    (the only theme whose own --bg-surface/--widget-bg are deliberately
@@ -153,7 +196,11 @@ button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
    data-custom-wallpaper is "false" (Animated Sky, the real default),
    this rule genuinely never applies - the Dynamic theme's own existing
    rendering is completely untouched, per this request's explicit
-   instruction. */
+   instruction. Unconditionally dark navy now (not split by sky-phase) -
+   the text-color fix directly above means text is always light for a
+   custom wallpaper regardless of phase, so this floor only ever needs
+   to pair with that one light-text case, exactly like dusk/night always
+   correctly did. */
 :root[data-theme="dynamic"] .nexus-app-shell[data-custom-wallpaper="true"] {
     /* max() takes the LARGER of the user's own real, current slider value
        (still read live via var(--nexus-user-glass-alpha, ...), exactly
@@ -166,6 +213,16 @@ button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
        typically busier/higher-contrast imagery than the animated sky. */
     --bg-surface: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
     --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.35));
+    /* Same floor, extended to the two system-chrome bars (bottom nav +
+       top header) - both were left out of the fix above and are still
+       measurably ~3% opacity against a custom wallpaper, confirmed live
+       via getComputedStyle (rgba(255,255,255,0.03) even with 16px blur),
+       which is what actually reads as "content bleeding through the nav
+       bar" on a busy wallpaper image rather than a smooth sky gradient.
+       Same 0.4 floor as --bg-surface so the bars read as consistently
+       solid as the cards, not more see-through than them. */
+    --sidebar-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
+    --header-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
 }
 
 /* GLOBAL HEADER WIDTH CONSTRAINT - defensive, explicit reinforcement on

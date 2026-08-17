@@ -1,26 +1,35 @@
 // src/utils/biometricAuth.js
 //
-// A real, working WebAuthn-based biometric lock - genuinely registers
-// and verifies against the device's own platform authenticator
-// (fingerprint/face), not a placeholder. Built on the web platform's
-// own navigator.credentials API rather than a native Capacitor
-// plugin: this app has no native plugin installed, and this
-// environment has no real Android device to verify a native
-// integration against. WebAuthn genuinely works inside a Capacitor
-// Android WebView via the system biometric prompt (through the
-// WebView's own Chromium-based engine on Android 7+), with zero
-// native plugin installation needed.
+// Biometric lock, with two real implementations picked automatically by
+// platform:
+//
+// - Native (Capacitor.isNativePlatform() true, i.e. the actual Android
+//   app shell): routes to nativeBiometric.js, which calls the installed
+//   @aparajita/capacitor-biometric-auth plugin - a real native
+//   BiometricPrompt, the same system dialog Android's own Settings uses.
+// - Web (the Netlify deployment, or the app running in a desktop
+//   browser): unchanged WebAuthn implementation below, using the
+//   platform's own navigator.credentials API. This genuinely works
+//   inside a Capacitor Android WebView too via the system biometric
+//   prompt, but a real native plugin is more reliable there, so native
+//   platforms now use that path instead.
+//
+// Every exported function has the same signature and contract regardless
+// of which path runs underneath, so BiometricLockScreen.jsx,
+// ProtectedModuleGate.jsx, and SettingsPage.jsx never need to know which
+// implementation is active.
+import { Capacitor } from '@capacitor/core';
+import { isNativeBiometricAvailable, registerNativeBiometric, verifyNativeBiometric } from './nativeBiometric.js';
 
 const BIOMETRIC_ENABLED_KEY = 'nexus_biometric_lock_enabled';
 const BIOMETRIC_CREDENTIAL_KEY = 'nexus_biometric_credential_id';
 
-// Genuine platform-support check - WebAuthn requires a secure context
-// (HTTPS or localhost) and browser support for
-// PublicKeyCredential/navigator.credentials. Checked before ever
-// offering the feature: a toggle that fails on an unsupported device
-// is worse than not showing it, since it would look like a broken
-// promise rather than an absent one.
+// Genuine platform-support check. On native, biometric hardware support
+// is effectively universal on modern Android devices - actual enrollment
+// is checked (async) when registerBiometric() is called, same as the web
+// path never checks real enrollment here either, only API availability.
 export const isBiometricSupported = () => {
+    if (isNativeBiometricAvailable()) return true;
     return typeof window !== 'undefined' &&
         typeof window.PublicKeyCredential !== 'undefined' &&
         typeof navigator !== 'undefined' &&
@@ -38,11 +47,19 @@ const randomChallenge = () => {
 const bufferToBase64 = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)));
 const base64ToBuffer = (base64) => Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
 
-// Real registration - genuinely prompts the system biometric UI and,
-// on success, persists the real credential ID this device just
-// created (not a fabricated one) so a later unlock attempt can
-// reference the exact same credential.
+// Real registration. On native this just confirms biometry is actually
+// enrolled and usable (there's no separate "create a credential" step at
+// the OS level like WebAuthn has - authenticate() below always challenges
+// whatever is currently enrolled). On web, genuinely prompts the system
+// biometric UI and persists the real credential ID this device just
+// created so a later unlock attempt can reference the exact same one.
 export const registerBiometric = async (userEmail) => {
+    if (Capacitor.isNativePlatform()) {
+        await registerNativeBiometric();
+        localStorage.setItem(BIOMETRIC_ENABLED_KEY, 'true');
+        return true;
+    }
+
     if (!isBiometricSupported()) throw new Error('Biometric authentication is not supported on this device.');
 
     const publicKey = {
@@ -76,10 +93,13 @@ export const registerBiometric = async (userEmail) => {
     return true;
 };
 
-// Real verification - genuinely prompts the system biometric UI again
-// and only resolves true if the device's own authenticator confirms
-// the same real credential registered above.
+// Real verification. On native this genuinely prompts the OS
+// BiometricPrompt via nativeBiometric.js. On web, prompts the system
+// biometric UI again and only resolves true if the device's own
+// authenticator confirms the same real credential registered above.
 export const verifyBiometric = async () => {
+    if (Capacitor.isNativePlatform()) return verifyNativeBiometric();
+
     const storedId = localStorage.getItem(BIOMETRIC_CREDENTIAL_KEY);
     if (!storedId || !isBiometricSupported()) return false;
 

@@ -277,8 +277,7 @@ const DietPage = () => {
             {/* Header Section */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Nutrition Command Center</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Track daily meals, hydration, grocery shopping, and AI nutrition coaching.</p>
+                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Diet Hub</h1>
                 </div>
                 
                 <div style={{ display: 'flex', gap: '10px' }}>

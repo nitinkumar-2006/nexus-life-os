@@ -279,13 +279,35 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                breathing room, not a large block with wasted vertical
                space above the home page's own content. */
             padding: isMobile ? '10px 12px' : '18px 28px', borderBottom: 'none',
+            /* Real device status bar (notch/clock/battery) clearance - this
+               header is position:sticky/top:0, the very first element in
+               .nexus-app-shell, with no other chrome above it. index.html's
+               viewport-fit=cover already opts the page into extending under
+               the status bar, but nothing here compensated for that: real,
+               confirmed live via device video, content and icons were
+               rendering directly under the status bar with zero clearance.
+               env() only ever returns a non-zero value inside that
+               viewport-fit=cover webview (a real notched phone, installed
+               PWA, or the project's own Capacitor wrapper) - a plain
+               desktop/laptop browser tab always resolves it to 0, so this
+               is a no-op there and the existing 10px/18px padding is
+               unchanged. */
+            paddingTop: isMobile ? 'calc(10px + env(safe-area-inset-top, 0px))' : '18px',
             position: 'sticky', top: 0, zIndex: 1000,
             /* backdrop-filter intentionally not set inline - see the note on
                the Sidebar for why: the external stylesheet rule matching
                [style*="var(--header-bg"] applies the full blur+saturate+
                brightness treatment, and an inline declaration here would
                silently override it down to a plain, unsaturated blur. */
-            background: 'var(--header-bg, var(--bg-main))', color: 'var(--text-main)', flexShrink: 0, height: isMobile ? '60px' : '84px', width: '100%',
+            background: 'var(--header-bg, var(--bg-main))', color: 'var(--text-main)', flexShrink: 0,
+            /* minHeight, not a fixed height - a fixed 60px with the extra
+               safe-area padding above would (box-sizing: border-box) eat
+               directly into the 36px avatar/icon row's own space instead of
+               growing the bar taller, clipping it on tall-inset devices
+               (e.g. ~47-59px on an iPhone with a Dynamic Island). Letting
+               the bar grow keeps every icon fully visible and correctly
+               centered below the status bar instead of cramped against it. */
+            minHeight: isMobile ? '60px' : '84px', width: '100%',
             transition: 'background 0.3s ease, color 0.3s ease'
         }}>
             {/* Real, 20px custom draggable strip - the actual mechanism

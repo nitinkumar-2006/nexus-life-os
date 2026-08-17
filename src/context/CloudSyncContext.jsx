@@ -27,6 +27,16 @@ const BACKUP_FREQUENCY_MS = {
 };
 const LAST_AUTO_BACKUP_KEY = 'nexus_last_auto_backup';
 
+// How long to wait after the LAST local change before actually pushing -
+// this is the real "WhatsApp-style automatic backup" mechanism (see the
+// effect below): near-real-time, not just the existing Daily/Weekly/
+// Monthly scheduled backup further down, which stays in place as a
+// second, coarser safety net rather than being replaced. A burst of
+// rapid edits (typing, importing a statement, bulk-toggling settings)
+// collapses into one real Firestore write shortly after they settle,
+// not one write per keystroke.
+const AUTO_PUSH_DEBOUNCE_MS = 3000;
+
 // Real watchdog timeout - the actual fix for the reported "infinite
 // Syncing..." bug. Neither setDoc nor getDoc has any built-in timeout of
 // its own; a genuine network hang (a dropped connection, a firewall
@@ -102,6 +112,13 @@ export const CloudSyncProvider = ({ children }) => {
     const [syncError, setSyncError] = useState(null);
     const [lastSyncedAt, setLastSyncedAt] = useState(null);
     const hasPulledForUser = useRef(null);
+    // True only for the exact duration pullFromCloud is writing its
+    // fetched data into localStorage - guards the auto-push listener
+    // below from treating a pull's own dispatched 'storage' event as a
+    // new local change and immediately pushing straight back to the
+    // cloud the data that was just pulled FROM the cloud.
+    const isPullingRef = useRef(false);
+    const pushDebounceRef = useRef(null);
 
     const snapshotLocalData = () => {
         const snapshot = {};
@@ -179,12 +196,18 @@ export const CloudSyncProvider = ({ children }) => {
             const snap = await withTimeout(getDoc(doc(db, 'nexusUsers', user.uid)), SYNC_TIMEOUT_MS);
             if (snap.exists()) {
                 const cloudData = snap.data().data || {};
+                isPullingRef.current = true;
                 Object.entries(cloudData).forEach(([key, value]) => {
                     localStorage.setItem(key, value);
                 });
                 window.dispatchEvent(new Event('nexus_profile_updated'));
                 window.dispatchEvent(new Event('nexus_settings_updated'));
+                // Synchronous dispatch - every listener (including the
+                // auto-push one below) has already run by the time this
+                // call returns, so it's safe to drop the guard right
+                // after rather than needing a delay.
                 window.dispatchEvent(new Event('storage'));
+                isPullingRef.current = false;
             }
             setLastSyncedAt(new Date());
             setSyncStatus(SYNC_STATUS.IDLE);
@@ -210,6 +233,54 @@ export const CloudSyncProvider = ({ children }) => {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, isConfigured]);
+
+    // The real "WhatsApp-style automatic backup" mechanism - every
+    // localStorage write anywhere in this app already dispatches a
+    // same-tab 'storage' event right after (the established convention
+    // every page's own persistence effect already follows, since a
+    // browser's native 'storage' event only ever fires in OTHER tabs of
+    // the same origin, never the one that made the change). Listening
+    // for that same signal here means a change to tasks, transactions,
+    // settings, or anything else in SYNCED_KEYS reaches the cloud within
+    // AUTO_PUSH_DEBOUNCE_MS - no manual "Sync Now" tap required, and no
+    // waiting for the Daily/Weekly/Monthly scheduled backup further
+    // below, which stays in place as a coarser fallback (e.g. a device
+    // that was offline when a debounced push tried to fire).
+    useEffect(() => {
+        if (!isConfigured || !user) return undefined;
+
+        const handleLocalChange = () => {
+            if (isPullingRef.current) return; // this change came FROM the cloud, don't push it right back
+            if (pushDebounceRef.current) clearTimeout(pushDebounceRef.current);
+            pushDebounceRef.current = setTimeout(() => {
+                pushDebounceRef.current = null;
+                pushToCloud();
+            }, AUTO_PUSH_DEBOUNCE_MS);
+        };
+
+        // Flushes any still-pending debounced push the instant the tab
+        // backgrounds - genuinely closes the real "edited something, then
+        // immediately closed the app before the debounce fired" data-loss
+        // window, the same real risk this whole feature is meant to
+        // remove. 'visibilitychange' (not 'beforeunload') is what
+        // reliably fires on mobile when an app is backgrounded/switched
+        // away from, not just on an actual page close.
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden' && pushDebounceRef.current) {
+                clearTimeout(pushDebounceRef.current);
+                pushDebounceRef.current = null;
+                pushToCloud();
+            }
+        };
+
+        window.addEventListener('storage', handleLocalChange);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            window.removeEventListener('storage', handleLocalChange);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            if (pushDebounceRef.current) clearTimeout(pushDebounceRef.current);
+        };
+    }, [isConfigured, user, pushToCloud]);
 
     // Respects the Settings page's Auto-Backup Frequency dropdown: checks
     // every 5 minutes whether enough time has passed since the last backup

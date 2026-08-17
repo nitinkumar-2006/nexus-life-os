@@ -23,8 +23,10 @@ export const ALL_NAV_ITEMS = [
     { name: 'Profile', id: 'profile', icon: User, essential: true },
 ];
 
-// Mobile's own bottom-dock tab list (Home/Audio/AI/Profile/Settings)
+// Mobile's own bottom-dock tab list (Home/Finance/Calendar/AI/Settings)
 // lives directly in MobileTabBar.jsx now, not here - it isn't a subset
-// of ALL_NAV_ITEMS (Audio Hub was never part of this shared list), so a
-// name-filter constant no longer fits. Every module in ALL_NAV_ITEMS is
-// reachable on mobile via MobileSidebarDrawer.jsx instead.
+// of ALL_NAV_ITEMS (Audio Hub was never part of this shared list, and
+// Settings isn't a module in this list at all), so a name-filter
+// constant no longer fits. Every module in ALL_NAV_ITEMS - including
+// Finance/Calendar, which also have their own bottom-dock slot now - is
+// reachable on mobile via MobileSidebarDrawer.jsx too.

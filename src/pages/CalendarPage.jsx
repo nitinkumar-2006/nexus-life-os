@@ -1,12 +1,19 @@
 // src/pages/CalendarPage.jsx
 import { useState, useEffect, useRef } from 'react';
-import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, ChevronDown, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw, Smartphone, X } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { parseIcsToEvents, eventsToIcs, importIcsFromUrl } from '../utils/calendarSync.js';
+import { isDeviceCalendarBridgeAvailable, importDeviceCalendarEvents } from '../utils/nativeCalendarBridge.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 const CalendarPage = () => {
     const isMobile = useIsMobile();
+    // Contextual first-visit tour (see TourGuide.jsx) - mobile only, same
+    // scoping as every other page's own tour this pass.
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('calendar'));
     // FIXED: Zeroed out for 00% blank state
     const [events, setEvents] = useState(() => {
         const saved = localStorage.getItem('nexus_calendar_events');
@@ -67,6 +74,15 @@ const CalendarPage = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncMessage, setSyncMessage] = useState('');
     const [syncIsError, setSyncIsError] = useState(false);
+    // Mobile-only: the whole "Calendar Sync" card (import/export/feed/
+    // device) moves into this on-demand modal instead of always sitting
+    // inline in the scroll, reached via a compact icon button in the
+    // header action bar. Desktop keeps the card inline, unchanged.
+    const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+    // Mobile-only: lets the day's event list collapse out of the way so
+    // the compact month grid isn't followed by a long always-open list -
+    // defaults open since seeing today's schedule is the common case.
+    const [isAgendaExpanded, setIsAgendaExpanded] = useState(true);
 
     useEffect(() => {
         if (!syncMessage) return undefined;
@@ -136,6 +152,36 @@ const CalendarPage = () => {
             // vague "something went wrong".
             setSyncIsError(true);
             setSyncMessage(`Couldn't fetch that feed (${err.message || 'network/CORS error'}). Try downloading the .ics file instead and importing it above.`);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    // Real device-calendar bridge (utils/nativeCalendarBridge.js) - only
+    // ever reachable through the button below, which is itself only
+    // rendered when isDeviceCalendarBridgeAvailable() is true (the
+    // installed Android app, never a browser tab), so this never runs
+    // against a plugin that genuinely isn't there. Same
+    // isSyncing/syncMessage state and merge-into-`events` pattern as
+    // handleFeedImport above, so all three import paths (file, feed,
+    // device) read identically to the user.
+    const handleDeviceCalendarImport = async () => {
+        if (isSyncing) return;
+        setIsSyncing(true);
+        setSyncMessage('');
+        try {
+            const imported = await importDeviceCalendarEvents();
+            if (imported.length === 0) {
+                setSyncIsError(true);
+                setSyncMessage('No events found on your device calendar in the next 90 days.');
+            } else {
+                setEvents((prev) => [...imported, ...prev]);
+                setSyncIsError(false);
+                setSyncMessage(`Synced ${imported.length} event${imported.length === 1 ? '' : 's'} from your device calendar.`);
+            }
+        } catch (err) {
+            setSyncIsError(true);
+            setSyncMessage(err.message || 'Could not read the device calendar.');
         } finally {
             setIsSyncing(false);
         }
@@ -367,34 +413,43 @@ const CalendarPage = () => {
         const firstDay = getFirstDayOfMonth(year, month);
         const days = [];
 
+        // Empty leading cells are real grid squares now too (not just
+        // padding) so the month reads as one complete rectangular table
+        // instead of numbers floating with blank space before them.
         for (let i = 0; i < firstDay; i++) {
-            days.push(<div key={`empty-${i}`} style={{ padding: '5px' }}></div>);
+            days.push(<div key={`empty-${i}`} style={{ height: '34px', borderRadius: '8px', background: 'var(--surface-inset)', opacity: 0.35 }}></div>);
         }
 
         for (let d = 1; d <= daysInMonth; d++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
             const isSelected = d === selectedDate.getDate() && month === selectedDate.getMonth() && year === selectedDate.getFullYear();
             const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-            
+
             const dayEvents = [...events, ...getTimetableEventsForDate(dateStr)].filter(ev => ev.date === dateStr).slice(0, 3);
 
             days.push(
-                <div 
+                <div
                     key={d} onClick={() => handleDateClick(d)}
-                    style={{ 
-                        height: '42px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                        background: isSelected ? 'var(--primary)' : isToday ? 'var(--widget-bg)' : 'transparent',
+                    style={{
+                        // Every real day cell gets its own background/border
+                        // now (not just selected/today) so the grid reads as
+                        // a structured table of cells, same idea as a real
+                        // calendar app, rather than bare floating numbers.
+                        // Height/gap shrunk from the previous 42px+6px so
+                        // the full month takes noticeably less page space.
+                        height: '34px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                        background: isSelected ? 'var(--primary)' : isToday ? 'var(--widget-bg)' : 'var(--surface-inset)',
                         color: isSelected ? 'var(--text-on-primary)' : isToday ? 'var(--primary)' : 'var(--text-primary)',
-                        border: isToday && !isSelected ? '1px solid var(--primary)' : '1px solid transparent',
-                        borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative'
+                        border: isToday && !isSelected ? '1px solid var(--primary)' : '1px solid var(--border-premium)',
+                        borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative'
                     }}
                 >
-                    <span style={{ fontSize: '14px', fontWeight: isSelected || isToday ? '800' : '600' }}>{d}</span>
-                    
+                    <span style={{ fontSize: '12px', fontWeight: isSelected || isToday ? '800' : '600' }}>{d}</span>
+
                     {/* Compact Dots */}
-                    <div style={{ display: 'flex', gap: '2px', position: 'absolute', bottom: '4px' }}>
+                    <div style={{ display: 'flex', gap: '2px', position: 'absolute', bottom: '3px' }}>
                         {dayEvents.map((ev, idx) => (
-                            <div key={idx} style={{ width: '4px', height: '4px', borderRadius: '50%', background: isSelected ? 'var(--surface-inset)' : getCategoryColor(ev.category) }}></div>
+                            <div key={idx} style={{ width: '3px', height: '3px', borderRadius: '50%', background: isSelected ? 'var(--surface-inset)' : getCategoryColor(ev.category) }}></div>
                         ))}
                     </div>
                 </div>
@@ -403,22 +458,104 @@ const CalendarPage = () => {
         return days;
     };
 
+    // Shared between the desktop-inline Calendar Sync card and the
+    // mobile sync modal - one real implementation, two entry points,
+    // so there's nothing to keep in sync between them by hand.
+    const renderSyncPanelBody = () => (
+        <>
+            <input
+                ref={icsFileInputRef} type="file" accept=".ics,text/calendar"
+                onChange={handleIcsFileImport} style={{ display: 'none' }} aria-label="Import .ics calendar file"
+            />
+            <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                    type="button" onClick={() => icsFileInputRef.current && icsFileInputRef.current.click()}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                    <Upload size={13} /> Import .ics
+                </button>
+                <button
+                    type="button" onClick={handleExportIcs}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                    <Download size={13} /> Export
+                </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <label htmlFor="calendarFeedUrl" style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>External Feed URL (optional)</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                        id="calendarFeedUrl" type="url" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)}
+                        placeholder="https://.../calendar.ics"
+                        style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                    <button
+                        type="button" onClick={handleFeedImport} disabled={!feedUrl.trim() || isSyncing}
+                        style={{ flexShrink: 0, padding: '9px 14px', borderRadius: '9999px', border: 'none', background: feedUrl.trim() ? 'var(--primary)' : 'var(--surface-inset)', color: feedUrl.trim() ? 'var(--text-on-primary)' : 'var(--text-muted)', fontWeight: '700', fontSize: '12px', cursor: feedUrl.trim() && !isSyncing ? 'pointer' : 'default', fontFamily: 'inherit' }}
+                    >
+                        {isSyncing ? '...' : 'Sync'}
+                    </button>
+                </div>
+            </div>
+
+            {isDeviceCalendarBridgeAvailable() && (
+                <button
+                    type="button" onClick={handleDeviceCalendarImport} disabled={isSyncing}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1, fontFamily: 'inherit' }}
+                >
+                    <Smartphone size={13} /> {isSyncing ? 'Syncing…' : 'Import from Device Calendar'}
+                </button>
+            )}
+
+            {syncMessage && (
+                <span style={{ fontSize: '11px', fontWeight: '600', color: syncIsError ? '#EF4444' : '#10B981', lineHeight: 1.4 }}>{syncMessage}</span>
+            )}
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                {isDeviceCalendarBridgeAvailable()
+                    ? 'Reads directly from your Android device\'s own calendar - local only, no cloud account involved. First tap will ask for calendar permission.'
+                    : 'Native device calendar sync needs the installed Android app - file import/export above works fully here in the browser.'}
+            </span>
+        </>
+    );
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
-            
-            {/* Header Section */}
+            {showTour && <TourGuide tourId="calendar" steps={TOUR_STEPS.calendar} onFinish={() => setShowTour(false)} />}
+
+            {/* Header Section - on mobile, a compact icon button opens the
+                Calendar Sync panel in a modal instead of it sitting inline
+                in the scroll (see isSyncModalOpen below), so this row
+                becomes the whole "sync + add event" action bar. Desktop is
+                untouched: no sync button here since the full Sync card
+                already sits inline further down. */}
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px' }}>
                 <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Hub</h1>
 
-                <button
-                    onClick={() => {
-                        setNewEvent(prev => ({...prev, date: selectedDateStr}));
-                        setIsAddModalOpen(true);
-                    }}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '12px 18px' : '10px 20px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
-                >
-                    <Plus size={isMobile ? 16 : 18} /> Schedule Event
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    {isMobile && (
+                        <button
+                            type="button"
+                            onClick={() => setIsSyncModalOpen(true)}
+                            data-tour-id="calendar-sync"
+                            aria-label="Calendar Sync"
+                            title="Calendar Sync"
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', cursor: 'pointer' }}
+                        >
+                            <RefreshCw size={18} />
+                        </button>
+                    )}
+                    <button
+                        onClick={() => {
+                            setNewEvent(prev => ({...prev, date: selectedDateStr}));
+                            setIsAddModalOpen(true);
+                        }}
+                        data-tour-id="calendar-add-event"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '12px 18px' : '10px 20px', flex: isMobile ? 1 : 'none', width: isMobile ? 'auto' : 'auto', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
+                    >
+                        <Plus size={isMobile ? 16 : 18} /> Schedule Event
+                    </button>
+                </div>
             </div>
 
             {/* Quick Metrics - compact 3-column grid on mobile */}
@@ -477,71 +614,38 @@ const CalendarPage = () => {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', textAlign: 'center', marginBottom: '4px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', marginBottom: '2px' }}>
                                 {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
                                     <span key={day} style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>{day}</span>
                                 ))}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
                                 {renderCalendarGrid()}
                             </div>
                         </div>
 
                         {/* Calendar Sync - real, file-based ICS import/export
                             plus a best-effort remote feed URL fetch (see
-                            utils/calendarSync.js). Native device calendar
-                            sync genuinely isn't possible from a plain
-                            browser tab - said plainly below rather than
-                            faked. */}
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
+                            utils/calendarSync.js), plus a real native
+                            device-calendar bridge (see
+                            utils/nativeCalendarBridge.js) when running
+                            inside the installed Android app. The device
+                            button below is deliberately absent rather than
+                            shown-then-erroring in a plain browser tab,
+                            where the underlying plugin genuinely doesn't
+                            exist. Desktop only inline - mobile reaches the
+                            exact same controls through the compact header
+                            icon button + modal below instead, so this card
+                            doesn't sit permanently in the mobile scroll. */}
+                        {!isMobile && (
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <RefreshCw size={15} color="var(--accent)" />
                                 <h3 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Sync</h3>
                             </div>
-
-                            <input
-                                ref={icsFileInputRef} type="file" accept=".ics,text/calendar"
-                                onChange={handleIcsFileImport} style={{ display: 'none' }} aria-label="Import .ics calendar file"
-                            />
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button
-                                    type="button" onClick={() => icsFileInputRef.current && icsFileInputRef.current.click()}
-                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                    <Upload size={13} /> Import .ics
-                                </button>
-                                <button
-                                    type="button" onClick={handleExportIcs}
-                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                    <Download size={13} /> Export
-                                </button>
-                            </div>
-
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <label htmlFor="calendarFeedUrl" style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>External Feed URL (optional)</label>
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                    <input
-                                        id="calendarFeedUrl" type="url" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)}
-                                        placeholder="https://.../calendar.ics"
-                                        style={{ flex: 1, minWidth: 0, padding: '9px 12px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', boxSizing: 'border-box' }}
-                                    />
-                                    <button
-                                        type="button" onClick={handleFeedImport} disabled={!feedUrl.trim() || isSyncing}
-                                        style={{ flexShrink: 0, padding: '9px 14px', borderRadius: '9999px', border: 'none', background: feedUrl.trim() ? 'var(--primary)' : 'var(--surface-inset)', color: feedUrl.trim() ? 'var(--text-on-primary)' : 'var(--text-muted)', fontWeight: '700', fontSize: '12px', cursor: feedUrl.trim() && !isSyncing ? 'pointer' : 'default', fontFamily: 'inherit' }}
-                                    >
-                                        {isSyncing ? '...' : 'Sync'}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {syncMessage && (
-                                <span style={{ fontSize: '11px', fontWeight: '600', color: syncIsError ? '#EF4444' : '#10B981', lineHeight: 1.4 }}>{syncMessage}</span>
-                            )}
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                                Native device calendar sync needs an installed app wrapper and isn't available in a browser tab yet - file import/export above works fully today.
-                            </span>
+                            {renderSyncPanelBody()}
                         </div>
+                        )}
                     </div>
 
                     {/* RIGHT COLUMN: Timeline Details */}
@@ -566,14 +670,29 @@ const CalendarPage = () => {
                             </div>
                         </div>
 
-                        {/* List */}
+                        {/* List - collapsible on mobile (tap the heading row)
+                            so the day's events don't have to sit permanently
+                            expanded right below the grid; always expanded on
+                            desktop, unaffected by isAgendaExpanded. */}
                         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '0' }}>
-                                <div>
-                                    <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
-                                        Schedule for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}
-                                    </h3>
-                                    <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>{filteredEvents.length} events found</span>
+                                <div
+                                    role={isMobile ? 'button' : undefined}
+                                    tabIndex={isMobile ? 0 : undefined}
+                                    aria-expanded={isMobile ? isAgendaExpanded : undefined}
+                                    onClick={() => isMobile && setIsAgendaExpanded((v) => !v)}
+                                    onKeyDown={(e) => { if (isMobile && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setIsAgendaExpanded((v) => !v); } }}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', cursor: isMobile ? 'pointer' : 'default' }}
+                                >
+                                    <div>
+                                        <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
+                                            Schedule for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}
+                                        </h3>
+                                        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>{filteredEvents.length} events found</span>
+                                    </div>
+                                    {isMobile && (
+                                        <ChevronDown size={18} color="var(--text-muted)" style={{ flexShrink: 0, transform: isAgendaExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                                    )}
                                 </div>
                                 <button
                                     onClick={() => { setNewEvent(prev => ({...prev, date: selectedDateStr})); setIsAddModalOpen(true); }}
@@ -583,6 +702,7 @@ const CalendarPage = () => {
                                 </button>
                             </div>
 
+                            {(!isMobile || isAgendaExpanded) && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {filteredEvents.length === 0 ? (
                                     <div style={{ textAlign: 'center', padding: isMobile ? '32px 16px' : '40px 0', boxSizing: 'border-box', color: 'var(--text-muted)' }}>
@@ -628,6 +748,7 @@ const CalendarPage = () => {
                                     ))
                                 )}
                             </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -635,13 +756,13 @@ const CalendarPage = () => {
 
             {/* TAB CONTENT: AI SCHEDULE ASSISTANT */}
             {activeTab === 'AIAssistant' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
-                            <Sparkles size={22} />
-                            <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Schedule Briefing & Optimization</h3>
+                            <Sparkles size={isMobile ? 18 : 22} />
+                            <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Schedule Briefing & Optimization</h3>
                         </div>
-                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6', background: 'var(--widget-bg)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <p style={{ fontSize: isMobile ? '13px' : '14px', color: 'var(--text-secondary)', lineHeight: '1.6', background: 'var(--widget-bg)', padding: isMobile ? '12px' : '16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
                             {events.length === 0
                                 ? "Add some events to your calendar to receive AI-driven scheduling insights."
                                 : scheduleConflicts.length > 0
@@ -650,25 +771,29 @@ const CalendarPage = () => {
                         </p>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700' }}>
-                                <ShieldCheck size={18} color={scheduleConflicts.length > 0 ? '#EF4444' : '#10B981'} /> Schedule Conflict Status
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
+                                <ShieldCheck size={isMobile ? 15 : 18} color={scheduleConflicts.length > 0 ? '#EF4444' : '#10B981'} /> {isMobile ? 'Conflicts' : 'Schedule Conflict Status'}
                             </div>
-                            <h2 style={{ fontSize: '20px', fontWeight: '800', color: scheduleConflicts.length > 0 ? '#EF4444' : '#10B981' }}>
-                                {scheduleConflicts.length > 0 ? `${scheduleConflicts.length} Overlap${scheduleConflicts.length === 1 ? '' : 's'} Detected` : 'Zero Overlaps Detected'}
+                            <h2 style={{ fontSize: isMobile ? '15px' : '20px', fontWeight: '800', color: scheduleConflicts.length > 0 ? '#EF4444' : '#10B981' }}>
+                                {scheduleConflicts.length > 0 ? `${scheduleConflicts.length} Overlap${scheduleConflicts.length === 1 ? '' : 's'}` : 'Zero Overlaps'}
                             </h2>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                {scheduleConflicts.length > 0 ? "Real time-window overlaps found between your events - see the briefing above." : "All events across modules are cleanly time-blocked."}
-                            </span>
+                            {!isMobile && (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                    {scheduleConflicts.length > 0 ? "Real time-window overlaps found between your events - see the briefing above." : "All events across modules are cleanly time-blocked."}
+                                </span>
+                            )}
                         </div>
 
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700' }}>
-                                <Bell size={18} color="var(--primary)" /> High-Priority Events
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
+                                <Bell size={isMobile ? 15 : 18} color="var(--primary)" /> High-Priority
                             </div>
-                            <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{highPriorityCount} Upcoming</h2>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{highPriorityCount > 0 ? "Marked High priority, not yet completed." : "No high-priority events pending right now."}</span>
+                            <h2 style={{ fontSize: isMobile ? '15px' : '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{highPriorityCount} Upcoming</h2>
+                            {!isMobile && (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{highPriorityCount > 0 ? "Marked High priority, not yet completed." : "No high-priority events pending right now."}</span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -718,6 +843,27 @@ const CalendarPage = () => {
                                 <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save Event</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Mobile Calendar Sync modal - the exact same controls the
+                desktop inline card renders, reached from the compact
+                header icon button instead of sitting in the scroll. */}
+            {isMobile && isSyncModalOpen && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setIsSyncModalOpen(false)}>
+                    <div
+                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderTopLeftRadius: '20px', borderTopRightRadius: '20px', padding: '20px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <RefreshCw size={16} color="var(--accent)" />
+                                <h3 style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Sync</h3>
+                            </div>
+                            <button type="button" onClick={() => setIsSyncModalOpen(false)} aria-label="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}><X size={20} /></button>
+                        </div>
+                        {renderSyncPanelBody()}
                     </div>
                 </div>
             )}

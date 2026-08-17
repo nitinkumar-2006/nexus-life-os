@@ -162,8 +162,7 @@ const PlannerPage = ({ setActiveTab }) => {
             {/* Header Section */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>Planner Command Center</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>Manage operational workflows, projects, priorities, and execution schedules.</p>
+                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Planner Hub</h1>
                 </div>
                 
                 <button

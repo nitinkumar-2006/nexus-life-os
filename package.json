@@ -13,9 +13,12 @@
     "vite": "^8.1.1"
   },
   "dependencies": {
+    "@aparajita/capacitor-biometric-auth": "^10.0.0",
     "@capacitor/android": "^8.5.0",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@capacitor/geolocation": "^8.2.2",
+    "@ebarooni/capacitor-calendar": "^8.2.0",
     "firebase": "^12.17.0",
     "lucide": "^1.25.0",
     "lucide-react": "^1.27.0",

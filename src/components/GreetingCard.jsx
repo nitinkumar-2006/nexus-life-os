@@ -1,6 +1,6 @@
 // src/components/GreetingCard.jsx
 import { useState, useEffect } from 'react';
-import { Clock, Calendar, Hand, Sun, Play, Pause, SkipForward, SkipBack, Music, ListMusic } from 'lucide-react';
+import { Clock, Calendar, Hand, Sun, Moon, Cloud, CloudDrizzle, CloudRain, CloudLightning, Play, Pause, SkipForward, SkipBack, Music, ListMusic } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useWeather } from '../context/WeatherContext.jsx';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
@@ -51,7 +51,7 @@ const GreetingCard = ({ setActiveTab }) => {
     // Real, live temperature for the device's actual location (not a fixed
     // hardcoded city) - shared with DynamicBackground's sky/rain/cloud
     // visuals via the same context, so they can never disagree.
-    const { temperature } = useWeather();
+    const { temperature, weatherState } = useWeather();
     // WeatherContext always fetches/stores Celsius (Open-Meteo's own
     // default unit) - this is the one and only place it's converted to
     // Fahrenheit for display, per Settings' own Temperature Unit
@@ -61,6 +61,19 @@ const GreetingCard = ({ setActiveTab }) => {
     const displayTemperature = temperature !== null
         ? Math.round(useFahrenheit ? (temperature * 9) / 5 + 32 : temperature)
         : null;
+
+    // Real weatherState (from WeatherContext's own live WMO weather code,
+    // shared with DynamicBackground's sky) picks the actual condition icon;
+    // 'clear' additionally splits on real local time, same dawn/dusk
+    // boundary DashboardLayout's own sky-phase clock uses, so a clear sky
+    // shows Moon at night instead of a Sun that's plainly wrong after dark.
+    const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+    const isNightNow = currentHour < 6.5 || currentHour >= 19.5;
+    const WeatherIcon = weatherState === 'rain' ? CloudRain
+        : weatherState === 'drizzle' ? CloudDrizzle
+        : weatherState === 'thunderstorm' ? CloudLightning
+        : weatherState === 'cloudy' ? Cloud
+        : isNightNow ? Moon : Sun;
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -138,8 +151,12 @@ const GreetingCard = ({ setActiveTab }) => {
                     >
                         <Calendar size={15} /> {formatDate(currentTime)}
                     </p>
-                    <span style={{ fontSize: '14px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
-                        <Sun size={15} color="var(--accent)" /> {displayTemperature !== null ? `${displayTemperature}${useFahrenheit ? '°F' : '°C'}` : `--${useFahrenheit ? '°F' : '°C'}`}
+                    <span
+                        onClick={() => { if (typeof setActiveTab === 'function') setActiveTab('weather'); }}
+                        title="Open Weather Hub"
+                        style={{ fontSize: '14px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600', cursor: typeof setActiveTab === 'function' ? 'pointer' : 'default' }}
+                    >
+                        <WeatherIcon size={15} color="var(--accent)" /> {displayTemperature !== null ? `${displayTemperature}${useFahrenheit ? '°F' : '°C'}` : `--${useFahrenheit ? '°F' : '°C'}`}
                     </span>
                 </div>
             </div>
@@ -195,14 +212,15 @@ const GreetingCard = ({ setActiveTab }) => {
                             // (e.g. a future listener) also wants to react to this event.
                             window.dispatchEvent(new CustomEvent('force_open_audio_hub'));
                         }} 
-                        title="Manage Playlist & Queue" 
-                        style={{ 
-                            background: 'transparent', 
-                            border: 'none', 
-                            color: 'var(--accent)', 
-                            cursor: 'pointer', 
-                            padding: '6px', 
-                            marginLeft: '4px', 
+                        title="Manage Playlist & Queue"
+                        data-tour-id="home-audio"
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--accent)',
+                            cursor: 'pointer',
+                            padding: '6px',
+                            marginLeft: '4px',
                         }}
                     >
                         <ListMusic size={18} />

@@ -24,6 +24,9 @@ import { linkIdentifierToAccount, unlinkIdentifierFromAccount, getLinkedIdentifi
 import { doc, deleteDoc } from 'firebase/firestore';
 import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 import { WALLPAPER_OPTIONS } from '../constants/wallpaperOptions.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 
@@ -535,10 +538,10 @@ const SettingsConfirmModal = ({ title, message, onConfirm, onCancel, forceGlass 
 // Security, or Cloud Sync inside System Defaults) keeps its own existing
 // look untouched - this only adds the outer grouping, spacing, and the
 // collapse/expand affordance around them.
-const SettingsSection = ({ icon: Icon, title, subtitle, defaultOpen = false, children }) => {
+const SettingsSection = ({ icon: Icon, title, subtitle, defaultOpen = false, children, tourId }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     return (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', overflow: 'hidden' }}>
+        <div data-tour-id={tourId} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', overflow: 'hidden' }}>
             <button
                 type="button"
                 onClick={() => setIsOpen((v) => !v)}
@@ -570,6 +573,9 @@ const SettingsSection = ({ icon: Icon, title, subtitle, defaultOpen = false, chi
 
 const SettingsPage = ({ setActiveTab }) => {
     const isMobile = useIsMobile();
+    // Contextual first-visit tour (see TourGuide.jsx) - mobile only, same
+    // scoping as every other page's own tour this pass.
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('settings'));
     const { user, isConfigured, logout, login, signup, loginWithGoogle, changePassword } = useAuth();
     const { volume, setVolume, isMuted, toggleMute, crossfadeEnabled, setCrossfadeEnabled } = useAudioPlayer();
     const { isSyncing, syncStatus, syncError, lastSyncedAt, pushToCloud, pullFromCloud } = useCloudSync();
@@ -1475,17 +1481,17 @@ const SettingsPage = ({ setActiveTab }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', paddingBottom: '60px' }}>
+            {showTour && <TourGuide tourId="settings" steps={TOUR_STEPS.settings} onFinish={() => setShowTour(false)} />}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '16px' }}>
                 <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>System Settings</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Manage core OS preferences, modules, and local storage. Changes save instantly.</p>
+                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Settings Hub</h1>
                 </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
 
-                <SettingsSection icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile">
+                <SettingsSection icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile" tourId="settings-account">
                     <button
                         type="button"
                         onClick={() => setActiveTab && setActiveTab('Profile')}
@@ -1823,7 +1829,7 @@ const SettingsPage = ({ setActiveTab }) => {
                     </div>
                 </SettingsSection>
 
-                <SettingsSection icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS">
+                <SettingsSection icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS" tourId="settings-modules">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                         {Object.keys(settings.activeModules).map(mod => (
                             <div key={mod} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
@@ -2218,7 +2224,7 @@ const SettingsPage = ({ setActiveTab }) => {
 
                 </SettingsSection>
 
-                <SettingsSection icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and glass visual customization">
+                <SettingsSection icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and glass visual customization" tourId="settings-display">
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>System Theme</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose your visual environment</span></div>
                         <select id="themeMode" name="themeMode" aria-label="System Theme" value={settings.themeMode} onChange={(e) => handleChange('themeMode', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
@@ -2350,10 +2356,10 @@ const SettingsPage = ({ setActiveTab }) => {
                             fontFamily: 'inherit',
                         }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <Image size={20} color="var(--accent)" />
-                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Custom Background / Wallpaper</h3>
-                            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent)', background: 'rgba(var(--primary-rgb), 0.1)', padding: '2px 8px', borderRadius: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px 10px', flexWrap: 'wrap' }}>
+                            <Image size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
+                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Custom Background / Wallpaper</h3>
+                            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent)', background: 'rgba(var(--primary-rgb), 0.1)', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>
                                 {WALLPAPER_OPTIONS.find((wp) => wp.id === settings.wallpaper)?.label || 'Animated Sky'}
                             </span>
                         </div>

@@ -16,6 +16,9 @@ import AIDailyBriefingCard from '../components/AIDailyBriefingCard.jsx';
 import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical, Search, X } from 'lucide-react';
 import { useTaskRegistry } from '../context/TaskRegistryContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 // ---------------------------------------------------------------------------
 // Mobile-only Spotlight-style search bar, placed at the very top of the
@@ -79,7 +82,7 @@ const HomeSpotlightSearch = ({ setActiveTab }) => {
                 pop-up's own clean, thin, fully-rounded silhouette rather
                 than the app's usual 16px "rounded rectangle" card
                 language. */}
-            <div style={{
+            <div data-tour-id="home-search" style={{
                 display: 'flex', alignItems: 'center', gap: '10px',
                 background: 'var(--widget-bg)', padding: '12px 18px',
                 borderRadius: '9999px', border: '1px solid var(--border-premium)',
@@ -663,6 +666,12 @@ const HomePage = ({ setActiveTab }) => {
     const { bySource: registryBySource } = useTaskRegistry();
     const [cardStateMap, setCardStateMap] = useState(loadCardState);
     const isMobile = useIsMobile();
+    // Contextual first-visit tour (see TourGuide.jsx) - mobile only, since
+    // every step here targets a mobile-specific element or layout (the
+    // Spotlight search bar in particular only renders on mobile at all).
+    // Lazy useState initializer so hasSeenTour() is only ever checked
+    // once, not on every render.
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('home'));
 
     // Draggable dashboard widgets - a real, working reorder mechanism
     // (native HTML5 drag-and-drop), persisted so the chosen order
@@ -969,6 +978,8 @@ const HomePage = ({ setActiveTab }) => {
                 }
             `}</style>
 
+            {showTour && <TourGuide tourId="home" steps={TOUR_STEPS.home} onFinish={() => setShowTour(false)} />}
+
             {/* Mobile-only Spotlight search - desktop already has this
                 exact experience in the Header (hidden on mobile there).
                 Ordered first, always, regardless of the greeting/schedule
@@ -1020,6 +1031,7 @@ const HomePage = ({ setActiveTab }) => {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleWidgetDrop('schedule')}
                 onDragEnd={() => setDraggedWidget(null)}
+                data-tour-id="home-schedule"
                 style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', marginTop: '10px', order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
             >
                 <div

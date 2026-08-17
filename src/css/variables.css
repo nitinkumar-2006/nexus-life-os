@@ -129,6 +129,21 @@
     --bg-surface-hover: rgba(30, 41, 59, 0.08);
     --widget-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
     --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03)); /* Brought down to match sidebar/cards per explicit request - the 16px blur (reduced last round) is what actually needs to obscure scrolling content, not extra tint; a header-specific higher value is no longer needed at this blur strength. */
+    /* Mobile bottom nav ONLY (see the [style*="var(--mobile-nav-bg"] rule
+       below and MobileTabBar.jsx's own use of this token) - a real,
+       confirmed-on-device gap: the nav is `position: fixed`, sitting
+       directly on top of this same wallpaper layer, which is ALSO
+       `position: fixed`. Safari/WebKit has a well-documented limitation
+       where backdrop-filter on a fixed element doesn't reliably capture
+       another fixed element behind it, so at the user's own low glass-
+       alpha setting the nav read as near fully see-through on a real
+       iOS device even though backdrop-filter was genuinely applied - the
+       header never hit this because it's `position: sticky`, not fixed.
+       max() only ever RAISES the floor above the user's own slider value,
+       never lowers it, matching the same idiom the dawn/dusk contrast
+       floors below already use for an analogous "genuinely need a floor
+       under this specific real bug" case. */
+    --mobile-nav-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.72));
     --border-premium: rgba(255, 255, 255, 0.12); /* Thin, quiet glass border - bumped from 0.1 to 0.12 for sharper separation from the live sky behind it */
     
     --text-primary: #FFFFFF;
@@ -175,6 +190,10 @@
     --bg-surface-hover: rgba(255, 255, 255, 0.09);
     --widget-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
     --header-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
+    /* See the base [data-theme="dynamic"] block's own --mobile-nav-bg
+       comment for why this exists - same real fixed-on-fixed WebKit gap,
+       just this phase's own white glass base instead of navy. */
+    --mobile-nav-bg: rgba(255, 255, 255, max(var(--nexus-user-glass-alpha, 0.03), 0.72));
     --border-premium: rgba(255, 255, 255, 0.24);
 
     --text-primary: #0F172A;
@@ -221,6 +240,9 @@
     --bg-surface-hover: rgba(30, 41, 59, 0.08);
     --widget-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
     --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
+    /* See the base [data-theme="dynamic"] block's own --mobile-nav-bg
+       comment for why this exists - same real fixed-on-fixed WebKit gap. */
+    --mobile-nav-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.72));
     --border-premium: rgba(255, 255, 255, 0.12);
 
     --text-primary: #FFFFFF;

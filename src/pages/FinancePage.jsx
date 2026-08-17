@@ -1,19 +1,26 @@
 // src/pages/FinancePage.jsx
 import { useState, useEffect } from 'react';
-import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload } from 'lucide-react';
+import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload, Smartphone, RefreshCw, Tag } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { exportFinanceReportCsv, exportFinanceReportText } from '../utils/reportExport.js';
 import StatementImportModal from '../components/StatementImportModal.jsx';
+import { isSmsFinanceBridgeAvailable, checkSmsFinancePermission, requestSmsFinancePermission, pullPendingSmsTransactions, onSmsTransactionDetected } from '../utils/smsFinanceBridge.js';
 import ExpenseDonutChart from '../components/ExpenseDonutChart.jsx';
 import { toTitleCase } from '../utils/textFormat.js';
 import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumberInput.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 const FinancePage = () => {
     const isMobile = useIsMobile();
     const { settings, updateSetting } = useGlobalSettings();
+    // Contextual first-visit tour (see TourGuide.jsx) - mobile only, same
+    // scoping as every other page's own tour this pass.
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('finance'));
     // 1. FIXED: Zeroed out Financial Profile
     const [profile, setProfile] = useState(() => {
         const saved = localStorage.getItem('nexus_finance_profile');
@@ -63,6 +70,16 @@ const FinancePage = () => {
     const [activeTab, setActiveTab] = useState('Dashboard');
     const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
     const [isStatementImportOpen, setIsStatementImportOpen] = useState(false);
+
+    // SMS Auto-Tracking (native Android only - see utils/smsFinanceBridge.js).
+    // 'unavailable' outside the installed Android app; on native,
+    // whatever checkSmsFinancePermission() last reported ('prompt' |
+    // 'denied' | 'granted'). smsTargetAccount is a single account every
+    // SMS-detected transaction routes into, same one-account-per-batch
+    // convention the existing statement importer already uses.
+    const [smsPermission, setSmsPermission] = useState('unavailable');
+    const [smsTargetAccount, setSmsTargetAccount] = useState('');
+    const [isSmsSyncing, setIsSmsSyncing] = useState(false);
     // Real swipe-to-dismiss for the Add Transaction modal - a simple,
     // centered modal with no existing drag-to-move behavior, so a touch
     // swipe here genuinely, unambiguously reads as "dismiss" rather than
@@ -185,6 +202,20 @@ const FinancePage = () => {
         setNewTx({ title: '', type: 'Expense', amount: '', category: 'Food', account: accounts.length > 0 ? accounts[0].name : '' });
     };
 
+    // Shared by the header's "Add Transaction" button (desktop, and
+    // mobile when the Transactions tab is active) and the mobile
+    // Dashboard tab's own quick-action row - one real guard against
+    // adding a transaction with no account to attach it to, not two
+    // copies that could drift apart.
+    const openAddTransactionModal = () => {
+        if (accounts.length === 0) {
+            setFinanceToast('Please create an Account/Wallet first before adding transactions.');
+            return;
+        }
+        setNewTx(prev => ({ ...prev, account: accounts[0].name }));
+        setIsAddTxModal(true);
+    };
+
     // Real handler for StatementImportModal's onImport - commits every
     // reviewed, included row the user explicitly approved into the real
     // transactions store, and updates the real target account's balance
@@ -203,6 +234,104 @@ const FinancePage = () => {
         }));
         setTransactions([...newTxItems, ...transactions]);
         setFinanceToast(`Imported ${importedRows.length} transaction${importedRows.length === 1 ? '' : 's'} into ${targetAccount}.`);
+    };
+
+    // SMS Auto-Tracking (native Android only). Same net-balance-change +
+    // transaction-shape logic as handleStatementImport above, but using
+    // functional setState updates rather than closing over the
+    // `accounts`/`transactions` variables directly - this one genuinely
+    // needs that: it's called from a long-lived event listener
+    // (onSmsTransactionDetected below) that can fire many renders after
+    // it was first subscribed, where a captured closure over those two
+    // variables would silently use stale data instead of the real
+    // current state. handleStatementImport doesn't have this problem
+    // since it's only ever invoked directly from a modal's onImport
+    // callback, not a standing subscription.
+    const applySmsImportedRows = (importedRows, targetAccount) => {
+        if (importedRows.length === 0 || !targetAccount) return;
+        const netChange = importedRows.reduce((sum, row) => sum + (row.type === 'Income' ? row.amount : -row.amount), 0);
+        setAccounts((prevAccounts) => prevAccounts.map((acc) => (acc.name === targetAccount ? { ...acc, balance: acc.balance + netChange } : acc)));
+        setTransactions((prevTransactions) => {
+            const newTxItems = importedRows.map((row) => ({
+                id: `sms_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                title: row.title, type: row.type, amount: row.amount,
+                category: row.category, account: targetAccount,
+                date: row.date,
+            }));
+            return [...newTxItems, ...prevTransactions];
+        });
+        setFinanceToast(`SMS Auto-Tracking: added ${importedRows.length} transaction${importedRows.length === 1 ? '' : 's'} to ${targetAccount}.`);
+    };
+
+    // The actual fix for the "Create an account first" blocker: once SMS
+    // Auto-Tracking has real permission but the user has no accounts at
+    // all yet, silently create a sensible default ("Cash") rather than
+    // stopping the feature cold - a user who just granted SMS permission
+    // clearly wants transactions tracked, and forcing a detour through
+    // "go create an account, then come back" is exactly the friction this
+    // fix removes. Guarded on accounts.length === 0 so this only ever
+    // fires once; any real account the user creates afterward (including
+    // renaming/deleting this default one later) is left alone.
+    useEffect(() => {
+        if (smsPermission === 'granted' && accounts.length === 0) {
+            setAccounts([{ name: 'Cash', type: 'Cash', balance: 0, institution: '' }]);
+        }
+    }, [smsPermission, accounts.length]);
+
+    // Defaults the SMS target account to the user's first real account
+    // once accounts load (including the auto-created default above),
+    // without ever overwriting a selection the user already made in the
+    // picker below.
+    useEffect(() => {
+        if (!smsTargetAccount && accounts.length > 0) {
+            setSmsTargetAccount(accounts[0].name);
+        }
+    }, [accounts, smsTargetAccount]);
+
+    // Real permission-state check on mount (native only; resolves
+    // 'unavailable' instantly everywhere else, see
+    // utils/smsFinanceBridge.js) - drives which state the card below
+    // renders (Enable button vs Active status) without requiring the
+    // user to tap anything first just to see where they stand.
+    useEffect(() => {
+        if (!isSmsFinanceBridgeAvailable()) return;
+        checkSmsFinancePermission().then(setSmsPermission);
+    }, []);
+
+    // Once permission is granted AND a target account is selected: pull
+    // whatever SmsReceiver already queued while the app wasn't running,
+    // then subscribe to the genuine real-time listener for as long as
+    // this page stays mounted. Re-subscribes if the user changes the
+    // target account mid-session, so a live SMS arriving right after a
+    // switch still lands in the newly-selected account, not the old one.
+    useEffect(() => {
+        if (smsPermission !== 'granted' || !smsTargetAccount) return undefined;
+        pullPendingSmsTransactions().then((rows) => applySmsImportedRows(rows, smsTargetAccount));
+        const unsubscribe = onSmsTransactionDetected((row) => applySmsImportedRows([row], smsTargetAccount));
+        return unsubscribe;
+    }, [smsPermission, smsTargetAccount]);
+
+    const handleEnableSmsTracking = async () => {
+        const result = await requestSmsFinancePermission();
+        setSmsPermission(result);
+        if (result !== 'granted') {
+            setFinanceToast('SMS permission was not granted - enable it in Android Settings to use SMS Auto-Tracking.');
+        }
+    };
+
+    const handleSmsSyncNow = async () => {
+        if (smsPermission !== 'granted' || !smsTargetAccount || isSmsSyncing) return;
+        setIsSmsSyncing(true);
+        try {
+            const rows = await pullPendingSmsTransactions();
+            if (rows.length === 0) {
+                setFinanceToast('No new SMS transactions since the last sync.');
+            } else {
+                applySmsImportedRows(rows, smsTargetAccount);
+            }
+        } finally {
+            setIsSmsSyncing(false);
+        }
     };
 
     const handleAddGoal = (e) => {
@@ -261,6 +390,11 @@ const FinancePage = () => {
     // Calculations & Math Safeguards
     const totalBalance = (accounts || []).reduce((acc, curr) => acc + (curr.type === 'Credit Card' ? -(curr.balance || 0) : (curr.balance || 0)), 0);
     const totalSpent = (transactions || []).filter(t => t.type === 'Expense').reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    // Same scope as totalSpent above (every real Income transaction, not
+    // date-filtered) - the real number behind the new Income summary card,
+    // giving the Dashboard tab an actual income-vs-expense comparison
+    // instead of only ever showing the expense side.
+    const totalIncome = (transactions || []).filter(t => t.type === 'Income').reduce((acc, curr) => acc + (curr.amount || 0), 0);
     const budgetRemaining = Math.max(0, (settings.monthlyBudgetCap || 0) - totalSpent);
     const budgetProgress = (settings.monthlyBudgetCap || 0) > 0 ? Math.min(100, Math.round((totalSpent / (settings.monthlyBudgetCap || 0)) * 100)) : 0;
 
@@ -332,61 +466,110 @@ const FinancePage = () => {
         return parts.join(' ');
     };
 
+    // Shared between the desktop Transactions tab (its original home) and
+    // the mobile Dashboard tab (its new "middle tier" home per the
+    // requested top/middle/bottom hierarchy) - one real implementation,
+    // both call sites always show the exact same live sync state.
+    const renderSmsTrackingCard = () => (
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '20px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: 'var(--premium-shadow)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Smartphone size={16} color="var(--accent)" />
+                <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>SMS Auto-Tracking</h3>
+            </div>
+
+            {smsPermission === 'granted' ? (
+                <>
+                    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '8px', alignItems: isMobile ? 'stretch' : 'center' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0 }}>Route detected transactions into</span>
+                        <select
+                            aria-label="SMS Auto-Tracking target account" value={smsTargetAccount}
+                            onChange={(e) => setSmsTargetAccount(e.target.value)}
+                            disabled={accounts.length === 0}
+                            style={{ flex: 1, minWidth: 0, padding: '8px 12px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px' }}
+                        >
+                            {accounts.length === 0 && <option value="">Create an account first</option>}
+                            {accounts.map((acc) => <option key={acc.name} value={acc.name}>{acc.name}</option>)}
+                        </select>
+                        <button
+                            type="button" onClick={handleSmsSyncNow} disabled={isSmsSyncing || accounts.length === 0}
+                            style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 14px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: isSmsSyncing ? 'default' : 'pointer', opacity: isSmsSyncing ? 0.6 : 1 }}
+                        >
+                            <RefreshCw size={12} /> {isSmsSyncing ? 'Syncing…' : 'Sync Now'}
+                        </button>
+                    </div>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                        Active - listening for bank SMS in real time. Only messages that look like a genuine transaction (amount + debited/credited) are ever read or stored.
+                    </span>
+                </>
+            ) : (
+                <>
+                    <button
+                        type="button" onClick={handleEnableSmsTracking}
+                        style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                        <Smartphone size={13} /> Enable SMS Auto-Tracking
+                    </button>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                        {smsPermission === 'denied'
+                            ? 'Permission was denied - enable it in Android Settings > Apps > Nexus > Permissions, then reopen this page.'
+                            : 'Automatically logs bank transactions from incoming SMS - local to your device only, nothing is sent anywhere.'}
+                    </span>
+                </>
+            )}
+        </div>
+    );
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
-            
-            {/* Header Section */}
+            {showTour && <TourGuide tourId="finance" steps={TOUR_STEPS.finance} onFinish={() => setShowTour(false)} />}
+
+            {/* Header Section - clean hub title only, no subtitle, on
+                every viewport (desktop used to keep "Financial Command
+                Center" + a subtitle here; now unified with every other
+                Hub page's identical clean header treatment). */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Financial Command Center</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Manage accounts, track budget, savings goals, and AI financial insights.</p>
+                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Finance Hub</h1>
                 </div>
-                
-                <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: '10px' }}>
+
+                <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: '8px' }}>
                     {activeTab === 'Transactions' && (
-                        <button 
-                            onClick={() => {
-                                if(accounts.length === 0) {
-                                    setFinanceToast('Please create an Account/Wallet first before adding transactions.');
-                                    return;
-                                }
-                                setNewTx(prev => ({...prev, account: accounts[0].name}));
-                                setIsAddTxModal(true);
-                            }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
+                        <button
+                            onClick={openAddTransactionModal}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}
                         >
-                            <Plus size={18} /> Add Transaction
+                            <Plus size={16} /> Add Transaction
                         </button>
                     )}
                     {activeTab === 'Transactions' && (
                         <button
                             onClick={() => setIsStatementImportOpen(true)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}
                         >
-                            <Upload size={18} /> Import Statement
+                            <Upload size={16} /> {isMobile ? 'Import' : 'Import Statement'}
                         </button>
                     )}
                     {activeTab === 'GoalsBills' && (
                         <>
-                            <button onClick={() => setIsAddBillModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}>
-                                <Plus size={18} /> Add Bill
+                            <button onClick={() => setIsAddBillModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
+                                <Plus size={16} /> Add Bill
                             </button>
-                            <button onClick={() => setIsAddGoalModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}>
-                                <Plus size={18} /> Add Savings Goal
+                            <button onClick={() => setIsAddGoalModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
+                                <Plus size={16} /> {isMobile ? 'Add Goal' : 'Add Savings Goal'}
                             </button>
                         </>
                     )}
                     {activeTab === 'Dashboard' && (
-                        <button onClick={() => setIsAddAccountModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}>
-                            <Plus size={18} /> Add Account
+                        <button data-tour-id="finance-add-account" onClick={() => setIsAddAccountModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
+                            <Plus size={16} /> Add Account
                         </button>
                     )}
                     <div style={{ position: 'relative' }}>
                         <button
                             onClick={() => setIsExportMenuOpen((v) => !v)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}
                         >
-                            <Download size={18} /> Export Report
+                            <Download size={16} /> {isMobile ? 'Export' : 'Export Report'}
                         </button>
                         {isExportMenuOpen && (
                             <>
@@ -421,135 +604,243 @@ const FinancePage = () => {
                             </>
                         )}
                     </div>
-                    <button onClick={() => { setTempProfile(profile); setTempMonthlyBudget(settings.monthlyBudgetCap || 0); setTempCurrencySymbol(settings.currencySymbol || '₹'); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}>
-                        <User size={18} /> Profile
+                    <button onClick={() => { setTempProfile(profile); setTempMonthlyBudget(settings.monthlyBudgetCap || 0); setTempCurrencySymbol(settings.currencySymbol || '₹'); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
+                        <User size={16} /> Profile
                     </button>
                 </div>
             </div>
 
-            {/* Quick Metrics Overview Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981' }}><Wallet size={24} /></div>
-                    <div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Available Balance</span>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {totalBalance.toLocaleString()}</h2>
+            {/* Financial summary - a real visual hierarchy instead of 4
+                identically-weighted cards: Balance is the one number that
+                actually matters most "at a glance", so it gets its own
+                full-width hero row with an accent-tinted background,
+                bigger type, and the account count as real supporting
+                context. Income vs Expense sit directly beside each other
+                underneath specifically so they read as a real comparison
+                (this is also the actual fix for a real gap: the page
+                never computed/showed a total Income figure before, only
+                Spent - "improve visual card hierarchy for income/
+                expenses" genuinely needed that number to exist first).
+                Budget Left stays a real but secondary, derived metric. */}
+            <div data-tour-id="finance-stats" style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '14px' }}>
+                <div style={{
+                    background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.16), rgba(var(--primary-rgb), 0.04))',
+                    border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: isMobile ? '16px' : '20px',
+                    padding: isMobile ? '16px' : '24px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '12px' : '18px', minWidth: 0 }}>
+                        <div style={{ padding: isMobile ? '10px' : '14px', background: 'var(--primary)', borderRadius: isMobile ? '12px' : '14px', color: 'var(--text-on-primary)', flexShrink: 0, display: 'flex' }}><Wallet size={isMobile ? 20 : 26} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: isMobile ? '11px' : '13px', color: 'var(--text-secondary)', fontWeight: '700', display: 'block' }}>Total Balance</span>
+                            <h2 style={{ fontSize: isMobile ? '22px' : '34px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word', lineHeight: 1.15 }}>{settings.currencySymbol} {totalBalance.toLocaleString()}</h2>
+                        </div>
                     </div>
+                    {!isMobile && (
+                        <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '600', flexShrink: 0 }}>{accounts.length} account{accounts.length === 1 ? '' : 's'}</span>
+                    )}
                 </div>
 
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><Target size={24} /></div>
-                    <div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Budget Remaining</span>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {budgetRemaining.toLocaleString()} <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>/ {settings.currencySymbol}{(settings.monthlyBudgetCap || 0).toLocaleString()}</span></h2>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(3, 1fr)', gap: isMobile ? '8px' : '14px' }}>
+                    <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '14px' }}>
+                        <div style={{ padding: isMobile ? '8px' : '11px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: isMobile ? '10px' : '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><ArrowUpRight size={isMobile ? 16 : 22} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block' }}>Income</span>
+                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: '#10B981', overflowWrap: 'break-word' }}>{settings.currencySymbol} {totalIncome.toLocaleString()}</h2>
+                        </div>
                     </div>
-                </div>
 
-                <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#EF4444' }}><ArrowDownLeft size={24} /></div>
-                    <div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600' }}>Total Spent (Month)</span>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
+                    <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '14px' }}>
+                        <div style={{ padding: isMobile ? '8px' : '11px', background: 'rgba(239, 68, 68, 0.12)', borderRadius: isMobile ? '10px' : '12px', color: '#EF4444', flexShrink: 0, display: 'flex' }}><ArrowDownLeft size={isMobile ? 16 : 22} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block' }}>Expense</span>
+                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: '#EF4444', overflowWrap: 'break-word' }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
+                        </div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '14px' }}>
+                        <div style={{ padding: isMobile ? '8px' : '11px', background: 'var(--widget-bg)', borderRadius: isMobile ? '10px' : '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><Target size={isMobile ? 16 : 22} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block' }}>Budget Left</span>
+                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word' }}>
+                                {settings.currencySymbol} {budgetRemaining.toLocaleString()}
+                                {!isMobile && <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}> / {settings.currencySymbol}{(settings.monthlyBudgetCap || 0).toLocaleString()}</span>}
+                            </h2>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* Navigation Tabs */}
-            <div style={{
-                display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto',
+            {/* Navigation Tabs - shortened labels on mobile only (fade-mask
+                horizontal scroll still there as a fallback), same pattern
+                as every other Hub page's own tab row this session. */}
+            <div data-tour-id="finance-tabs" style={{
+                display: 'flex', gap: isMobile ? '4px' : '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto',
                 maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
                 WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
             }}>
-                <button onClick={() => setActiveTab('Dashboard')} style={{ padding: '10px 16px', background: activeTab === 'Dashboard' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Dashboard' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Dashboard' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}>
-                    Overview & Accounts
+                <button onClick={() => setActiveTab('Dashboard')} style={{ padding: isMobile ? '10px 12px' : '10px 16px', background: activeTab === 'Dashboard' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Dashboard' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Dashboard' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: isMobile ? '13px' : '14px', whiteSpace: 'nowrap' }}>
+                    {isMobile ? 'Overview' : 'Overview & Accounts'}
                 </button>
-                <button onClick={() => setActiveTab('Transactions')} style={{ padding: '10px 16px', background: activeTab === 'Transactions' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Transactions' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Transactions' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}>
+                <button onClick={() => setActiveTab('Transactions')} style={{ padding: isMobile ? '10px 12px' : '10px 16px', background: activeTab === 'Transactions' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Transactions' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Transactions' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: isMobile ? '13px' : '14px', whiteSpace: 'nowrap' }}>
                     Transactions ({transactions.length})
                 </button>
-                <button onClick={() => setActiveTab('GoalsBills')} style={{ padding: '10px 16px', background: activeTab === 'GoalsBills' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'GoalsBills' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'GoalsBills' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap' }}>
-                    Savings Goals & Bills
+                <button onClick={() => setActiveTab('GoalsBills')} style={{ padding: isMobile ? '10px 12px' : '10px 16px', background: activeTab === 'GoalsBills' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'GoalsBills' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'GoalsBills' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: isMobile ? '13px' : '14px', whiteSpace: 'nowrap' }}>
+                    {isMobile ? 'Goals & Bills' : 'Savings Goals & Bills'}
                 </button>
-                <button onClick={() => setActiveTab('Analytics')} style={{ padding: '10px 16px', background: activeTab === 'Analytics' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Analytics' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Analytics' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '14px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Cpu size={14} /> AI Coach & Analytics
+                <button onClick={() => setActiveTab('Analytics')} style={{ padding: isMobile ? '10px 12px' : '10px 16px', background: activeTab === 'Analytics' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Analytics' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Analytics' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: isMobile ? '13px' : '14px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Cpu size={14} /> {isMobile ? 'AI Coach' : 'AI Coach & Analytics'}
                 </button>
             </div>
 
-            {/* TAB CONTENT: DASHBOARD */}
+            {/* TAB CONTENT: DASHBOARD - a real 2-column layout on desktop
+                (budget + expense breakdown on the left, accounts on the
+                right) instead of everything stacked full-width in one
+                narrow column regardless of how wide the actual viewport
+                is - the concrete "spacious, structured on desktop" fix.
+                Mobile stays the original single stacked column. */}
             {activeTab === 'Dashboard' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: 'var(--premium-shadow)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>Monthly Budget Utilization</h3>
-                            <span style={{ fontSize: '13px', fontWeight: '600', color: budgetProgress > 85 ? '#EF4444' : 'var(--primary)' }}>{budgetProgress}% Spent</span>
-                        </div>
-                        <div style={{ width: '100%', height: '10px', background: 'var(--widget-bg)', borderRadius: '5px', overflow: 'hidden' }}>
-                            <div style={{ width: `${budgetProgress}%`, height: '100%', background: budgetProgress > 85 ? '#EF4444' : 'var(--primary)', borderRadius: '5px', transition: 'width 0.4s ease' }}></div>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
-                            <span>Spent: {settings.currencySymbol} {totalSpent.toLocaleString()}</span>
-                            <span>Monthly Limit: {settings.currencySymbol} {(settings.monthlyBudgetCap || 0).toLocaleString()}</span>
-                        </div>
-                    </div>
+                <div style={isMobile
+                    ? { display: 'flex', flexDirection: 'column', gap: '14px' }
+                    : { display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: '20px', alignItems: 'start' }
+                }>
+                    {/* Mobile-only middle + bottom tiers of the requested
+                        top/middle/bottom hierarchy - the Total Balance/
+                        Income/Expense summary above the tabs is already the
+                        "top" tier for every tab. Desktop is untouched: the
+                        SMS card stays in the Transactions tab there, and
+                        there's no separate transactions preview since the
+                        full searchable list is one tab away either way. */}
+                    {isMobile && (
+                        <>
+                            {isSmsFinanceBridgeAvailable() && renderSmsTrackingCard()}
 
-                    {/* Expense Breakdown - a real, live bar chart derived
-                        directly from the transactions state, so it
-                        genuinely re-renders the moment a statement import
-                        (or any other transaction change) updates that
-                        state - no separate refresh/recompute step needed. */}
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
-                        <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>Expense Breakdown by Category</h3>
-                        {categoryBreakdown.length === 0 ? (
-                            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                                No expenses recorded yet. Add a transaction or import a statement to see your real breakdown here.
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    type="button" onClick={openAddTransactionModal}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '11px 14px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >
+                                    <Plus size={14} /> Add Transaction
+                                </button>
+                                <button
+                                    type="button" onClick={() => setIsStatementImportOpen(true)}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '11px 14px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >
+                                    <Upload size={14} /> Import
+                                </button>
                             </div>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                <ExpenseDonutChart categoryBreakdown={categoryBreakdown} currency={settings.currencySymbol} totalSpent={totalSpent} colorForCategory={getCategoryBarColor} />
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                {categoryBreakdown.map((row) => (
-                                    <div key={row.category} style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                                            <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{row.category}</span>
-                                            <span style={{ color: 'var(--text-muted)' }}>{settings.currencySymbol}{row.amount.toLocaleString()} · {row.pct}%</span>
-                                        </div>
-                                        <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
-                                            <div style={{ width: `${row.pct}%`, height: '100%', background: getCategoryBarColor(row.category), borderRadius: '4px', transition: 'width 0.4s ease' }} />
-                                        </div>
-                                    </div>
-                                ))}
+
+                            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: 'var(--premium-shadow)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>Recent Transactions</h3>
+                                    {transactions.length > 0 && (
+                                        <button type="button" onClick={() => setActiveTab('Transactions')} style={{ background: 'transparent', border: 'none', color: 'var(--primary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>
+                                            View All
+                                        </button>
+                                    )}
                                 </div>
+                                {transactions.length === 0 ? (
+                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                                        No transactions yet. Add one or import a statement to see it here.
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {transactions.slice(0, 5).map((tx) => (
+                                            <div key={tx.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 12px', background: 'var(--widget-bg)', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                                    <div style={{ padding: '8px', borderRadius: '10px', background: tx.type === 'Income' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: tx.type === 'Income' ? '#10B981' : '#EF4444', flexShrink: 0, display: 'flex' }}>
+                                                        {tx.type === 'Income' ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
+                                                    </div>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <h4 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.title}</h4>
+                                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '600' }}>{tx.category} · {tx.date}</span>
+                                                    </div>
+                                                </div>
+                                                <span style={{ fontSize: '13px', fontWeight: '800', color: tx.type === 'Income' ? '#10B981' : '#EF4444', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                                                    {tx.type === 'Income' ? '+' : '-'}{settings.currencySymbol}{(tx.amount || 0).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
+                        </>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', minWidth: 0 }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: 'var(--premium-shadow)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '700', color: 'var(--text-primary)' }}>Monthly Budget Utilization</h3>
+                                <span style={{ fontSize: '13px', fontWeight: '600', color: budgetProgress > 85 ? '#EF4444' : 'var(--primary)' }}>{budgetProgress}% Spent</span>
+                            </div>
+                            <div style={{ width: '100%', height: '10px', background: 'var(--widget-bg)', borderRadius: '5px', overflow: 'hidden' }}>
+                                <div style={{ width: `${budgetProgress}%`, height: '100%', background: budgetProgress > 85 ? '#EF4444' : 'var(--primary)', borderRadius: '5px', transition: 'width 0.4s ease' }}></div>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                <span>Spent: {settings.currencySymbol} {totalSpent.toLocaleString()}</span>
+                                <span>Monthly Limit: {settings.currencySymbol} {(settings.monthlyBudgetCap || 0).toLocaleString()}</span>
+                            </div>
+                        </div>
+
+                        {/* Expense Breakdown - a real, live bar chart derived
+                            directly from the transactions state, so it
+                            genuinely re-renders the moment a statement import
+                            (or any other transaction change) updates that
+                            state - no separate refresh/recompute step needed. */}
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', boxShadow: 'var(--premium-shadow)' }}>
+                            <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '700', color: 'var(--text-primary)' }}>Expense Breakdown by Category</h3>
+                            {categoryBreakdown.length === 0 ? (
+                                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                                    No expenses recorded yet. Add a transaction or import a statement to see your real breakdown here.
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px' }}>
+                                    <ExpenseDonutChart categoryBreakdown={categoryBreakdown} currency={settings.currencySymbol} totalSpent={totalSpent} colorForCategory={getCategoryBarColor} />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {categoryBreakdown.map((row) => (
+                                        <div key={row.category} style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                                <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{row.category}</span>
+                                                <span style={{ color: 'var(--text-muted)' }}>{settings.currencySymbol}{row.amount.toLocaleString()} · {row.pct}%</span>
+                                            </div>
+                                            <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
+                                                <div style={{ width: `${row.pct}%`, height: '100%', background: getCategoryBarColor(row.category), borderRadius: '4px', transition: 'width 0.4s ease' }} />
+                                            </div>
+                                        </div>
+                                    ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    <div>
-                        <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '16px' }}>Accounts & Wallets</h3>
+                    <div style={{ minWidth: 0 }}>
+                        <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: isMobile ? '10px' : '16px' }}>Accounts & Wallets</h3>
                         {accounts.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: isMobile ? '12px' : '16px' }}>
                                 {accounts.map(acc => (
-                                    <div key={acc.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
+                                    <div key={acc.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '16px' : '20px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '14px', boxShadow: 'var(--premium-shadow)' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
                                             <div style={{ minWidth: 0 }}>
                                                 <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', background: 'var(--widget-bg)', color: 'var(--primary)', borderRadius: '6px', border: '1px solid var(--border-premium)' }}>
                                                     {acc.type}
                                                 </span>
-                                                <h4 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginTop: '8px', overflowWrap: 'break-word' }}>{acc.name}</h4>
+                                                <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginTop: '8px', overflowWrap: 'break-word' }}>{acc.name}</h4>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                                                 <button onClick={() => deleteAccount(acc.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '6px' }}><Trash2 size={16} /></button>
-                                                <div style={{ padding: '8px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><Landmark size={18} /></div>
+                                                <div style={{ padding: '8px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><Landmark size={16} /></div>
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', gap: '10px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', gap: '10px' }}>
                                             <span style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: 0, overflowWrap: 'break-word' }}>{acc.institution}</span>
-                                            <span style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', flexShrink: 0 }}>{settings.currencySymbol} {(acc.balance || 0).toLocaleString()}</span>
+                                            <span style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', flexShrink: 0 }}>{settings.currencySymbol} {(acc.balance || 0).toLocaleString()}</span>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
-                                <Wallet size={40} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
+                            <div style={{ padding: isMobile ? '28px 20px' : '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
+                                <Wallet size={isMobile ? 30 : 40} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
                                 <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px' }}>No accounts added</h3>
                                 <p style={{ fontSize: '13px' }}>Add a bank account or wallet to start tracking finances.</p>
                             </div>
@@ -560,7 +851,7 @@ const FinancePage = () => {
 
             {/* TAB CONTENT: TRANSACTIONS */}
             {activeTab === 'Transactions' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px' }}>
                     <div style={{ position: 'relative', width: '100%' }}>
                         <Search size={18} style={{ position: 'absolute', top: '14px', left: '14px', color: 'var(--text-muted)' }} />
                         <input
@@ -569,30 +860,42 @@ const FinancePage = () => {
                         />
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* SMS Auto-Tracking - native Android only (see
+                        utils/smsFinanceBridge.js). Absent entirely in a
+                        browser tab, where the underlying plugin genuinely
+                        doesn't exist, same pattern as Calendar Hub's
+                        device-calendar bridge card. Desktop only here -
+                        mobile shows this same card up in the Dashboard tab
+                        instead (see renderSmsTrackingCard below), matching
+                        the requested top/middle/bottom mobile hierarchy. */}
+                    {isSmsFinanceBridgeAvailable() && !isMobile && renderSmsTrackingCard()}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '10px' }}>
                         {filteredTransactions.length > 0 ? filteredTransactions.map(tx => (
-                            <div key={tx.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '20px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '14px' : '0', boxShadow: 'var(--premium-shadow)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
-                                    <div style={{ padding: '12px', background: tx.type === 'Income' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', borderRadius: '12px', color: tx.type === 'Income' ? '#10B981' : '#EF4444', flexShrink: 0 }}>
-                                        {tx.type === 'Income' ? <ArrowUpRight size={20} /> : <ArrowDownLeft size={20} />}
+                            <div key={tx.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderLeft: `3px solid ${tx.type === 'Income' ? '#10B981' : getCategoryBarColor(tx.category)}`, borderRadius: '14px', padding: isMobile ? '14px' : '16px 20px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+                                    <div style={{ padding: '10px', background: tx.type === 'Income' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', borderRadius: '11px', color: tx.type === 'Income' ? '#10B981' : '#EF4444', flexShrink: 0, display: 'flex' }}>
+                                        {tx.type === 'Income' ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
-                                        <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', overflowWrap: 'break-word' }}>{tx.title}</h4>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                            <span>📅 {tx.date}</span><span>•</span><span>🏷️ {tx.category}</span><span>•</span><span>🏦 {tx.account}</span>
+                                        <h4 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', overflowWrap: 'break-word' }}>{tx.title}</h4>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Calendar size={11} /> {tx.date}</span>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Tag size={11} /> {tx.category}</span>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Landmark size={11} /> {tx.account}</span>
                                         </div>
                                     </div>
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '16px' }}>
-                                    <span style={{ fontSize: '18px', fontWeight: '800', color: tx.type === 'Income' ? '#10B981' : '#EF4444' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '16px', flexShrink: 0 }}>
+                                    <span style={{ fontSize: '16px', fontWeight: '800', color: tx.type === 'Income' ? '#10B981' : '#EF4444', whiteSpace: 'nowrap' }}>
                                         {tx.type === 'Income' ? '+' : '-'}{settings.currencySymbol} {(tx.amount || 0).toLocaleString()}
                                     </span>
-                                    <button onClick={() => deleteTransaction(tx.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
+                                    <button onClick={() => deleteTransaction(tx.id)} aria-label={`Delete ${tx.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex' }}><Trash2 size={15} /></button>
                                 </div>
                             </div>
                         )) : (
-                            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
-                                <DollarSign size={40} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
+                            <div style={{ padding: isMobile ? '28px 20px' : '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
+                                <DollarSign size={isMobile ? 30 : 40} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
                                 <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px' }}>No transactions found</h3>
                             </div>
                         )}
@@ -602,21 +905,21 @@ const FinancePage = () => {
 
             {/* TAB CONTENT: SAVINGS GOALS & BILLS */}
             {activeTab === 'GoalsBills' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
-                            <Target size={22} />
-                            <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>Savings Goals</h3>
+                            <Target size={20} />
+                            <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)' }}>Savings Goals</h3>
                         </div>
 
                         {savingsGoals.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
                                 {savingsGoals.map(goal => {
                                     const goalCurrent = goal.current || 0;
                                     const goalTarget = goal.target || 0;
                                     const progress = goalTarget > 0 ? Math.min(100, Math.round((goalCurrent / goalTarget) * 100)) : 0;
                                     return (
-                                        <div key={goal.id} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        <div key={goal.id} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
                                                 <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', minWidth: 0, overflowWrap: 'break-word' }}>{goal.title}</h4>
                                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
@@ -638,10 +941,10 @@ const FinancePage = () => {
                         ) : <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No savings goals created.</div>}
                     </div>
 
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
-                            <Calendar size={22} />
-                            <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>Upcoming Bills</h3>
+                            <Calendar size={20} />
+                            <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)' }}>Upcoming Bills</h3>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -669,32 +972,32 @@ const FinancePage = () => {
 
             {/* TAB CONTENT: AI COACH & ANALYTICS */}
             {activeTab === 'Analytics' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
-                            <Sparkles size={22} />
-                            <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Finance Coach Briefing</h3>
+                            <Sparkles size={20} />
+                            <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Finance Coach Briefing</h3>
                         </div>
-                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6', background: 'var(--widget-bg)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <p style={{ fontSize: isMobile ? '13px' : '14px', color: 'var(--text-secondary)', lineHeight: '1.6', background: 'var(--widget-bg)', padding: isMobile ? '12px' : '16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
                             {generateFinanceBriefing()}
                         </p>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700' }}>
-                                <TrendingUp size={18} color="var(--primary)" /> Estimated Net Worth
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
+                                <TrendingUp size={16} color="var(--primary)" /> {isMobile ? 'Net Worth' : 'Estimated Net Worth'}
                             </div>
-                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {estimatedNetWorth.toLocaleString()}</h2>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Calculated from liquid balances + savings goals.</span>
+                            <h2 style={{ fontSize: isMobile ? '18px' : '28px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word' }}>{settings.currencySymbol} {estimatedNetWorth.toLocaleString()}</h2>
+                            {!isMobile && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Calculated from liquid balances + savings goals.</span>}
                         </div>
 
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700' }}>
-                                <ShieldCheck size={18} color="#10B981" /> Financial Health Score
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
+                                <ShieldCheck size={16} color="#10B981" /> {isMobile ? 'Health Score' : 'Financial Health Score'}
                             </div>
-                            <h2 style={{ fontSize: '28px', fontWeight: '800', color: '#10B981' }}>{financialHealthScore} / 100</h2>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Status: {financialHealthScore >= 70 ? 'Excellent savings & budget discipline.' : financialHealthScore >= 40 ? 'Fair - room to build savings or reduce spending.' : 'High spending alert.'}</span>
+                            <h2 style={{ fontSize: isMobile ? '18px' : '28px', fontWeight: '800', color: '#10B981' }}>{financialHealthScore} / 100</h2>
+                            {!isMobile && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Status: {financialHealthScore >= 70 ? 'Excellent savings & budget discipline.' : financialHealthScore >= 40 ? 'Fair - room to build savings or reduce spending.' : 'High spending alert.'}</span>}
                         </div>
                     </div>
                     {/* AI coaching is paused on mobile for this pass - desktop is unaffected. */}

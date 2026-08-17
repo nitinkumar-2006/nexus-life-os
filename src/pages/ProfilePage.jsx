@@ -1,6 +1,7 @@
 // src/pages/ProfilePage.jsx
 import { useState, useEffect } from 'react';
 import ImageCropModal from '../components/ImageCropModal.jsx';
+import ProfileImageEditModal from '../components/ProfileImageEditModal.jsx';
 import { useStreaming } from '../context/StreamingContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useCloudSync } from '../context/CloudSyncContext.jsx';
@@ -185,6 +186,10 @@ const ProfilePage = () => {
     // raw file is read into a data URL just to preview/crop; nothing is
     // written to `profile` until the user confirms the crop.
     const [cropModal, setCropModal] = useState(null); // null | { type: 'avatarUrl'|'coverUrl', src: string }
+    // Which image the tap-to-edit modal (opened by tapping the avatar or
+    // cover banner directly, outside the big Edit Profile form) is
+    // currently targeting.
+    const [editingImageType, setEditingImageType] = useState(null); // null | 'avatarUrl' | 'coverUrl'
 
     const handleImageUpload = (e, type) => {
         const file = e.target.files[0];
@@ -198,13 +203,29 @@ const ProfilePage = () => {
         e.target.value = ''; // allow re-selecting the same file later
     };
 
+    // Reachable both from inside the Edit Profile form (Upload Avatar/Cover
+    // buttons) and from the standalone tap-to-edit modal below - persisting
+    // immediately (rather than only on the form's own Save button) is what
+    // makes the second path actually save anything, and is harmless from
+    // the first path since Save just writes the same already-current value.
     const handleCropSave = (croppedDataUrl) => {
         if (!cropModal) return;
-        setProfile((prev) => ({ ...prev, [cropModal.type]: croppedDataUrl }));
+        persistProfile({ ...profile, [cropModal.type]: croppedDataUrl });
         setCropModal(null);
     };
 
     const handleCropCancel = () => setCropModal(null);
+
+    const handlePresetSelect = (type, dataUrl) => {
+        persistProfile({ ...profile, [type]: dataUrl });
+        setEditingImageType(null);
+    };
+
+    const handleImageEditModalUpload = (e) => {
+        const type = editingImageType;
+        setEditingImageType(null);
+        handleImageUpload(e, type);
+    };
 
     // Pull REAL metrics from localStorage
     useEffect(() => {
@@ -397,20 +418,39 @@ const ProfilePage = () => {
             {/* Profile Cover Card */}
             <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', overflow: 'hidden', boxShadow: 'var(--premium-shadow)' }}>
                 {/* Dynamic Cover Banner */}
-                <div style={{ 
-                    height: '160px', 
-                    background: profile.coverUrl ? `url(${profile.coverUrl}) center/cover no-repeat` : 'linear-gradient(135deg, rgba(var(--primary-rgb, 255, 180, 0), 0.2), rgba(16, 185, 129, 0.1))', 
-                    position: 'relative', 
-                    borderBottom: '1px solid var(--border-premium)', 
-                    padding: '16px 24px', 
-                    display: 'flex', 
-                    justifyContent: 'flex-end', 
-                    alignItems: 'flex-start' 
-                }}>
+                <button
+                    type="button"
+                    onClick={() => setEditingImageType('coverUrl')}
+                    aria-label="Change cover banner"
+                    title="Change cover banner"
+                    style={{
+                        height: '160px', width: '100%',
+                        // Quoted url() - unquoted CSS url() tokens treat the
+                        // first unescaped ')' as the closing delimiter, which
+                        // silently breaks on preset cover SVGs (their
+                        // data URI contains literal '(' / ')' from rgba()
+                        // fills that encodeURIComponent doesn't escape).
+                        // Real base64 photo uploads never hit this since
+                        // base64's alphabet has no parentheses, which is why
+                        // this went unnoticed until presets were added.
+                        background: profile.coverUrl ? `url("${profile.coverUrl}") center/cover no-repeat` : 'linear-gradient(135deg, rgba(var(--primary-rgb, 255, 180, 0), 0.2), rgba(16, 185, 129, 0.1))',
+                        position: 'relative',
+                        border: 'none',
+                        borderBottom: '1px solid var(--border-premium)',
+                        padding: '16px 24px',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        alignItems: 'flex-start',
+                        cursor: 'pointer', textAlign: 'left',
+                    }}
+                >
                     <span style={{ fontSize: '12px', background: 'rgba(0,0,0,0.5)', padding: '6px 14px', borderRadius: '20px', color: statusColor, fontWeight: '700', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: '6px', backdropFilter: 'blur(10px)' }}>
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: statusColor, display: 'inline-block', boxShadow: `0 0 10px ${statusColor}` }}></span> {profile.currentStatus.replace(/🟢|🔴|🟡|🌙/g, '').trim()}
                     </span>
-                </div>
+                    <span style={{ position: 'absolute', bottom: '10px', left: '24px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '700', color: '#fff', background: 'rgba(0,0,0,0.5)', padding: '5px 12px', borderRadius: '20px', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <ImageIcon size={12} /> Change Cover
+                    </span>
+                </button>
 
                 {/* Profile Details Body */}
                 <div style={{ padding: isMobile ? '0 20px 28px 20px' : '0 32px 32px 32px', position: 'relative' }}>
@@ -427,8 +467,12 @@ const ProfilePage = () => {
                         boxShadow: '0 8px 25px rgba(0,0,0,0.4)', position: 'relative', zIndex: 2,
                         flexShrink: 0, background: 'transparent'
                     }}>
-                        <div
+                        <button
+                            type="button"
                             data-diag="profile-avatar"
+                            onClick={() => setEditingImageType('avatarUrl')}
+                            aria-label="Change avatar"
+                            title="Change avatar"
                             style={{
                                 position: 'absolute', inset: 0, borderRadius: '50%', overflow: 'hidden',
                                 WebkitMaskImage: 'radial-gradient(white, black)', maskImage: 'radial-gradient(white, black)',
@@ -436,6 +480,7 @@ const ProfilePage = () => {
                                 border: '6px solid var(--bg-surface)', boxSizing: 'border-box',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 color: 'var(--text-on-primary)', fontSize: '42px', fontWeight: '800',
+                                padding: 0, cursor: 'pointer', fontFamily: 'inherit',
                             }}
                         >
                             {profile.avatarUrl ? (
@@ -445,7 +490,10 @@ const ProfilePage = () => {
                                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', background: 'transparent' }}
                                 />
                             ) : avatarInitial}
-                        </div>
+                            <span style={{ position: 'absolute', bottom: 0, right: 0, width: '30px', height: '30px', borderRadius: '50%', background: 'var(--accent)', border: '3px solid var(--bg-surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
+                                <Camera size={13} color="#fff" />
+                            </span>
+                        </button>
                     </div>
 
                     {/* Identity block: name, verified badge, professional
@@ -942,6 +990,16 @@ const ProfilePage = () => {
                     shape={cropModal.type === 'avatarUrl' ? 'circle' : 'wide'}
                     onSave={handleCropSave}
                     onCancel={handleCropCancel}
+                />
+            )}
+
+            {editingImageType && (
+                <ProfileImageEditModal
+                    type={editingImageType}
+                    currentUrl={profile[editingImageType]}
+                    onSelectPreset={(dataUrl) => handlePresetSelect(editingImageType, dataUrl)}
+                    onUploadChange={handleImageEditModalUpload}
+                    onClose={() => setEditingImageType(null)}
                 />
             )}
         </div>
