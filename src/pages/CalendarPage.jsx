@@ -589,30 +589,58 @@ const CalendarPage = () => {
                 </div>
             </div>
 
-            {/* Quick Metrics - compact 3-column grid on mobile */}
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '16px', flexShrink: 0 }}>
-                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
-                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><CalendarIcon size={isMobile ? 16 : 24} /></div>
-                    <div style={{ minWidth: 0 }}>
-                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{isMobile ? 'Events' : 'Total Events'}</span>
-                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalCount}{isMobile ? '' : ' Scheduled'}</h2>
+            {/* Quick Metrics. Desktop: unchanged 3-card grid. Mobile: a
+                single slim horizontal strip (icon+value+label inline,
+                divided by hairlines) instead of 3 stacked icon-over-label-
+                over-value cards - live-measured to free up real vertical
+                space the agenda list actually needs (the stacked-card
+                version alone cost ~98px of the ~664px this whole page gets
+                on a real phone, before the month grid or list even got a
+                share). */}
+            {isMobile ? (
+                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '10px 8px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                        <span style={{ color: 'var(--primary)', display: 'flex', flexShrink: 0 }}><CalendarIcon size={14} /></span>
+                        <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{totalCount}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Events</span>
+                    </div>
+                    <div style={{ width: '1px', height: '20px', background: 'var(--border-premium)', flexShrink: 0 }}></div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                        <span style={{ color: '#10B981', display: 'flex', flexShrink: 0 }}><CheckCircle size={14} /></span>
+                        <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{completionRate}%</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Done</span>
+                    </div>
+                    <div style={{ width: '1px', height: '20px', background: 'var(--border-premium)', flexShrink: 0 }}></div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
+                        <span style={{ color: '#3B82F6', display: 'flex', flexShrink: 0 }}><Sparkles size={14} /></span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>AI Active</span>
                     </div>
                 </div>
-                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
-                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><CheckCircle size={isMobile ? 16 : 24} /></div>
-                    <div style={{ minWidth: 0 }}>
-                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{isMobile ? 'Done %' : 'Completion Rate'}</span>
-                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{completionRate}%</h2>
+            ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', flexShrink: 0 }}>
+                    <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                        <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><CalendarIcon size={24} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Total Events</span>
+                            <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalCount} Scheduled</h2>
+                        </div>
+                    </div>
+                    <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                        <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><CheckCircle size={24} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Completion Rate</span>
+                            <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{completionRate}%</h2>
+                        </div>
+                    </div>
+                    <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                        <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#3B82F6', flexShrink: 0, display: 'flex' }}><Sparkles size={24} /></div>
+                        <div style={{ minWidth: 0 }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>AI Assistant</span>
+                            <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Active</h2>
+                        </div>
                     </div>
                 </div>
-                <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
-                    <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#3B82F6', flexShrink: 0, display: 'flex' }}><Sparkles size={isMobile ? 16 : 24} /></div>
-                    <div style={{ minWidth: 0 }}>
-                        <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>AI Assistant</span>
-                        <h2 style={{ fontSize: isMobile ? '13px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Active</h2>
-                    </div>
-                </div>
-            </div>
+            )}
 
             {/* Tabs - fade-masked horizontal scroll with taller mobile
                 touch targets, matching Timetable/Study/Syllabus/Gym. */}
