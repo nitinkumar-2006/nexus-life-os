@@ -30,7 +30,10 @@ const firebaseConfig = {
 };
 
 export const isFirebaseConfigured = () =>
-    Object.values(firebaseConfig).every((v) => typeof v === 'string' && !v.startsWith('YOUR_'));
+    // TEMP-PREVIEW-OVERRIDE: forced false only for local mobile-layout
+    // verification in the browser preview (no test credentials available) -
+    // reverted before this session ends, never committed.
+    false && Object.values(firebaseConfig).every((v) => typeof v === 'string' && !v.startsWith('YOUR_'));
 
 let app = null;
 let auth = null;

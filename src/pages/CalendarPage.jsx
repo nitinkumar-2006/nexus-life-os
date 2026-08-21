@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, ChevronDown, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw, Smartphone, X } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { parseIcsToEvents, eventsToIcs, importIcsFromUrl } from '../utils/calendarSync.js';
+import { parseIcsToEvents, eventsToIcs, importIcsFromUrl, mergeImportedEvents } from '../utils/calendarSync.js';
 import { isDeviceCalendarBridgeAvailable, importDeviceCalendarEvents } from '../utils/nativeCalendarBridge.js';
 import TourGuide from '../components/TourGuide.jsx';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
@@ -18,9 +18,17 @@ const CalendarPage = () => {
     const [events, setEvents] = useState(() => {
         const saved = localStorage.getItem('nexus_calendar_events');
         if (saved) {
-            try { return JSON.parse(saved); } catch (e) { return []; }
+            try {
+                const parsed = JSON.parse(saved);
+                // One-time defensive dedupe by id - fixes any duplicate ids
+                // already sitting in localStorage from before sync/import
+                // gained real merge logic (mergeImportedEvents below), which
+                // would otherwise break React's own list keys and cause a
+                // duplicate pair to toggle/delete together.
+                return Array.isArray(parsed) ? Array.from(new Map(parsed.map((e) => [e.id, e])).values()) : [];
+            } catch (e) { return []; }
         }
-        return []; 
+        return [];
     });
 
     // Read-only mirror of the Timetable module's own data - CalendarPage
@@ -93,7 +101,9 @@ const CalendarPage = () => {
     const handleIcsFileImport = async (e) => {
         const file = e.target.files && e.target.files[0];
         e.target.value = '';
-        if (!file) return;
+        if (!file || isSyncing) return;
+        setIsSyncing(true);
+        setSyncMessage('');
         try {
             const text = await file.text();
             const imported = parseIcsToEvents(text);
@@ -102,12 +112,14 @@ const CalendarPage = () => {
                 setSyncMessage(`No parseable events found in "${file.name}".`);
                 return;
             }
-            setEvents((prev) => [...imported, ...prev]);
+            setEvents((prev) => mergeImportedEvents(prev, imported, 'importedFromIcs'));
             setSyncIsError(false);
             setSyncMessage(`Imported ${imported.length} event${imported.length === 1 ? '' : 's'} from ${file.name}.`);
         } catch (err) {
             setSyncIsError(true);
             setSyncMessage('Could not read that file - make sure it is a valid .ics export.');
+        } finally {
+            setIsSyncing(false);
         }
     };
 
@@ -141,7 +153,7 @@ const CalendarPage = () => {
                 setSyncIsError(true);
                 setSyncMessage('That feed loaded but had no parseable events.');
             } else {
-                setEvents((prev) => [...imported, ...prev]);
+                setEvents((prev) => mergeImportedEvents(prev, imported, 'importedFromIcs'));
                 setSyncIsError(false);
                 setSyncMessage(`Synced ${imported.length} event${imported.length === 1 ? '' : 's'} from the feed.`);
             }
@@ -175,7 +187,7 @@ const CalendarPage = () => {
                 setSyncIsError(true);
                 setSyncMessage('No events found on your device calendar in the next 90 days.');
             } else {
-                setEvents((prev) => [...imported, ...prev]);
+                setEvents((prev) => mergeImportedEvents(prev, imported, 'importedFromDevice'));
                 setSyncIsError(false);
                 setSyncMessage(`Synced ${imported.length} event${imported.length === 1 ? '' : 's'} from your device calendar.`);
             }
@@ -416,8 +428,10 @@ const CalendarPage = () => {
         // Empty leading cells are real grid squares now too (not just
         // padding) so the month reads as one complete rectangular table
         // instead of numbers floating with blank space before them.
+        // Mobile: 28px (down from 34px) for a genuinely more minimal grid.
+        const cellHeight = isMobile ? '28px' : '34px';
         for (let i = 0; i < firstDay; i++) {
-            days.push(<div key={`empty-${i}`} style={{ height: '34px', borderRadius: '8px', background: 'var(--surface-inset)', opacity: 0.35 }}></div>);
+            days.push(<div key={`empty-${i}`} style={{ height: cellHeight, borderRadius: '8px', background: 'var(--surface-inset)', opacity: 0.35 }}></div>);
         }
 
         for (let d = 1; d <= daysInMonth; d++) {
@@ -436,15 +450,16 @@ const CalendarPage = () => {
                         // a structured table of cells, same idea as a real
                         // calendar app, rather than bare floating numbers.
                         // Height/gap shrunk from the previous 42px+6px so
-                        // the full month takes noticeably less page space.
-                        height: '34px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                        // the full month takes noticeably less page space;
+                        // mobile shrinks it further still (see cellHeight).
+                        height: cellHeight, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                         background: isSelected ? 'var(--primary)' : isToday ? 'var(--widget-bg)' : 'var(--surface-inset)',
                         color: isSelected ? 'var(--text-on-primary)' : isToday ? 'var(--primary)' : 'var(--text-primary)',
                         border: isToday && !isSelected ? '1px solid var(--primary)' : '1px solid var(--border-premium)',
                         borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative'
                     }}
                 >
-                    <span style={{ fontSize: '12px', fontWeight: isSelected || isToday ? '800' : '600' }}>{d}</span>
+                    <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: isSelected || isToday ? '800' : '600' }}>{d}</span>
 
                     {/* Compact Dots */}
                     <div style={{ display: 'flex', gap: '2px', position: 'absolute', bottom: '3px' }}>
@@ -469,10 +484,10 @@ const CalendarPage = () => {
             />
             <div style={{ display: 'flex', gap: '8px' }}>
                 <button
-                    type="button" onClick={() => icsFileInputRef.current && icsFileInputRef.current.click()}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                    type="button" onClick={() => icsFileInputRef.current && icsFileInputRef.current.click()} disabled={isSyncing}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1, fontFamily: 'inherit' }}
                 >
-                    <Upload size={13} /> Import .ics
+                    <Upload size={13} /> {isSyncing ? 'Syncing…' : 'Import .ics'}
                 </button>
                 <button
                     type="button" onClick={handleExportIcs}
@@ -520,7 +535,23 @@ const CalendarPage = () => {
     );
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
+        // Mobile: a real bounded-height flex column instead of a
+        // page-length block, matching AudioHubPage.jsx/AIPage.jsx's own
+        // pinned-header pattern - everything up to the agenda list stays
+        // visible (flexShrink:0), only the list itself scrolls internally.
+        // 148px = the mobile global header's real box height (~56px,
+        // header.jsx's own documented "slim 60px" content + its 10px/10px
+        // padding) + DashboardLayout's .glass-panel mobile padding (16px
+        // top + 76px bottom, DashboardLayout.jsx:317) - live-verified in
+        // the browser preview rather than guessed, same as those pages'
+        // own analogous constants. Desktop is untouched: no fixed height,
+        // page scrolls as a whole exactly as before.
+        <div style={{
+            display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative',
+            height: isMobile ? 'calc(100vh - 148px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))' : 'auto',
+            overflow: isMobile ? 'hidden' : 'visible',
+            minHeight: 0,
+        }}>
             {showTour && <TourGuide tourId="calendar" steps={TOUR_STEPS.calendar} onFinish={() => setShowTour(false)} />}
 
             {/* Header Section - on mobile, a compact icon button opens the
@@ -529,7 +560,7 @@ const CalendarPage = () => {
                 becomes the whole "sync + add event" action bar. Desktop is
                 untouched: no sync button here since the full Sync card
                 already sits inline further down. */}
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px' }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px', flexShrink: 0 }}>
                 <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Hub</h1>
 
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -559,7 +590,7 @@ const CalendarPage = () => {
             </div>
 
             {/* Quick Metrics - compact 3-column grid on mobile */}
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: isMobile ? '10px' : '16px', flexShrink: 0 }}>
                 <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '20px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '16px', minWidth: 0 }}>
                     <div style={{ padding: isMobile ? '8px' : '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><CalendarIcon size={isMobile ? 16 : 24} /></div>
                     <div style={{ minWidth: 0 }}>
@@ -587,7 +618,7 @@ const CalendarPage = () => {
                 touch targets, matching Timetable/Study/Syllabus/Gym. */}
             <div style={{
                 display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px',
-                overflowX: 'auto',
+                overflowX: 'auto', flexShrink: 0,
                 maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
                 WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
             }}>
@@ -597,26 +628,38 @@ const CalendarPage = () => {
 
             {/* TAB CONTENT: AGENDA & CALENDAR */}
             {activeTab === 'Agenda' && (
-                // Side-by-side on desktop, stacks full-width on mobile.
-                <div style={{ display: 'flex', gap: isMobile ? '16px' : '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                // Side-by-side, page-length on desktop (unchanged). Mobile:
+                // a bounded-height flex column instead - LEFT (grid + sync)
+                // stays pinned (flexShrink:0), RIGHT becomes the flexible
+                // region so its own inner agenda list is the only thing
+                // that scrolls (see RIGHT column below).
+                <div style={{
+                    display: 'flex', gap: isMobile ? '12px' : '24px', flexWrap: isMobile ? 'nowrap' : 'wrap', alignItems: 'flex-start',
+                    flexDirection: isMobile ? 'column' : 'row', flex: isMobile ? 1 : 'none', minHeight: 0, width: '100%', boxSizing: 'border-box',
+                }}>
 
                     {/* LEFT COLUMN: Compact Calendar Widget + Sync card */}
-                    <div style={{ flex: '1 1 320px', width: '100%', maxWidth: isMobile ? '100%' : '380px', display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '20px', boxSizing: 'border-box' }}>
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+                    <div style={{ flex: isMobile ? '0 0 auto' : '1 1 320px', flexShrink: 0, width: '100%', maxWidth: isMobile ? '100%' : '380px', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '20px', boxSizing: 'border-box' }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: isMobile ? '12px' : '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '16px', boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                                <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '800', color: 'var(--text-primary)' }}>
                                     {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                                 </h3>
+                                {/* Nav buttons: min 40px hit area on mobile (up
+                                    from the previous 6px-padding icons, well
+                                    under any real tap-target guideline) while
+                                    staying visually compact via the icon size
+                                    alone. Desktop untouched. */}
                                 <div style={{ display: 'flex', gap: '4px' }}>
-                                    <button onClick={() => changeMonth(-1)} style={{ padding: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer' }}><ChevronLeft size={16} /></button>
-                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: '6px 10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '11px' }}>Today</button>
-                                    <button onClick={() => changeMonth(1)} style={{ padding: '6px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer' }}><ChevronRight size={16} /></button>
+                                    <button onClick={() => changeMonth(-1)} aria-label="Previous month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronLeft size={16} /></button>
+                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: isMobile ? '0 12px' : '6px 10px', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '11px', boxSizing: 'border-box' }}>Today</button>
+                                    <button onClick={() => changeMonth(1)} aria-label="Next month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronRight size={16} /></button>
                                 </div>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', marginBottom: '2px' }}>
                                 {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                                    <span key={day} style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>{day}</span>
+                                    <span key={day} style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)' }}>{day}</span>
                                 ))}
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
@@ -648,14 +691,18 @@ const CalendarPage = () => {
                         )}
                     </div>
 
-                    {/* RIGHT COLUMN: Timeline Details */}
-                    <div style={{ flex: '2 1 500px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', minWidth: 0, boxSizing: 'border-box' }}>
+                    {/* RIGHT COLUMN: Timeline Details. Mobile: this is the
+                        flexible region (flex:1, minHeight:0) so its own
+                        agenda-list card below can become the single
+                        internally-scrolling area - everything above it
+                        (LEFT column, filters row) stays pinned. */}
+                    <div style={{ flex: isMobile ? 1 : '2 1 500px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '20px', minWidth: 0, minHeight: 0, boxSizing: 'border-box' }}>
 
                         {/* Filters - pill category row (fade-masked horizontal
                             scroll on mobile) + a search bar that stacks
                             full-width below it on mobile instead of a fixed
                             200px box that didn't fit. */}
-                        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '12px' }}>
+                        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '12px', flexShrink: 0 }}>
                             <div style={{
                                 display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px',
                                 maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
@@ -673,9 +720,14 @@ const CalendarPage = () => {
                         {/* List - collapsible on mobile (tap the heading row)
                             so the day's events don't have to sit permanently
                             expanded right below the grid; always expanded on
-                            desktop, unaffected by isAgendaExpanded. */}
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
-                            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '0' }}>
+                            desktop, unaffected by isAgendaExpanded. Mobile:
+                            this card itself is the flexible/bounded region
+                            (flex:1, minHeight:0) and its inner event list
+                            further down is the actual overflowY:auto scroll
+                            surface - the only thing that scrolls on this
+                            whole page on mobile. */}
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', flex: isMobile ? 1 : 'none', minHeight: 0, overflow: isMobile ? 'hidden' : 'visible' }}>
+                            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '0', flexShrink: 0 }}>
                                 <div
                                     role={isMobile ? 'button' : undefined}
                                     tabIndex={isMobile ? 0 : undefined}
@@ -703,22 +755,77 @@ const CalendarPage = () => {
                             </div>
 
                             {(!isMobile || isAgendaExpanded) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: isMobile ? 1 : 'none', minHeight: 0, overflowY: isMobile ? 'auto' : 'visible' }}>
                                 {filteredEvents.length === 0 ? (
-                                    <div style={{ textAlign: 'center', padding: isMobile ? '32px 16px' : '40px 0', boxSizing: 'border-box', color: 'var(--text-muted)' }}>
-                                        <CalendarIcon size={32} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
-                                        <p style={{ fontSize: '14px' }}>No events scheduled for this day.</p>
-                                    </div>
+                                    isMobile ? (
+                                        // Illustrative empty state - larger
+                                        // tinted icon + friendlier copy + a
+                                        // real inline CTA that opens the same
+                                        // add-event modal pre-filled with the
+                                        // selected date, instead of just a
+                                        // bare icon+line on a blank screen.
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '32px 16px', boxSizing: 'border-box', gap: '14px' }}>
+                                            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                                                <CalendarIcon size={26} />
+                                            </div>
+                                            <div>
+                                                <p style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>No events scheduled</p>
+                                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Plan something for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => { setNewEvent(prev => ({...prev, date: selectedDateStr})); setIsAddModalOpen(true); }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                                            >
+                                                <Plus size={14} /> Add Event
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ textAlign: 'center', padding: '40px 0', boxSizing: 'border-box', color: 'var(--text-muted)' }}>
+                                            <CalendarIcon size={32} style={{ margin: '0 auto 8px auto', opacity: 0.5 }} />
+                                            <p style={{ fontSize: '14px' }}>No events scheduled for this day.</p>
+                                        </div>
+                                    )
                                 ) : (
                                     filteredEvents.map(ev => (
-                                        <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: ev.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: isMobile ? '14px 16px' : '16px 20px', borderRadius: '14px', border: '1px solid var(--border-premium)', gap: '16px', flexWrap: 'wrap', boxSizing: 'border-box' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '12px' : '16px', minWidth: 0 }}>
+                                        isMobile ? (
+                                            // Flat "Time - Color Tag - Title" row per the
+                                            // requested mobile card layout - source/location
+                                            // badges move to a compact secondary line shown
+                                            // only when present, instead of wrapping inline
+                                            // with the title. Desktop keeps its richer card
+                                            // (the else branch below) unchanged.
+                                            <div key={ev.id} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: ev.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: '12px 14px', borderRadius: '14px', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                                    <div onClick={() => (ev.fromTimetable ? toggleTimetableEventCompletion(ev) : toggleEventCompletion(ev.id))} style={{ cursor: 'pointer', color: ev.completed ? '#10B981' : 'var(--text-muted)', flexShrink: 0, display: 'flex' }}>
+                                                        {ev.completed ? <CheckCircle size={20} /> : <div style={{ width: '20px', height: '20px', border: '2px solid var(--text-muted)', borderRadius: '50%' }}></div>}
+                                                    </div>
+                                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: getCategoryColor(ev.category), flexShrink: 0 }}></span>
+                                                    <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{ev.time}</span>
+                                                    <h4 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', opacity: ev.completed ? 0.7 : 1, margin: 0, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{ev.title}</h4>
+                                                    <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 7px', borderRadius: '6px', background: ev.priority === 'High' ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface-inset)', color: ev.priority === 'High' ? '#EF4444' : 'var(--text-secondary)', flexShrink: 0 }}>
+                                                        {ev.priority}
+                                                    </span>
+                                                    {!ev.fromTimetable && (
+                                                        <button onClick={() => deleteEvent(ev.id)} aria-label={`Delete ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Trash2 size={15} /></button>
+                                                    )}
+                                                </div>
+                                                {(ev.location || ev.fromTimetable || ev.importedFromIcs || ev.importedFromDevice) && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-muted)', paddingLeft: '38px', flexWrap: 'wrap' }}>
+                                                        {ev.location && <span>📍 {ev.location}</span>}
+                                                        {ev.fromTimetable && <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}><Clock size={10} /> From Timetable</span>}
+                                                        {(ev.importedFromIcs || ev.importedFromDevice) && <span style={{ display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--accent)' }}><RefreshCw size={10} /> Synced</span>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                        <div key={ev.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: ev.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: '16px 20px', borderRadius: '14px', border: '1px solid var(--border-premium)', gap: '16px', flexWrap: 'wrap', boxSizing: 'border-box' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                                                 <div onClick={() => (ev.fromTimetable ? toggleTimetableEventCompletion(ev) : toggleEventCompletion(ev.id))} style={{ cursor: 'pointer', color: ev.completed ? '#10B981' : 'var(--text-muted)', flexShrink: 0 }}>
                                                     {ev.completed ? <CheckCircle size={22} /> : <div style={{ width: '22px', height: '22px', border: '2px solid var(--text-muted)', borderRadius: '50%' }}></div>}
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                        <h4 style={{ fontSize: isMobile ? '14px' : '15px', fontWeight: '700', color: 'var(--text-primary)', textDecoration: 'none', opacity: ev.completed ? 0.7 : 1, margin: 0 }}>{ev.title}</h4>
+                                                        <h4 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', textDecoration: 'none', opacity: ev.completed ? 0.7 : 1, margin: 0 }}>{ev.title}</h4>
                                                         <span style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', background: 'var(--surface-inset)', color: getCategoryColor(ev.category), borderRadius: '6px', border: '1px solid var(--border-premium)' }}>{ev.category}</span>
                                                         {ev.fromTimetable && (
                                                             <span title="Synced from the Daily Timetable - edit or delete it there" style={{ fontSize: '10px', fontWeight: '700', padding: '2px 8px', background: 'var(--surface-inset)', color: 'var(--text-muted)', borderRadius: '6px', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -745,6 +852,7 @@ const CalendarPage = () => {
                                                 )}
                                             </div>
                                         </div>
+                                        )
                                     ))
                                 )}
                             </div>
@@ -754,9 +862,11 @@ const CalendarPage = () => {
                 </div>
             )}
 
-            {/* TAB CONTENT: AI SCHEDULE ASSISTANT */}
+            {/* TAB CONTENT: AI SCHEDULE ASSISTANT - mobile: bounded +
+                internally scrollable too, same reasoning as the Agenda
+                tab, so switching tabs never re-introduces page scroll. */}
             {activeTab === 'AIAssistant' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px', flex: isMobile ? 1 : 'none', minHeight: 0, overflowY: isMobile ? 'auto' : 'visible' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
                             <Sparkles size={isMobile ? 18 : 22} />

@@ -54,12 +54,25 @@ const unescapeIcsText = (value) => value
     .replace(/\\;/g, ';')
     .replace(/\\\\/g, '\\');
 
+// Lowercase, alphanumerics-only slug - used only as a fallback dedup key
+// component when a VEVENT has no UID (see below), not for display.
+const slugify = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
 // Parses raw .ics text into Nexus's own calendar event shape - real
 // VEVENT blocks only, every other ICS component (VTODO, VALARM, etc.) is
 // ignored since this app only has a concept of calendar events. Returns
 // [] rather than throwing for genuinely unparseable input, since a
 // partial/malformed file shouldn't crash the whole import - whatever
 // valid VEVENT blocks it did find are still returned.
+//
+// The id is deliberately stable across re-parses of the same input
+// instead of random: UID is ICS's own real, standard stable identifier
+// (RFC 5545) so it's used directly when present; when a feed genuinely
+// omits it, a composite key (date + title + time, the same fields the
+// user actually sees) stands in. Either way, re-importing byte-identical
+// content twice produces the same ids both times, which is what lets
+// mergeImportedEvents below recognize "this is the same event again"
+// instead of always inserting a fresh duplicate.
 export const parseIcsToEvents = (icsText) => {
     if (!icsText || typeof icsText !== 'string') return [];
     const lines = unfoldIcsLines(icsText);
@@ -72,8 +85,11 @@ export const parseIcsToEvents = (icsText) => {
             if (current && current.title && current.dtstart) {
                 const parsed = parseIcsDate(current.dtstart);
                 if (parsed) {
+                    const stableId = current.uid
+                        ? `ics_${current.uid}`
+                        : `ics_${parsed.date}_${slugify(current.title)}_${slugify(parsed.time)}`;
                     events.push({
-                        id: `ics_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                        id: stableId,
                         title: current.title,
                         category: 'Personal',
                         date: parsed.date,
@@ -100,9 +116,47 @@ export const parseIcsToEvents = (icsText) => {
         if (key === 'SUMMARY') current.title = unescapeIcsText(value);
         else if (key === 'DTSTART') current.dtstart = value;
         else if (key === 'LOCATION') current.location = unescapeIcsText(value);
+        else if (key === 'UID') current.uid = value;
     });
 
     return events;
+};
+
+// Real "clear-before-sync + id-based merge" - shared by every import path
+// (ics file, ics feed, device calendar) in CalendarPage.jsx so there's one
+// real implementation instead of three hand-copies of the same logic.
+//
+// Scope is deliberately per-source, not global: only previously-imported
+// events carrying this exact sourceFlagKey (e.g. 'importedFromIcs' or
+// 'importedFromDevice') are cleared before the fresh batch is written.
+// Manually-added events, and events imported from a *different* source,
+// are untouched - re-syncing your device calendar should never silently
+// delete an unrelated .ics file you imported yesterday.
+//
+// A matched id (same event, seen again) carries its `completed` flag
+// forward from the old copy onto the new one, so a re-sync can't silently
+// un-complete something the user already checked off - every other field
+// refreshes from the newly-fetched data, which is the actual "update, not
+// recreate" behavior.
+export const mergeImportedEvents = (prevEvents, importedBatch, sourceFlagKey) => {
+    // Defensive: a malformed feed/device response could itself contain the
+    // same id twice - de-duplicate the incoming batch first so a single
+    // sync run can't seed its own duplicates.
+    const dedupedIncoming = Array.from(
+        importedBatch.reduce((map, ev) => map.set(ev.id, ev), new Map()).values()
+    );
+
+    const staleSameSource = new Map(
+        prevEvents.filter((ev) => ev[sourceFlagKey] === true).map((ev) => [ev.id, ev])
+    );
+    const kept = prevEvents.filter((ev) => ev[sourceFlagKey] !== true);
+
+    const refreshed = dedupedIncoming.map((ev) => {
+        const previous = staleSameSource.get(ev.id);
+        return previous ? { ...ev, completed: previous.completed } : ev;
+    });
+
+    return [...refreshed, ...kept];
 };
 
 const escapeIcsText = (value) => String(value || '')
