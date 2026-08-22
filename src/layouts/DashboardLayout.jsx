@@ -24,7 +24,6 @@ import ProtectedModuleGate from '../components/ProtectedModuleGate.jsx';
 import DynamicBackground from '../components/DynamicBackground.jsx';
 import AlternateBackgrounds from '../components/AlternateBackgrounds.jsx';
 import { AudioPlayerProvider } from '../context/AudioPlayerContext.jsx';
-import { WeatherProvider } from '../context/WeatherContext.jsx';
 import { SoundSettingsProvider } from '../context/SoundSettingsContext.jsx';
 import { StreamingProvider } from '../context/StreamingContext.jsx';
 import { TaskRegistryProvider } from '../context/TaskRegistryContext.jsx';
@@ -232,7 +231,6 @@ const DashboardLayout = () => {
         <GlobalUserSettingsProvider>
         <TaskRegistryProvider>
         <SoundSettingsProvider>
-        <WeatherProvider>
             <StreamingProvider>
             <AudioPlayerProvider>
                 <div style={{ position: 'relative', height: '100vh', width: '100vw', overflow: 'hidden' }}>
@@ -340,7 +338,6 @@ const DashboardLayout = () => {
                 </div>
             </AudioPlayerProvider>
             </StreamingProvider>
-        </WeatherProvider>
         </SoundSettingsProvider>
         </TaskRegistryProvider>
         </GlobalUserSettingsProvider>

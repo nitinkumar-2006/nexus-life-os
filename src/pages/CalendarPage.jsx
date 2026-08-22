@@ -1,8 +1,9 @@
 // src/pages/CalendarPage.jsx
 import { useState, useEffect, useRef } from 'react';
-import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, ChevronDown, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw, Smartphone, X } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, ChevronDown, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw, Smartphone, X, Droplet } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { parseIcsToEvents, eventsToIcs, importIcsFromUrl, mergeImportedEvents } from '../utils/calendarSync.js';
 import { isDeviceCalendarBridgeAvailable, importDeviceCalendarEvents } from '../utils/nativeCalendarBridge.js';
 import TourGuide from '../components/TourGuide.jsx';
@@ -11,9 +12,18 @@ import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 const CalendarPage = () => {
     const isMobile = useIsMobile();
+    const { settings } = useGlobalSettings();
     // Contextual first-visit tour (see TourGuide.jsx) - mobile only, same
     // scoping as every other page's own tour this pass.
     const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('calendar'));
+    // Read-only cross-module snapshot for the AI Schedule Assistant tab's
+    // Hydration Gap card below - same lightweight "read the other module's
+    // real data once, refresh on visit" pattern AIPage.jsx's own Live
+    // Context Inspector already uses for calendar/planner/diet, not a new
+    // convention.
+    const [dietDailyLog] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('nexus_diet_daily_log')) || { waterConsumed: 0 }; } catch (e) { return { waterConsumed: 0 }; }
+    });
     // FIXED: Zeroed out for 00% blank state
     const [events, setEvents] = useState(() => {
         const saved = localStorage.getItem('nexus_calendar_events');
@@ -69,7 +79,6 @@ const CalendarPage = () => {
     });
 
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('All');
 
     // Calendar Sync - real, file-based ICS import/export (see
     // utils/calendarSync.js) plus a best-effort remote feed URL fetch.
@@ -91,6 +100,17 @@ const CalendarPage = () => {
     // the compact month grid isn't followed by a long always-open list -
     // defaults open since seeing today's schedule is the common case.
     const [isAgendaExpanded, setIsAgendaExpanded] = useState(true);
+
+    // Live clock for the Upcoming Countdown banner - ticks once a minute
+    // so the "3h 42m" readout keeps counting down without a page reload,
+    // and so an event that just passed genuinely drops out of
+    // contention on its own instead of lingering until the next
+    // unrelated re-render.
+    const [nowTick, setNowTick] = useState(() => new Date());
+    useEffect(() => {
+        const interval = setInterval(() => setNowTick(new Date()), 60000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         if (!syncMessage) return undefined;
@@ -270,12 +290,15 @@ const CalendarPage = () => {
 
     const getCategoryColor = (category) => {
         switch (category) {
-            case 'Study': return '#8B5CF6'; 
-            case 'Fitness': return '#EF4444'; 
-            case 'Nutrition': return '#10B981'; 
-            case 'Productivity': return '#F59E0B'; 
-            case 'Finance': return '#3B82F6'; 
-            default: return '#A8A29E'; 
+            case 'Study': return '#8B5CF6';
+            case 'Fitness': return '#EF4444';
+            case 'Nutrition': return '#10B981';
+            case 'Productivity': return '#F59E0B';
+            case 'Finance': return '#3B82F6';
+            case 'Festivals': return '#EC4899';
+            case 'Work': return '#0EA5E9';
+            case 'Personal': return '#14B8A6';
+            default: return '#A8A29E';
         }
     };
 
@@ -298,18 +321,70 @@ const CalendarPage = () => {
     // Returns a real {start, end} window for an event. Timetable-derived
     // events already carry a genuine "start - end" range, so both real
     // ends are parsed directly. Calendar's own events only ever log a
-    // single start time, so a 30-minute window is assumed around it -
-    // the same documented convention already used for these events in
-    // the dashboard registry, not a new invention.
+    // single start time, so a window is assumed around it - 1 hour, the
+    // conventional default meeting/event length, not the 30-minute window
+    // TaskRegistryContext.jsx uses elsewhere (that one is a pure visual
+    // "how wide should this block render" convention for a different UI,
+    // not a conflict-detection threshold). 30 minutes was the actual bug
+    // here: two real events 30 minutes apart (e.g. 10:00 AM and 10:30 AM -
+    // a genuine back-to-back conflict with zero buffer) computed as
+    // exactly touching, not overlapping, so detectScheduleConflicts below
+    // silently reported "Zero Overlaps" for a schedule that very much had
+    // one.
     const getEventTimeRange = (ev) => {
         if (typeof ev.time === 'string' && ev.time.includes(' - ')) {
             const [startRaw, endRaw] = ev.time.split(' - ');
             const start = parseTimeToHour(startRaw);
             const end = parseTimeToHour(endRaw);
-            return { start, end: (start !== null && end !== null) ? end : (start !== null ? start + 0.5 : null) };
+            return { start, end: (start !== null && end !== null) ? end : (start !== null ? start + 1 : null) };
         }
         const start = parseTimeToHour(ev.time);
-        return { start, end: start !== null ? start + 0.5 : null };
+        return { start, end: start !== null ? start + 1 : null };
+    };
+
+    // Combines an event's own date + time strings into one real JS Date -
+    // an all-day (or unparseable-time) event is treated as starting at
+    // midnight, so it still counts as "today" rather than being silently
+    // excluded from the countdown below.
+    const getEventDateTime = (ev) => {
+        const [y, m, d] = ev.date.split('-').map(Number);
+        const hourDecimal = parseTimeToHour(ev.time);
+        if (hourDecimal === null) return new Date(y, m - 1, d, 0, 0, 0, 0);
+        const hours = Math.floor(hourDecimal);
+        const minutes = Math.round((hourDecimal - hours) * 60);
+        return new Date(y, m - 1, d, hours, minutes, 0, 0);
+    };
+
+    // "Next upcoming major event or holiday" - genuinely prefers a
+    // Festivals-tagged event (the "holiday" half of that phrase) or a
+    // High-priority one (the "major event" half) among everything still
+    // ahead of nowTick, falling back to whatever's chronologically
+    // nearest so the banner isn't empty just because nothing happens to
+    // be tagged that way yet. Manually-added and synced events only -
+    // Timetable slots are excluded since those are routine, recurring
+    // blocks, not the kind of standout moment this banner is for.
+    const upcomingEvent = (() => {
+        const upcoming = events
+            .map((ev) => ({ ev, when: getEventDateTime(ev) }))
+            .filter(({ when }) => when.getTime() >= nowTick.getTime())
+            .sort((a, b) => a.when.getTime() - b.when.getTime());
+        if (upcoming.length === 0) return null;
+        return upcoming.find(({ ev }) => ev.category === 'Festivals' || ev.priority === 'High') || upcoming[0];
+    })();
+
+    // "3d 4h" / "5h 12m" / "12m" - always the two most significant units,
+    // never all three at once, so the banner stays a short, glanceable
+    // readout rather than a full duration breakdown.
+    const formatCountdown = (target, now) => {
+        const diffMs = target.getTime() - now.getTime();
+        if (diffMs <= 0) return 'Now';
+        const totalMinutes = Math.floor(diffMs / 60000);
+        const days = Math.floor(totalMinutes / 1440);
+        const hours = Math.floor((totalMinutes % 1440) / 60);
+        const minutes = totalMinutes % 60;
+        if (days > 0) return `${days}d ${hours}h`;
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
     };
 
     // Real conflict detection - groups every real event (Calendar's own
@@ -402,9 +477,8 @@ const CalendarPage = () => {
 
     const filteredEvents = [...events, ...getTimetableEventsForDate(selectedDateStr)].filter(ev => {
         const matchesSearch = ev.title.toLowerCase().includes(searchQuery.toLowerCase()) || (ev.location || '').toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCategory = selectedCategoryFilter === 'All' || ev.category === selectedCategoryFilter;
-        const matchesDate = ev.date === selectedDateStr; 
-        return matchesSearch && matchesCategory && matchesDate;
+        const matchesDate = ev.date === selectedDateStr;
+        return matchesSearch && matchesDate;
     });
 
     const completedCount = events.filter(e => e.completed).length;
@@ -417,6 +491,13 @@ const CalendarPage = () => {
     const scheduleConflicts = detectScheduleConflicts();
     const highPriorityCount = events.filter((e) => e.priority === 'High' && !e.completed).length;
 
+    // Real hydration gap for the AI Schedule Assistant tab's own card -
+    // only ever computed/shown once the user has a real goal set in the
+    // Diet Hub, never a fabricated default.
+    const hydrationGoal = settings.dailyHydrationGoal || 0;
+    const hydrationConsumed = dietDailyLog?.waterConsumed || 0;
+    const hydrationGapLiters = hydrationGoal > 0 ? Math.max(0, Math.round((hydrationGoal - hydrationConsumed) * 10) / 10) : null;
+
     // Build Compact Calendar Grid
     const renderCalendarGrid = () => {
         const year = currentDate.getFullYear();
@@ -425,13 +506,15 @@ const CalendarPage = () => {
         const firstDay = getFirstDayOfMonth(year, month);
         const days = [];
 
-        // Empty leading cells are real grid squares now too (not just
-        // padding) so the month reads as one complete rectangular table
-        // instead of numbers floating with blank space before them.
-        // Mobile: 28px (down from 34px) for a genuinely more minimal grid.
-        const cellHeight = isMobile ? '28px' : '34px';
+        // Empty leading cells are real grid squares too (not just padding)
+        // so the month reads as one complete rectangular table instead of
+        // numbers floating with blank space before them - kept quiet and
+        // borderless so they read as clearly "blank" next to the real,
+        // bordered day cells below. Mobile: 30px for a compact but still
+        // comfortable tap target; desktop 34px.
+        const cellHeight = isMobile ? '30px' : '34px';
         for (let i = 0; i < firstDay; i++) {
-            days.push(<div key={`empty-${i}`} style={{ height: cellHeight, borderRadius: '8px', background: 'var(--surface-inset)', opacity: 0.35 }}></div>);
+            days.push(<div key={`empty-${i}`} style={{ height: cellHeight, borderRadius: '10px', background: 'var(--surface-inset)', opacity: 0.25 }}></div>);
         }
 
         for (let d = 1; d <= daysInMonth; d++) {
@@ -445,24 +528,32 @@ const CalendarPage = () => {
                 <div
                     key={d} onClick={() => handleDateClick(d)}
                     style={{
-                        // Every real day cell gets its own background/border
-                        // now (not just selected/today) so the grid reads as
-                        // a structured table of cells, same idea as a real
-                        // calendar app, rather than bare floating numbers.
-                        // Height/gap shrunk from the previous 42px+6px so
-                        // the full month takes noticeably less page space;
-                        // mobile shrinks it further still (see cellHeight).
+                        // A more premium, modern cell treatment: selected
+                        // days get a real gradient fill + a soft lifted
+                        // shadow instead of a flat color block; today gets
+                        // a quiet tinted glass highlight (not the full
+                        // widget-bg fill it used to) so it reads as "today"
+                        // without competing visually with a real selection.
                         height: cellHeight, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                        background: isSelected ? 'var(--primary)' : isToday ? 'var(--widget-bg)' : 'var(--surface-inset)',
+                        background: isSelected
+                            ? 'linear-gradient(135deg, var(--primary), rgba(var(--primary-rgb), 0.8))'
+                            : isToday
+                                ? 'rgba(var(--primary-rgb), 0.14)'
+                                : 'var(--surface-inset)',
                         color: isSelected ? 'var(--text-on-primary)' : isToday ? 'var(--primary)' : 'var(--text-primary)',
-                        border: isToday && !isSelected ? '1px solid var(--primary)' : '1px solid var(--border-premium)',
-                        borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative'
+                        border: isSelected
+                            ? '1px solid transparent'
+                            : isToday
+                                ? '1.5px solid rgba(var(--primary-rgb), 0.5)'
+                                : '1px solid var(--border-premium)',
+                        borderRadius: '10px', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative',
+                        boxShadow: isSelected ? '0 4px 12px rgba(var(--primary-rgb), 0.35)' : 'none',
                     }}
                 >
-                    <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: isSelected || isToday ? '800' : '600' }}>{d}</span>
+                    <span style={{ fontSize: isMobile ? '12px' : '13px', fontWeight: isSelected || isToday ? '800' : '600' }}>{d}</span>
 
                     {/* Compact Dots */}
-                    <div style={{ display: 'flex', gap: '2px', position: 'absolute', bottom: '3px' }}>
+                    <div style={{ display: 'flex', gap: '2px', position: 'absolute', bottom: '4px' }}>
                         {dayEvents.map((ev, idx) => (
                             <div key={idx} style={{ width: '3px', height: '3px', borderRadius: '50%', background: isSelected ? 'var(--surface-inset)' : getCategoryColor(ev.category) }}></div>
                         ))}
@@ -472,6 +563,42 @@ const CalendarPage = () => {
         }
         return days;
     };
+
+    // Shared between the desktop top-level placement and mobile's own
+    // (between the month grid and search bar) placement - one real
+    // implementation, so the two spots can never visually drift apart.
+    // A real, live-ticking countdown (see nowTick above) to the next
+    // genuinely upcoming event, preferring a Festivals-tagged or
+    // High-priority one so this actually reads as "the next major
+    // thing", not just whatever happens to be chronologically first.
+    const renderUpNextBanner = () => (
+        <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexShrink: 0,
+            background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.18), rgba(var(--primary-rgb), 0.05))',
+            border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: isMobile ? '14px' : '16px',
+            padding: isMobile ? '10px 14px' : '14px 20px', boxSizing: 'border-box',
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--text-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Bell size={isMobile ? 14 : 16} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                    <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block' }}>
+                        {upcomingEvent.ev.category === 'Festivals' ? 'Upcoming Holiday' : 'Up Next'}
+                    </span>
+                    <span style={{ fontSize: isMobile ? '13px' : '15px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                        {upcomingEvent.ev.title}
+                    </span>
+                </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: isMobile ? '15px' : '20px', fontWeight: '800', color: 'var(--primary)', whiteSpace: 'nowrap' }}>{formatCountdown(upcomingEvent.when, nowTick)}</div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap' }}>
+                    {upcomingEvent.ev.date === selectedDateStr ? 'Today' : upcomingEvent.when.toLocaleDateString('default', { month: 'short', day: 'numeric' })}
+                </div>
+            </div>
+        </div>
+    );
 
     // Shared between the desktop-inline Calendar Sync card and the
     // mobile sync modal - one real implementation, two entry points,
@@ -535,23 +662,16 @@ const CalendarPage = () => {
     );
 
     return (
-        // Mobile: a real bounded-height flex column instead of a
-        // page-length block, matching AudioHubPage.jsx/AIPage.jsx's own
-        // pinned-header pattern - everything up to the agenda list stays
-        // visible (flexShrink:0), only the list itself scrolls internally.
-        // 148px = the mobile global header's real box height (~56px,
-        // header.jsx's own documented "slim 60px" content + its 10px/10px
-        // padding) + DashboardLayout's .glass-panel mobile padding (16px
-        // top + 76px bottom, DashboardLayout.jsx:317) - live-verified in
-        // the browser preview rather than guessed, same as those pages'
-        // own analogous constants. Desktop is untouched: no fixed height,
-        // page scrolls as a whole exactly as before.
-        <div style={{
-            display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative',
-            height: isMobile ? 'calc(100vh - 148px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))' : 'auto',
-            overflow: isMobile ? 'hidden' : 'visible',
-            minHeight: 0,
-        }}>
+        // A real, natural full-page scroll on every viewport - the whole
+        // Calendar Hub (header, countdown, tabs, month grid, and the full
+        // agenda list) flows top to bottom and scrolls as one page,
+        // exactly like every other Hub page. A previous pass here tried a
+        // bounded-height/inner-scroll layout (pinning the grid while only
+        // the agenda list scrolled inside its own small box) - live
+        // feedback was that the inner scroll box felt cramped, so this
+        // reverts to the simple, spacious model: no fixed height, no
+        // overflow:hidden, nothing here fights the page's own scroll.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
             {showTour && <TourGuide tourId="calendar" steps={TOUR_STEPS.calendar} onFinish={() => setShowTour(false)} />}
 
             {/* Header Section - on mobile, a compact icon button opens the
@@ -560,10 +680,10 @@ const CalendarPage = () => {
                 becomes the whole "sync + add event" action bar. Desktop is
                 untouched: no sync button here since the full Sync card
                 already sits inline further down. */}
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px', flexShrink: 0 }}>
-                <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Hub</h1>
+            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: isMobile ? '8px' : '16px', flexShrink: 0 }}>
+                <h1 style={{ fontSize: isMobile ? '17px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: isMobile ? 1 : 'initial', minWidth: 0 }}>Calendar Hub</h1>
 
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                     {isMobile && (
                         <button
                             type="button"
@@ -571,9 +691,9 @@ const CalendarPage = () => {
                             data-tour-id="calendar-sync"
                             aria-label="Calendar Sync"
                             title="Calendar Sync"
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', cursor: 'pointer' }}
                         >
-                            <RefreshCw size={18} />
+                            <RefreshCw size={17} />
                         </button>
                     )}
                     <button
@@ -582,21 +702,26 @@ const CalendarPage = () => {
                             setIsAddModalOpen(true);
                         }}
                         data-tour-id="calendar-add-event"
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '12px 18px' : '10px 20px', flex: isMobile ? 1 : 'none', width: isMobile ? 'auto' : 'auto', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer' }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: isMobile ? '0 16px' : '10px 20px', height: isMobile ? '40px' : 'auto', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
-                        <Plus size={isMobile ? 16 : 18} /> Schedule Event
+                        <Plus size={isMobile ? 16 : 18} /> {isMobile ? 'Add' : 'Schedule Event'}
                     </button>
                 </div>
             </div>
 
+            {/* Upcoming Countdown - desktop only at this top-level spot
+                (unaffected, as before). Mobile now renders the exact same
+                banner (see renderUpNextBanner below) between the month
+                grid and the search bar instead, per an explicit
+                correction: it must NOT sit at the very top on mobile. */}
+            {!isMobile && upcomingEvent && renderUpNextBanner()}
+
             {/* Quick Metrics. Desktop: unchanged 3-card grid. Mobile: a
-                single slim horizontal strip (icon+value+label inline,
-                divided by hairlines) instead of 3 stacked icon-over-label-
-                over-value cards - live-measured to free up real vertical
-                space the agenda list actually needs (the stacked-card
-                version alone cost ~98px of the ~664px this whole page gets
-                on a real phone, before the month grid or list even got a
-                share). */}
+                compact single-strip version, always shown regardless of
+                tab - now that the page scrolls naturally end to end
+                (rather than a bounded, inner-scrolling agenda box), there's
+                no space-crunch reason left to hide this on the Agenda tab
+                specifically. */}
             {isMobile ? (
                 <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '10px 8px', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
@@ -656,21 +781,23 @@ const CalendarPage = () => {
 
             {/* TAB CONTENT: AGENDA & CALENDAR */}
             {activeTab === 'Agenda' && (
-                // Side-by-side, page-length on desktop (unchanged). Mobile:
-                // a bounded-height flex column instead - LEFT (grid + sync)
-                // stays pinned (flexShrink:0), RIGHT becomes the flexible
-                // region so its own inner agenda list is the only thing
-                // that scrolls (see RIGHT column below).
+              <>
+                {/* Side-by-side on desktop, stacks full-width on mobile -
+                    plain natural-height flow on every viewport now, no
+                    bounded/scroll-trapping flex sizing. */}
                 <div style={{
-                    display: 'flex', gap: isMobile ? '12px' : '24px', flexWrap: isMobile ? 'nowrap' : 'wrap', alignItems: 'flex-start',
-                    flexDirection: isMobile ? 'column' : 'row', flex: isMobile ? 1 : 'none', minHeight: 0, width: '100%', boxSizing: 'border-box',
+                    display: 'flex', gap: isMobile ? '16px' : '24px', flexWrap: isMobile ? 'nowrap' : 'wrap', alignItems: 'flex-start',
+                    flexDirection: isMobile ? 'column' : 'row', width: '100%', boxSizing: 'border-box',
                 }}>
 
                     {/* LEFT COLUMN: Compact Calendar Widget + Sync card */}
-                    <div style={{ flex: isMobile ? '0 0 auto' : '1 1 320px', flexShrink: 0, width: '100%', maxWidth: isMobile ? '100%' : '380px', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '20px', boxSizing: 'border-box' }}>
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: isMobile ? '12px' : '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '16px', boxSizing: 'border-box' }}>
+                    <div style={{ flex: '1 1 320px', width: '100%', maxWidth: isMobile ? '100%' : '380px', display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '20px', boxSizing: 'border-box' }}>
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '20px' : '20px', padding: isMobile ? '14px' : '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                                <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ width: isMobile ? '26px' : '28px', height: isMobile ? '26px' : '28px', borderRadius: '8px', background: 'rgba(var(--primary-rgb), 0.14)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <CalendarIcon size={isMobile ? 14 : 15} />
+                                    </span>
                                     {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                                 </h3>
                                 {/* Nav buttons: min 40px hit area on mobile (up
@@ -679,18 +806,18 @@ const CalendarPage = () => {
                                     staying visually compact via the icon size
                                     alone. Desktop untouched. */}
                                 <div style={{ display: 'flex', gap: '4px' }}>
-                                    <button onClick={() => changeMonth(-1)} aria-label="Previous month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronLeft size={16} /></button>
-                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: isMobile ? '0 12px' : '6px 10px', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '11px', boxSizing: 'border-box' }}>Today</button>
-                                    <button onClick={() => changeMonth(1)} aria-label="Next month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '8px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronRight size={16} /></button>
+                                    <button onClick={() => changeMonth(-1)} aria-label="Previous month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronLeft size={16} /></button>
+                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: isMobile ? '0 12px' : '6px 10px', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(var(--primary-rgb), 0.14)', color: 'var(--primary)', border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '11px', boxSizing: 'border-box' }}>Today</button>
+                                    <button onClick={() => changeMonth(1)} aria-label="Next month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronRight size={16} /></button>
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center', marginBottom: '2px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '5px', textAlign: 'center', marginBottom: '2px' }}>
                                 {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                                    <span key={day} style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)' }}>{day}</span>
+                                    <span key={day} style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', letterSpacing: '0.03em' }}>{day}</span>
                                 ))}
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '5px' }}>
                                 {renderCalendarGrid()}
                             </div>
                         </div>
@@ -719,52 +846,58 @@ const CalendarPage = () => {
                         )}
                     </div>
 
-                    {/* RIGHT COLUMN: Timeline Details. Mobile: this is the
-                        flexible region (flex:1, minHeight:0) so its own
-                        agenda-list card below can become the single
-                        internally-scrolling area - everything above it
-                        (LEFT column, filters row) stays pinned. */}
-                    <div style={{ flex: isMobile ? 1 : '2 1 500px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '20px', minWidth: 0, minHeight: 0, boxSizing: 'border-box' }}>
-
-                        {/* Filters - pill category row (fade-masked horizontal
-                            scroll on mobile) + a search bar that stacks
-                            full-width below it on mobile instead of a fixed
-                            200px box that didn't fit. */}
-                        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '12px', flexShrink: 0 }}>
-                            <div style={{
-                                display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px',
-                                maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
-                                WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
-                            }}>
-                                {['All', 'Study', 'Fitness', 'Finance'].map(cat => (
-                                    <button key={cat} onClick={() => setSelectedCategoryFilter(cat)} style={{ padding: '7px 14px', background: selectedCategoryFilter === cat ? 'var(--primary)' : 'var(--widget-bg)', color: selectedCategoryFilter === cat ? 'var(--text-on-primary)' : 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>{cat}</button>
-                                ))}
+                    {/* Mobile-only: Up Next then Search, in that exact
+                        order, sitting between the month grid above and the
+                        Schedule card in the RIGHT column below - an
+                        explicit correction that this must NOT sit at the
+                        very top on mobile. Desktop is untouched: its own
+                        Up Next stays at the page's top level, and its own
+                        Search stays paired with the Schedule card in the
+                        RIGHT column. */}
+                    {isMobile && (
+                        <>
+                            {upcomingEvent && renderUpNextBanner()}
+                            <div style={{ position: 'relative', width: '100%', flexShrink: 0, boxSizing: 'border-box' }}>
+                                <input id="calendarSearchEventsMobile" name="calendarSearchEventsMobile" type="text" aria-label="Search events" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '10px 14px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                             </div>
-                            <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto' }}>
-                                <input type="text" aria-label="Search events" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '9px 14px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', width: isMobile ? '100%' : '200px', boxSizing: 'border-box' }} />
+                        </>
+                    )}
+
+                    {/* RIGHT COLUMN: Timeline Details - natural height on
+                        every viewport, flows and scrolls with the rest of
+                        the page. */}
+                    <div style={{ flex: isMobile ? '1 1 100%' : '2 1 500px', width: '100%', display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '20px', minWidth: 0, boxSizing: 'border-box' }}>
+
+                        {/* Search - desktop only here, paired with the
+                            Schedule card as before. Mobile's own copy now
+                            sits above the month grid instead (see the
+                            isMobile block right before this Agenda tab's
+                            two-column container). */}
+                        {!isMobile && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+                            <div style={{ position: 'relative' }}>
+                                <input id="calendarSearchEvents" name="calendarSearchEvents" type="text" aria-label="Search events" placeholder="Search events..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ padding: '9px 14px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none', width: '200px', boxSizing: 'border-box' }} />
                             </div>
                         </div>
+                        )}
 
                         {/* List - collapsible on mobile (tap the heading row)
                             so the day's events don't have to sit permanently
                             expanded right below the grid; always expanded on
-                            desktop, unaffected by isAgendaExpanded. Mobile:
-                            this card itself is the flexible/bounded region
-                            (flex:1, minHeight:0) and its inner event list
-                            further down is the actual overflowY:auto scroll
-                            surface - the only thing that scrolls on this
-                            whole page on mobile. */}
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box', flex: isMobile ? 1 : 'none', minHeight: 0, overflow: isMobile ? 'hidden' : 'visible' }}>
-                            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '10px' : '0', flexShrink: 0 }}>
+                            desktop. Natural height on both - the page
+                            itself scrolls once this card's content runs
+                            past the viewport, no inner scroll box. */}
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+                            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: isMobile ? '10px' : '0', flexShrink: 0 }}>
                                 <div
                                     role={isMobile ? 'button' : undefined}
                                     tabIndex={isMobile ? 0 : undefined}
                                     aria-expanded={isMobile ? isAgendaExpanded : undefined}
                                     onClick={() => isMobile && setIsAgendaExpanded((v) => !v)}
                                     onKeyDown={(e) => { if (isMobile && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setIsAgendaExpanded((v) => !v); } }}
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', cursor: isMobile ? 'pointer' : 'default' }}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', cursor: isMobile ? 'pointer' : 'default', minWidth: 0, flex: 1 }}
                                 >
-                                    <div>
+                                    <div style={{ minWidth: 0 }}>
                                         <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
                                             Schedule for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}
                                         </h3>
@@ -774,16 +907,21 @@ const CalendarPage = () => {
                                         <ChevronDown size={18} color="var(--text-muted)" style={{ flexShrink: 0, transform: isAgendaExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
                                     )}
                                 </div>
+                                {/* A clean, always-present "Add Event" trigger
+                                    on every viewport now that there's real
+                                    room for it in the full-page layout -
+                                    same pre-filled-date modal the header's
+                                    own "+ Add" button opens. */}
                                 <button
                                     onClick={() => { setNewEvent(prev => ({...prev, date: selectedDateStr})); setIsAddModalOpen(true); }}
-                                    style={{ padding: '9px 16px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', flexShrink: 0 }}
+                                    style={{ padding: isMobile ? '9px 14px' : '9px 16px', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', flexShrink: 0, whiteSpace: 'nowrap' }}
                                 >
-                                    <Plus size={14} /> Add Here
+                                    <Plus size={14} /> {isMobile ? 'Add' : 'Add Here'}
                                 </button>
                             </div>
 
                             {(!isMobile || isAgendaExpanded) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: isMobile ? 1 : 'none', minHeight: 0, overflowY: isMobile ? 'auto' : 'visible' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {filteredEvents.length === 0 ? (
                                     isMobile ? (
                                         // Illustrative empty state - larger
@@ -888,13 +1026,13 @@ const CalendarPage = () => {
                         </div>
                     </div>
                 </div>
+              </>
             )}
 
-            {/* TAB CONTENT: AI SCHEDULE ASSISTANT - mobile: bounded +
-                internally scrollable too, same reasoning as the Agenda
-                tab, so switching tabs never re-introduces page scroll. */}
+            {/* TAB CONTENT: AI SCHEDULE ASSISTANT - natural page flow on
+                every viewport, same as the Agenda tab above. */}
             {activeTab === 'AIAssistant' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px', flex: isMobile ? 1 : 'none', minHeight: 0, overflowY: isMobile ? 'auto' : 'visible' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
                             <Sparkles size={isMobile ? 18 : 22} />
@@ -909,7 +1047,7 @@ const CalendarPage = () => {
                         </p>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
                         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
                                 <ShieldCheck size={isMobile ? 15 : 18} color={scheduleConflicts.length > 0 ? '#EF4444' : '#10B981'} /> {isMobile ? 'Conflicts' : 'Schedule Conflict Status'}
@@ -933,6 +1071,22 @@ const CalendarPage = () => {
                                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{highPriorityCount > 0 ? "Marked High priority, not yet completed." : "No high-priority events pending right now."}</span>
                             )}
                         </div>
+
+                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
+                                <Droplet size={isMobile ? 15 : 18} color="#38BDF8" /> Hydration Gap
+                            </div>
+                            <h2 style={{ fontSize: isMobile ? '15px' : '20px', fontWeight: '800', color: hydrationGoal === 0 ? 'var(--text-primary)' : hydrationGapLiters > 0 ? '#F59E0B' : '#10B981' }}>
+                                {hydrationGoal === 0 ? 'No Goal Set' : hydrationGapLiters > 0 ? `${hydrationGapLiters}L Left` : 'Goal Met'}
+                            </h2>
+                            {!isMobile && (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                    {hydrationGoal === 0
+                                        ? "Set a daily hydration goal in the Diet Hub to enable this."
+                                        : `${hydrationConsumed}L logged of your ${hydrationGoal}L goal today.`}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -952,7 +1106,7 @@ const CalendarPage = () => {
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <label htmlFor="eventCategory" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Category</label>
                                     <select id="eventCategory" value={newEvent.category} onChange={(e) => setNewEvent({...newEvent, category: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                                        <option value="Study" style={{ background: 'var(--surface-inset)' }}>Study</option><option value="Fitness" style={{ background: 'var(--surface-inset)' }}>Fitness</option><option value="Nutrition" style={{ background: 'var(--surface-inset)' }}>Nutrition</option><option value="Productivity" style={{ background: 'var(--surface-inset)' }}>Productivity</option><option value="Finance" style={{ background: 'var(--surface-inset)' }}>Finance</option><option value="Personal" style={{ background: 'var(--surface-inset)' }}>Personal</option>
+                                        <option value="Festivals" style={{ background: 'var(--surface-inset)' }}>Festivals</option><option value="Work" style={{ background: 'var(--surface-inset)' }}>Work</option><option value="Personal" style={{ background: 'var(--surface-inset)' }}>Personal</option><option value="Study" style={{ background: 'var(--surface-inset)' }}>Study</option><option value="Fitness" style={{ background: 'var(--surface-inset)' }}>Fitness</option><option value="Nutrition" style={{ background: 'var(--surface-inset)' }}>Nutrition</option><option value="Productivity" style={{ background: 'var(--surface-inset)' }}>Productivity</option><option value="Finance" style={{ background: 'var(--surface-inset)' }}>Finance</option>
                                     </select>
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>

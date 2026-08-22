@@ -1,6 +1,6 @@
 // src/components/GreetingCard.jsx
 import { useState, useEffect } from 'react';
-import { Clock, Calendar, Hand, Sun, Moon, Cloud, CloudDrizzle, CloudRain, CloudLightning, Play, Pause, SkipForward, SkipBack, Music, ListMusic } from 'lucide-react';
+import { Clock, Calendar, Hand, Sun, Moon, Cloud, CloudLightning, CloudSunRain, CloudMoonRain, Play, Pause, SkipForward, SkipBack, Music, ListMusic } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useWeather } from '../context/WeatherContext.jsx';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
@@ -63,14 +63,16 @@ const GreetingCard = ({ setActiveTab }) => {
         : null;
 
     // Real weatherState (from WeatherContext's own live WMO weather code,
-    // shared with DynamicBackground's sky) picks the actual condition icon;
-    // 'clear' additionally splits on real local time, same dawn/dusk
-    // boundary DashboardLayout's own sky-phase clock uses, so a clear sky
-    // shows Moon at night instead of a Sun that's plainly wrong after dark.
+    // cross-checked against real current precipitation so a technically-
+    // "Cloudy" code can't hide genuine rain - shared with DynamicBackground's
+    // sky) picks the actual condition icon; both 'clear' AND rain/drizzle
+    // additionally split on real local time (same dawn/dusk boundary
+    // DashboardLayout's own sky-phase clock uses), so a rainy night shows a
+    // moon-with-rain glyph instead of the same plain rain cloud used at noon.
     const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
     const isNightNow = currentHour < 6.5 || currentHour >= 19.5;
-    const WeatherIcon = weatherState === 'rain' ? CloudRain
-        : weatherState === 'drizzle' ? CloudDrizzle
+    const WeatherIcon = weatherState === 'rain' ? (isNightNow ? CloudMoonRain : CloudSunRain)
+        : weatherState === 'drizzle' ? (isNightNow ? CloudMoonRain : CloudSunRain)
         : weatherState === 'thunderstorm' ? CloudLightning
         : weatherState === 'cloudy' ? Cloud
         : isNightNow ? Moon : Sun;

@@ -27,56 +27,116 @@ final class BankSmsParser {
         }
     }
 
-    // Indian DLT-registered sender IDs are 6 characters, usually prefixed
-    // with a 2-letter telecom route code and a hyphen, e.g. "VM-HDFCBK",
-    // "AD-SBIINB", "VK-ICICIB". A plain 6-char alphanumeric ID (no hyphen)
-    // is also common on some carriers. This is intentionally permissive -
-    // it only decides whether to attempt a parse at all, not whether the
-    // SMS is ultimately kept (the amount/keyword checks in parse() below
-    // are the real filter).
-    private static final Pattern SENDER_ID_PATTERN =
-            Pattern.compile("^[A-Z]{2}-[A-Z0-9]{6}$|^[A-Z0-9]{6}$");
+    // The amount immediately adjacent to the actual debit/credit/sent
+    // keyword - either "[Rs.]500.00 debited" (currency optional: many real
+    // UPI alerts, e.g. SBI's "A/C X1234 Debited by 500.0 on...", state the
+    // amount with no currency symbol at all) or "debited [by/with] [Rs.]500".
+    // Deliberately NOT a whole-message "find any Rs.-prefixed number
+    // anywhere" search: a real bank SMS almost always also states the
+    // post-transaction balance elsewhere in the same message (e.g. "...Avl
+    // Bal Rs 5,000.00"), also currency-prefixed - an earlier version of
+    // this pattern searched the whole message first and would happily grab
+    // that BALANCE as if it were the transaction amount whenever the real
+    // amount itself lacked a currency symbol. Anchoring the search to right
+    // next to the keyword is what actually fixes that, not just adding a
+    // second pattern.
+    // Every real transaction verb this parser recognizes (see DEBIT_KEYWORDS/
+    // CREDIT_KEYWORDS below) - kept as one shared list so the amount search
+    // can never silently miss an amount just because it sat next to a verb
+    // this parser otherwise already knows means a real transaction ("spent",
+    // "paid", "withdrawn", "received", "deposited", "purchase" - not just
+    // "debited"/"credited"/"sent"). "purchase" (not the 2-word "purchase
+    // of") is enough here since the optional (by|with|for|of) group already
+    // below absorbs the "of" - this file's classification keywords stay the
+    // safer 2-word "purchase of" (see DEBIT_KEYWORDS), this is purely a
+    // "where's the number" search, not itself a classification decision.
+    private static final String TXN_VERBS = "debited|credited|spent|paid|withdrawn|received|deposited|sent|purchase";
+    // Two distinct shapes, deliberately NOT symmetric on whether a currency
+    // symbol is required:
+    // - "[Rs.]500.00 debited" (amount BEFORE the verb) REQUIRES a currency
+    //   symbol. Account numbers routinely sit directly in front of the verb
+    //   in real bank SMS ("A/C XXXXXXX1234 Debited by 500.0 on...") with
+    //   nothing but a space between the digits and the verb - an earlier,
+    //   looser version of this alternative (currency optional here too)
+    //   happily matched "1234" out of that account number as if it were the
+    //   transaction amount. Requiring the currency symbol in this direction
+    //   is what rules that out, since a real account number is never
+    //   preceded by "Rs."/"INR"/"₹".
+    // - "debited by [Rs.]500.00" (verb BEFORE the amount) keeps the
+    //   currency symbol optional, since this is the shape real currency-less
+    //   UPI alerts actually use (e.g. SBI's "Debited by 500.0") - the verb
+    //   itself is already the anchor here, so there's no equivalent
+    //   account-number collision risk.
+    private static final Pattern AMOUNT_NEAR_KEYWORD_PATTERN = Pattern.compile(
+            "(?:Rs\\.?|INR|₹)\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s+(?:has\\s+been\\s+|is\\s+|was\\s+)?(?:" + TXN_VERBS + ")\\b"
+            + "|\\b(?:" + TXN_VERBS + ")\\b\\s*(?:by|with|for|of)?\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+            Pattern.CASE_INSENSITIVE);
 
-    // "Rs.", "Rs", "INR", or "₹" followed by a number (with optional
-    // thousands separators and paise).
-    private static final Pattern AMOUNT_PATTERN =
-            Pattern.compile("(?:Rs\\.?|INR|₹)\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)", Pattern.CASE_INSENSITIVE);
-
+    // Deliberately "debited" (the conjugated verb), never the bare noun
+    // "debit" - the actual root cause behind a huge, common class of real
+    // transactions being silently dropped as "ambiguous" (see isDebit ==
+    // isCredit below): the overwhelming majority of bank SMS - including
+    // CREDIT/refund messages - mention "Debit Card ending XXXX" as pure
+    // boilerplate identifying which card was used, regardless of which
+    // direction the money actually moved. A bare \bdebit\b matched that
+    // boilerplate every time, making a huge fraction of genuine credits
+    // look "ambiguous" and get dropped entirely.
     private static final Pattern DEBIT_KEYWORDS =
-            Pattern.compile("\\b(debited|debit|spent|paid|withdrawn|purchase of)\\b", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("\\b(debited|spent|paid|withdrawn|purchase of|sent)\\b", Pattern.CASE_INSENSITIVE);
+    // Same reasoning in reverse: "credited" (the verb), never bare "credit"
+    // - "Credit Card ending XXXX" boilerplate appears in plenty of real
+    // DEBIT (purchase/spend) SMS too, and a bare \bcredit\b there caused
+    // the exact same false-ambiguous drop for a very common real case
+    // (any credit-card transaction alert).
     private static final Pattern CREDIT_KEYWORDS =
-            Pattern.compile("\\b(credited|credit|received|deposited)\\b", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("\\b(credited|received|deposited)\\b", Pattern.CASE_INSENSITIVE);
+
+    // Returns null if no amount sits next to a real transaction keyword.
+    private static String extractAmountString(String body) {
+        Matcher m = AMOUNT_NEAR_KEYWORD_PATTERN.matcher(body);
+        if (!m.find()) return null;
+        return m.group(1) != null ? m.group(1) : m.group(2);
+    }
 
     // Best-effort merchant/description extraction - tries a few common
-    // phrasings ("to VPA x", "at MERCHANT", "towards X", "to Ac X" is
-    // deliberately excluded since that's usually the user's own account,
-    // not a merchant). Falls back to null (caller uses a generic label)
-    // rather than grabbing an unrelated fragment of the SMS.
+    // phrasings ("to VPA x", "at MERCHANT", "towards X", "from SENDER" for
+    // the credit side; "to Ac X" is deliberately excluded since that's
+    // usually the user's own account, not a merchant). Falls back to null
+    // (caller uses a generic label) rather than grabbing an unrelated
+    // fragment of the SMS. Stops at the first of several common trailing
+    // boilerplate markers (Ref/Avl Bal/UPI/Info/Txn), not just punctuation -
+    // without these, a message like "...transfer to Mr John Doe Ref No
+    // 123456789012 Avl Bal Rs 4,500.00" (a real, common SBI phrasing with
+    // no comma/period before "Ref") would capture up to 40 characters of
+    // reference-number noise instead of cleanly stopping at the real name.
     private static final Pattern MERCHANT_PATTERN =
-            Pattern.compile("(?:to VPA|at|towards|to)\\s+([A-Za-z0-9@._\\- ]{3,40}?)(?:\\s+on\\s|\\s+dated\\s|[.,]|$)", Pattern.CASE_INSENSITIVE);
+            Pattern.compile(
+                "(?:to VPA|towards|from|at|to)\\s+([A-Za-z0-9@._\\- ]{3,40}?)"
+                + "(?:\\s+on\\b|\\s+dated\\b|\\s+ref\\b|\\s+refno\\b|\\s+avl\\b|\\s+upi\\b|\\s+info\\b|\\s+txn\\b|[.,]|$)",
+                Pattern.CASE_INSENSITIVE);
 
     private BankSmsParser() {}
 
     static boolean isLikelyBankSms(String sender, String body) {
         if (body == null || body.isEmpty()) return false;
-        boolean senderLooksLikeBank = sender != null && SENDER_ID_PATTERN.matcher(sender.trim()).matches();
-        boolean hasAmount = AMOUNT_PATTERN.matcher(body).find();
+        boolean hasAmount = extractAmountString(body) != null;
         boolean hasTransactionKeyword = DEBIT_KEYWORDS.matcher(body).find() || CREDIT_KEYWORDS.matcher(body).find();
-        // Require an amount AND a transaction keyword always; the sender
-        // pattern alone is too weak a signal (a bank might also send a
-        // marketing SMS from the same sender ID), so it's additive
-        // confidence, not a standalone qualifier.
-        return hasAmount && hasTransactionKeyword && (senderLooksLikeBank || true);
+        // Require an amount AND a transaction keyword always. The sender
+        // ID pattern above is intentionally not gated on here - a real
+        // bank SMS's sender ID scheme varies too much across telecom
+        // routes/carriers to safely use as a hard filter; amount +
+        // keyword is the real, reliable signal.
+        return hasAmount && hasTransactionKeyword;
     }
 
     static ParsedTransaction parse(String sender, String body) {
         if (!isLikelyBankSms(sender, body)) return null;
 
-        Matcher amountMatcher = AMOUNT_PATTERN.matcher(body);
-        if (!amountMatcher.find()) return null;
+        String amountStr = extractAmountString(body);
+        if (amountStr == null) return null;
         double amount;
         try {
-            amount = Double.parseDouble(amountMatcher.group(1).replace(",", ""));
+            amount = Double.parseDouble(amountStr.replace(",", ""));
         } catch (NumberFormatException e) {
             return null;
         }

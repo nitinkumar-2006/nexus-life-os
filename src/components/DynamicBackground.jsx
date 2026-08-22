@@ -6,8 +6,16 @@
 // genuinely catch light when passing near the sun, twinkling stars, and
 // drifting atmospheric depth layers. Reports the current time-of-day phase
 // back to whoever mounted it (via onPhaseChange) so the rest of the app can
-// adapt text/surface contrast to match. Purely time-of-day driven now - no
-// weather reactivity (rain/thunderstorm visuals were removed).
+// adapt text/surface contrast to match.
+//
+// The time-of-day engine below (sky palette, sun/moon arc math, cloud
+// lighting) is unchanged and deliberately NOT touched by the weather layer -
+// per explicit past instruction that trajectory/curve math stays exactly as
+// tuned. The one real weather-reactive addition is a rain/drizzle streak
+// overlay (plus a subtle overcast dimming baked into the same gradient-stop
+// blending this file already uses) driven by WeatherContext's real,
+// live weatherState - so a genuinely rainy night now actually looks rainy
+// here too, not just on the dedicated Weather Hub page.
 //
 // External API is unchanged from previous versions: <DynamicBackground
 // onPhaseChange={fn} /> - existing callers (DashboardLayout/App) don't need
@@ -15,6 +23,7 @@
 // glass/header/sidebar styling (all of that lives entirely outside this
 // file, in variables.css / style.css / the component files themselves).
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useWeather } from '../context/WeatherContext.jsx';
 
 // ---------------------------------------------------------------------------
 // TIME-OF-DAY ENGINE (unchanged from the previous, verified-correct version)
@@ -271,11 +280,34 @@ const generateNebulae = () =>
         delay: -Math.random() * 300,
     }));
 
+// Rain/drizzle streaks - seeded across the full viewport (not just
+// clustered near the top) so a genuinely rainy sky reads as populated
+// immediately, the same "start each streak at a random top%" trick
+// WeatherAnimatedSky.jsx (the Weather Hub's own sky) already uses.
+const RAIN_STREAK_COUNT = 110;
+const generateRainStreaks = () =>
+    Array.from({ length: RAIN_STREAK_COUNT }, (_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        top: Math.random() * 100,
+        duration: 0.5 + Math.random() * 0.5,
+        delay: Math.random() * 2,
+        height: 14 + Math.random() * 18,
+    }));
+
 const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
     const [timeState, setTimeState] = useState(computeTimeState);
     const stars = useMemo(generateStars, []);
     const clouds = useMemo(generateClouds, []);
     const nebulae = useMemo(generateNebulae, []);
+    const rainStreaks = useMemo(generateRainStreaks, []);
+    // The one real weather input this file reads - same shared
+    // WeatherContext the Weather Hub and GreetingCard already use, so this
+    // sky, the Hub's own sky, and the Home page's inline icon can never
+    // disagree about what the real weather actually is right now.
+    const { weatherState } = useWeather();
+    const isRaining = weatherState === 'rain' || weatherState === 'drizzle' || weatherState === 'thunderstorm';
+    const isThunderstorm = weatherState === 'thunderstorm';
 
     // Genuine, position-tracked cloud-sun lighting: rather than relying only
     // on incidental z-index/blend-mode overlap, this actually measures each
@@ -332,12 +364,25 @@ const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
         const tick = () => {
             const next = computeTimeState();
             setTimeState(next);
-            if (onPhaseChange) onPhaseChange(next.phase);
+            // Text-contrast purposes ONLY - variables.css's day/dawn phase
+            // variant assumes a bright sky behind mostly-transparent glass
+            // cards and picks dark text accordingly (see the DYNAMIC MODE —
+            // Bright sky phases block); a genuinely rained-on sky at 2pm
+            // (this file's own rainDimAlpha above) is darkened enough that
+            // dark text stops being legible against it, a real, reported
+            // "washed-out text" bug. Rerouting the REPORTED phase to 'dusk'
+            // - which already has its own correct light-text/dark-glass
+            // variant plus its own contrast floor - fixes this using
+            // existing CSS, without inventing a new phase or touching the
+            // actual rendered sun/moon position below, which still uses the
+            // real, unmodified `next.phase`.
+            const reportedPhase = (isRaining && (next.phase === 'day' || next.phase === 'dawn')) ? 'dusk' : next.phase;
+            if (onPhaseChange) onPhaseChange(reportedPhase);
         };
         tick();
         const interval = setInterval(tick, 30000);
         return () => clearInterval(interval);
-    }, [onPhaseChange]);
+    }, [onPhaseChange, isRaining]);
 
     const { phase, progress, colors, nightStrength, goldenStrength, moonPhase } = timeState;
     const isNight = phase === 'night';
@@ -423,6 +468,16 @@ const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
     finalBottom = blendOver(finalBottom, [253, 186, 116], goldenBottomAlpha);
 
     let finalMid = blendOver(colors.mid, [251, 146, 60], goldenMidAlpha);
+
+    // Overcast dimming - additive only: alpha is exactly 0 (a verified no-op
+    // in blendOver) whenever it isn't actually raining, so every existing
+    // clear-sky/dawn/dusk/night gradient stays byte-for-byte what it already
+    // was. A real rainy/stormy sky reads visibly greyer and heavier than a
+    // plain cloudy one, not just "clouds plus rain streaks on an unchanged
+    // blue/gold backdrop".
+    const rainDimAlpha = isThunderstorm ? 0.24 : isRaining ? 0.16 : 0;
+    finalBottom = blendOver(finalBottom, [30, 38, 58], rainDimAlpha);
+    finalMid = blendOver(finalMid, [20, 26, 42], rainDimAlpha * 0.85);
 
     const finalTop = blendOver(colors.top, [0, 0, 0], 0.1);
 
@@ -768,6 +823,32 @@ const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
                 );
             })}
 
+            {/* Rain/drizzle streaks - real weather-driven, sitting in front
+                of the clouds (higher z-index) since rain visually reads as
+                closer to the viewer than the cloud layer it's falling from. */}
+            {isRaining && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 4 }}>
+                    {rainStreaks.map((r) => (
+                        <div
+                            key={r.id}
+                            style={{
+                                position: 'absolute', left: `${r.left}%`, top: `${r.top}%`,
+                                width: '2px', height: `${r.height}px`, borderRadius: '2px',
+                                background: 'linear-gradient(to bottom, rgba(191,219,254,0), rgba(191,219,254,0.55))',
+                                transform: 'rotate(12deg)',
+                                animation: `nexusRainFall ${r.duration}s linear ${r.delay}s infinite`,
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {/* Thunderstorm flash - a randomized brief white flash, same
+                technique as the Weather Hub's own sky. */}
+            {isThunderstorm && (
+                <div style={{ position: 'absolute', inset: 0, zIndex: 5, background: '#fff', opacity: 0, animation: 'nexusLightningFlash 7s ease-in-out infinite' }} />
+            )}
+
             <style>
                 {`
                 @keyframes nexusPulseGlow { 0% { transform: translate(-50%, 50%) scale(1); } 100% { transform: translate(-50%, 50%) scale(1.03); } }
@@ -777,6 +858,14 @@ const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
                 @keyframes nexusCloudDriftRTL { 0% { left: ${CLOUD_TRAVEL_END_VW}vw; } 100% { left: ${CLOUD_TRAVEL_START_VW}vw; } }
                 @keyframes nexusNebulaDrift { 0% { transform: translate(0, 0); } 100% { transform: translate(6vw, 3vh); } }
                 @keyframes nexusTwinkle { 0% { opacity: 0.25; transform: scale(0.85); } 100% { opacity: 1; transform: scale(1.15); } }
+                @keyframes nexusRainFall { 0% { transform: translateY(0) rotate(12deg); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(340%) rotate(12deg); opacity: 0.2; } }
+                @keyframes nexusLightningFlash {
+                    0%, 91%, 100% { opacity: 0; }
+                    92% { opacity: 0.5; }
+                    93% { opacity: 0.05; }
+                    94% { opacity: 0.36; }
+                    95% { opacity: 0; }
+                }
                 `}
             </style>
         </div>

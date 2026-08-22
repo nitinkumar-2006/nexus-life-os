@@ -19,6 +19,39 @@
          Apple's own tags above only cover iOS Safari. -->
     <meta name="mobile-web-app-capable" content="yes" />
     <link rel="apple-touch-icon" href="/nexus-logo.png" />
+    <style>
+        /* The very first thing painted - before React (or even the bundled
+           app CSS) has loaded at all. Pixel-matched to
+           src/components/AppSplashScreen.jsx (same logo/wordmark/colors/
+           animation) so the hand-off from this static markup to that React
+           component - once auth/lock state is still resolving after mount -
+           is invisible, and the fade-out below (once #app gets real
+           content) is the only transition ever visible. Inline, not a
+           linked stylesheet: this must apply with zero network round trips
+           beyond the HTML document itself. */
+        #nexus-boot-splash {
+            position: fixed; inset: 0; z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+            background: #0F0F17;
+            transition: opacity 0.25s ease;
+        }
+        #nexus-boot-splash.nexus-boot-splash-hidden { opacity: 0; pointer-events: none; }
+        #nexus-boot-splash .nexus-boot-mark { position: relative; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; }
+        #nexus-boot-splash .nexus-boot-glow {
+            position: absolute; inset: -14px; border-radius: 24px;
+            background: radial-gradient(circle, rgba(99,102,241,0.35) 0%, rgba(99,102,241,0) 70%);
+            animation: nexusBootGlow 1.8s ease-in-out infinite;
+        }
+        #nexus-boot-splash img { width: 64px; height: 64px; object-fit: contain; position: relative; border-radius: 14px; }
+        #nexus-boot-splash h1 { font-size: 22px; font-weight: 900; letter-spacing: 1.2px; color: #fff; margin: 0; text-align: center; }
+        #nexus-boot-splash p { font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin: 4px 0 0; text-align: center; }
+        #nexus-boot-splash .nexus-boot-dots { display: flex; gap: 6px; margin-top: 4px; }
+        #nexus-boot-splash .nexus-boot-dots span { width: 6px; height: 6px; border-radius: 50%; background: #818CF8; animation: nexusBootDot 1.2s ease-in-out infinite; }
+        #nexus-boot-splash .nexus-boot-dots span:nth-child(2) { animation-delay: 0.15s; }
+        #nexus-boot-splash .nexus-boot-dots span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes nexusBootGlow { 0%, 100% { opacity: 0.6; transform: scale(1); } 50% { opacity: 1; transform: scale(1.08); } }
+        @keyframes nexusBootDot { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
+    </style>
     <script>
         // Runs synchronously, before any CSS paints and before React mounts -
         // this is what eliminates the "flash of wrong theme" on every reload.
@@ -77,11 +110,27 @@
                 root.classList.remove('no-initial-transition');
             };
 
+            // Fades out and removes the static boot splash the moment React
+            // has painted ANYTHING into #app - including its own first
+            // splash-equivalent render (AppSplashScreen.jsx, pixel-matched
+            // to this static markup), so the two are visually
+            // indistinguishable and there's never a "flash of the real UI
+            // underneath, then a splash" or vice versa.
+            var hideBootSplash = function () {
+                var splash = document.getElementById('nexus-boot-splash');
+                if (!splash) return;
+                splash.classList.add('nexus-boot-splash-hidden');
+                setTimeout(function () {
+                    if (splash.parentNode) splash.parentNode.removeChild(splash);
+                }, 300);
+            };
+
             var appEl = document.getElementById('app');
             var settled = false;
             var finish = function () {
                 if (settled) return;
                 settled = true;
+                hideBootSplash();
                 // A fixed settle window, not just a couple of animation
                 // frames - several contexts (weather fetch, cloud sync,
                 // audio init) commonly trigger a few quick re-renders in the
@@ -109,6 +158,21 @@
     </script>
 </head>
 <body>
+    <!-- Static boot splash - visible from the very first paint, before
+         React (or the app's own bundled CSS) has loaded at all. Removed by
+         the inline script above the instant #app gets real content. -->
+    <div id="nexus-boot-splash">
+        <div class="nexus-boot-mark">
+            <div class="nexus-boot-glow"></div>
+            <img src="/nexus-logo.png" alt="Nexus" />
+        </div>
+        <div>
+            <h1>NEXUS</h1>
+            <p>Life OS</p>
+        </div>
+        <div class="nexus-boot-dots"><span></span><span></span><span></span></div>
+    </div>
+
     <!-- React Root Mounting Node -->
     <div id="app"></div>
 

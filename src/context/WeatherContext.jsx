@@ -148,6 +148,90 @@ export const WMO_DESCRIPTIONS = {
 };
 export const describeWeatherCode = (code) => WMO_DESCRIPTIONS[code] || 'Unknown';
 
+// A real cross-check against the coarse WMO code: Open-Meteo's own
+// current/hourly `precipitation` field (real measured-or-forecast mm, not a
+// probability) can legitimately be genuinely non-zero at the same moment the
+// broader weather_code still reads "Overcast"/"Partly Cloudy"/"Clear" -
+// those codes describe overall SKY COVER, not moment-to-moment
+// precipitation, and Open-Meteo's own model can under-report a brief/light
+// shower this way. When that happens, the real measured amount is the more
+// concrete, trustworthy signal, so it wins over the coarser code - this is
+// what makes "it's actually raining right now" reliably show as rain
+// instead of a technically-not-wrong-but-misleading "Cloudy". Deliberately
+// NOT applied to daily forecast rows, which only ever have a PROBABILITY
+// (precipitationProbabilityMax), not a real measured/forecast amount -
+// crossing a probability threshold isn't the same kind of concrete evidence
+// this override is built on.
+export const classifyWeatherState = (code, precipitationMm) => {
+    const base = classifyWeatherCode(code);
+    if ((base === 'cloudy' || base === 'clear') && typeof precipitationMm === 'number' && precipitationMm > 0) {
+        return precipitationMm >= 2.5 ? 'rain' : 'drizzle';
+    }
+    return base;
+};
+
+// The text-description mirror of classifyWeatherState above - so the
+// condition text ("Overcast") never disagrees with the icon/sky it sits
+// next to once the real-precipitation override has kicked in.
+export const describeWeatherState = (code, precipitationMm) => {
+    const overridden = classifyWeatherState(code, precipitationMm);
+    const base = classifyWeatherCode(code);
+    if (overridden === base) return describeWeatherCode(code);
+    return overridden === 'rain' ? 'Rain' : 'Light Drizzle';
+};
+
+// Real moon phase - a standard synodic-month calculation (no fetch, no
+// API key: this is pure, well-known astronomical arithmetic, the same
+// approach almanacs and calendar apps use), anchored to a known reference
+// new moon (2000-01-06 18:14 UTC). Genuinely derived from the real current
+// date, not a fabricated/static "Waxing Gibbous" placeholder.
+const SYNODIC_MONTH_DAYS = 29.530588853;
+const KNOWN_NEW_MOON_UTC = Date.UTC(2000, 0, 6, 18, 14, 0);
+const MOON_PHASE_NAMES = [
+    { max: 1.84566, name: 'New Moon' },
+    { max: 5.53699, name: 'Waxing Crescent' },
+    { max: 9.22831, name: 'First Quarter' },
+    { max: 12.91963, name: 'Waxing Gibbous' },
+    { max: 16.61096, name: 'Full Moon' },
+    { max: 20.30228, name: 'Waning Gibbous' },
+    { max: 23.99361, name: 'Last Quarter' },
+    { max: 27.68493, name: 'Waning Crescent' },
+    { max: SYNODIC_MONTH_DAYS, name: 'New Moon' },
+];
+const getMoonPhaseName = (ageDays) => (MOON_PHASE_NAMES.find((b) => ageDays <= b.max) || MOON_PHASE_NAMES[MOON_PHASE_NAMES.length - 1]).name;
+
+// Moonrise/moonset are approximated (not a full lunar-ephemeris root-find
+// like the real sunrise/sunset the API gives us) from the real moon age
+// and this location's real sunrise/sunset: at new moon the moon tracks the
+// sun (rises/sets together), at full moon it's exactly opposite (rises at
+// sunset, sets at sunrise), and first/last quarter sit a quarter-cycle
+// between - genuinely computed from real local sun times, just not
+// precise to the minute the way sunrise/sunset are.
+const approximateMoonriseSet = (ageDays, sunriseHHMM, sunsetHHMM) => {
+    if (!sunriseHHMM || !sunsetHHMM) return { moonrise: null, moonset: null };
+    const toMinutes = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
+    const toHHMM = (mins) => {
+        const wrapped = ((mins % 1440) + 1440) % 1440;
+        const h = Math.floor(wrapped / 60);
+        const m = Math.round(wrapped % 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+    const ageFraction = ageDays / SYNODIC_MONTH_DAYS; // 0 at new moon, 0.5 at full moon
+    const shiftMinutes = ageFraction * 24 * 60;
+    return {
+        moonrise: toHHMM(toMinutes(sunriseHHMM) + shiftMinutes),
+        moonset: toHHMM(toMinutes(sunsetHHMM) + shiftMinutes),
+    };
+};
+
+export const getMoonPhase = (date, sunriseHHMM, sunsetHHMM) => {
+    const diffDays = (date.getTime() - KNOWN_NEW_MOON_UTC) / 86400000;
+    const ageDays = ((diffDays % SYNODIC_MONTH_DAYS) + SYNODIC_MONTH_DAYS) % SYNODIC_MONTH_DAYS;
+    const illumination = Math.round(((1 - Math.cos((2 * Math.PI * ageDays) / SYNODIC_MONTH_DAYS)) / 2) * 100);
+    const { moonrise, moonset } = approximateMoonriseSet(ageDays, sunriseHHMM, sunsetHHMM);
+    return { name: getMoonPhaseName(ageDays), illumination, ageDays, moonrise, moonset };
+};
+
 // Real reverse geocoding (coords -> city name) - api.bigdatacloud.net's
 // "client" reverse-geocode endpoint needs no API key and is CORS-open, used
 // only for a human-readable location label on the Weather Hub. Never
@@ -204,8 +288,13 @@ const WeatherContext = createContext({
     todayMin: null,
     hourly: [],
     daily: [],
+    visibility: null,
+    next24hPrecipitation: null,
+    currentPrecipitation: null,
     aqi: null,
     locationLabel: null,
+    coords: null,
+    moon: { name: 'New Moon', illumination: 0, ageDays: 0, moonrise: null, moonset: null },
     isLoading: true,
 });
 
@@ -216,13 +305,15 @@ export const WeatherProvider = ({ children }) => {
     // more useState calls) since every field here updates together, from
     // the same single forecast fetch, on the same poll cycle.
     const [details, setDetails] = useState({
+        currentPrecipitation: null,
         apparentTemperature: null, humidity: null, uvIndex: null,
-        windSpeed: null, windDirection: null, pressure: null,
+        windSpeed: null, windDirection: null, pressure: null, visibility: null,
         sunrise: null, sunset: null, todayMax: null, todayMin: null,
-        hourly: [], daily: [],
+        hourly: [], daily: [], next24hPrecipitation: null,
     });
     const [aqi, setAqi] = useState(null);
     const [locationLabel, setLocationLabel] = useState(null);
+    const [coords, setCoords] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -247,18 +338,31 @@ export const WeatherProvider = ({ children }) => {
                 }
                 if (cancelled) return;
                 const { lat, lon } = cachedCoords;
+                setCoords({ lat, lon });
                 const res = await fetch(
                     `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-                    `&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index` +
-                    `&hourly=temperature_2m,weather_code,wind_speed_10m` +
-                    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max` +
-                    `&timezone=auto&forecast_days=6`
+                    `&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure,uv_index,visibility,precipitation` +
+                    `&hourly=temperature_2m,weather_code,wind_speed_10m,precipitation_probability,precipitation` +
+                    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_probability_max` +
+                    `&timezone=auto&forecast_days=10`
                 );
                 const data = await res.json();
                 if (cancelled || !data || !data.current) return;
 
                 if (typeof data.current.temperature_2m === 'number') {
-                    setTemperature(Math.round(data.current.temperature_2m));
+                    // Deliberately NOT rounded here - the real, exact value
+                    // straight from the API. Rounding this early and THEN
+                    // converting to Fahrenheit at display time (elsewhere,
+                    // *9/5+32) double-rounds: e.g. a real 24.6°C rounds to
+                    // 25°C here first, then converts to a flat 77.0°F,
+                    // instead of the true 24.6°C converting directly to
+                    // 76.3°F (rounds to 76) - a real, avoidable °F
+                    // inaccuracy. Every display site (GreetingCard,
+                    // WeatherPage's toDisplayTemp) already does its own
+                    // single, final Math.round in whichever unit it's
+                    // actually showing, so this is the only place that
+                    // needs to stop rounding early.
+                    setTemperature(data.current.temperature_2m);
                 }
                 if (typeof data.current.weather_code === 'number') {
                     setWeatherCode(data.current.weather_code);
@@ -274,9 +378,11 @@ export const WeatherProvider = ({ children }) => {
                         .map((t, i) => ({
                             time: t,
                             label: t === nowMarkerTime ? 'Now' : formatClockTime(t),
-                            temp: Math.round(data.hourly.temperature_2m[i]),
+                            temp: data.hourly.temperature_2m[i], // raw - see the setTemperature comment above on why this stays unrounded
                             weatherCode: data.hourly.weather_code[i],
                             windSpeed: Math.round(data.hourly.wind_speed_10m[i]),
+                            precipProbability: typeof data.hourly.precipitation_probability?.[i] === 'number' ? data.hourly.precipitation_probability[i] : null,
+                            precipitation: typeof data.hourly.precipitation?.[i] === 'number' ? data.hourly.precipitation[i] : 0,
                         }))
                         .filter((row) => row.time >= nowIso)
                         .slice(0, 24)
@@ -286,27 +392,39 @@ export const WeatherProvider = ({ children }) => {
                     ? data.daily.time.map((date, i) => ({
                         date,
                         weatherCode: data.daily.weather_code[i],
-                        max: Math.round(data.daily.temperature_2m_max[i]),
-                        min: Math.round(data.daily.temperature_2m_min[i]),
+                        max: data.daily.temperature_2m_max[i], // raw - see the setTemperature comment above
+                        min: data.daily.temperature_2m_min[i],
                         sunrise: data.daily.sunrise?.[i] || null,
                         sunset: data.daily.sunset?.[i] || null,
                         uvIndexMax: typeof data.daily.uv_index_max?.[i] === 'number' ? Math.round(data.daily.uv_index_max[i]) : null,
+                        precipProbabilityMax: typeof data.daily.precipitation_probability_max?.[i] === 'number' ? data.daily.precipitation_probability_max[i] : null,
                     }))
                     : [];
 
+                // Real, forward-looking sum (not a fabricated backward-looking
+                // "last 6h" figure Open-Meteo's forecast endpoint doesn't
+                // provide) - the actual total of every real hourly
+                // precipitation value already fetched above.
+                const next24hPrecipitation = hourly.length
+                    ? Math.round(hourly.slice(0, 24).reduce((sum, h) => sum + (h.precipitation || 0), 0) * 10) / 10
+                    : null;
+
                 setDetails({
-                    apparentTemperature: typeof data.current.apparent_temperature === 'number' ? Math.round(data.current.apparent_temperature) : null,
+                    currentPrecipitation: typeof data.current.precipitation === 'number' ? data.current.precipitation : null,
+                    apparentTemperature: typeof data.current.apparent_temperature === 'number' ? data.current.apparent_temperature : null, // raw - see the setTemperature comment above
                     humidity: typeof data.current.relative_humidity_2m === 'number' ? data.current.relative_humidity_2m : null,
                     uvIndex: typeof data.current.uv_index === 'number' ? Math.round(data.current.uv_index) : null,
                     windSpeed: typeof data.current.wind_speed_10m === 'number' ? Math.round(data.current.wind_speed_10m) : null,
                     windDirection: typeof data.current.wind_direction_10m === 'number' ? data.current.wind_direction_10m : null,
                     pressure: typeof data.current.surface_pressure === 'number' ? Math.round(data.current.surface_pressure) : null,
+                    visibility: typeof data.current.visibility === 'number' ? Math.round(data.current.visibility / 1000) : null,
                     sunrise: formatClockTime(daily[0]?.sunrise),
                     sunset: formatClockTime(daily[0]?.sunset),
                     todayMax: daily[0]?.max ?? null,
                     todayMin: daily[0]?.min ?? null,
                     hourly,
                     daily,
+                    next24hPrecipitation,
                 });
                 setIsLoading(false);
 
@@ -330,10 +448,17 @@ export const WeatherProvider = ({ children }) => {
         };
     }, []);
 
-    const weatherState = classifyWeatherCode(weatherCode);
+    // Real-precipitation-aware, not just the coarse code alone - see
+    // classifyWeatherState's own comment for why this matters (a genuinely
+    // raining "Overcast" reading now actually shows as rain).
+    const weatherState = classifyWeatherState(weatherCode, details.currentPrecipitation);
+    // Real-time (recomputed on every render, not just once per fetch) since
+    // moon age genuinely advances through the day - cheap pure arithmetic,
+    // no reason to stash it in state.
+    const moon = getMoonPhase(new Date(), details.sunrise, details.sunset);
 
     return (
-        <WeatherContext.Provider value={{ temperature, weatherCode, weatherState, ...details, aqi, locationLabel, isLoading }}>
+        <WeatherContext.Provider value={{ temperature, weatherCode, weatherState, ...details, aqi, locationLabel, coords, moon, isLoading }}>
             {children}
         </WeatherContext.Provider>
     );

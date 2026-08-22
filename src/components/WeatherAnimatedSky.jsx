@@ -1,51 +1,79 @@
 // src/components/WeatherAnimatedSky.jsx
 //
-// A compact, self-contained animated condition visualization scoped to the
-// Weather Hub's own hero card (absolutely fills its parent) - deliberately
-// separate from DynamicBackground.jsx, which is the full-viewport "Dynamic"
-// theme background and was explicitly made weather-independent (time-of-day
-// only) in an earlier pass. This component is the opposite: driven by the
-// real, live weatherState from WeatherContext (rain drops, thunderstorm
-// flashes, drifting clouds) plus real local time for sun/moon/stars, but
-// scoped to one card instead of the whole app shell.
+// A self-contained animated condition visualization - deliberately separate
+// from DynamicBackground.jsx, which is the full-viewport "Dynamic" theme
+// background and was explicitly made weather-independent (time-of-day only)
+// in an earlier pass. This component is the opposite: driven by the real,
+// live weatherState from WeatherContext (rain drops, thunderstorm flashes,
+// drifting clouds, a real moon phase) plus real local time for sun/moon/
+// stars.
+//
+// `fullPage`: used by WeatherPage.jsx to span the ENTIRE Weather Hub (every
+// glass card floats over this one continuous sky, Apple-Weather-style)
+// instead of just the hero card - same technique, just denser particles and
+// a taller-spanning percentage-based layout so it still looks right however
+// tall the actual page content ends up being.
 import { useMemo } from 'react';
+import { MoonPhaseIcon } from './WeatherGauges.jsx';
 
-const STAR_COUNT = 26;
-const CLOUD_COUNT = 5;
-const RAIN_STREAK_COUNT = 28;
-
-const generateStars = () =>
-    Array.from({ length: STAR_COUNT }, (_, i) => ({
+const generateStars = (count) =>
+    Array.from({ length: count }, (_, i) => ({
         id: i,
         left: Math.random() * 100,
-        top: Math.random() * 70,
+        top: Math.random() * 60,
         size: 1 + Math.random() * 1.8,
         delay: Math.random() * 4,
         duration: 1.8 + Math.random() * 2.6,
     }));
 
-const generateClouds = () =>
-    Array.from({ length: CLOUD_COUNT }, (_, i) => ({
+const generateClouds = (count) =>
+    Array.from({ length: count }, (_, i) => ({
         id: i,
-        top: 8 + Math.random() * 38,
-        width: 34 + Math.random() * 22,
-        duration: 40 + Math.random() * 30,
-        delay: -Math.random() * 60,
+        top: 4 + Math.random() * 46,
+        width: 26 + Math.random() * 20,
+        duration: 46 + Math.random() * 34,
+        delay: -Math.random() * 70,
     }));
 
-const generateRainStreaks = () =>
-    Array.from({ length: RAIN_STREAK_COUNT }, (_, i) => ({
+const generateRainStreaks = (count) =>
+    Array.from({ length: count }, (_, i) => ({
         id: i,
         left: Math.random() * 100,
+        top: Math.random() * 100,
         duration: 0.5 + Math.random() * 0.4,
-        delay: Math.random() * 1,
-        height: 14 + Math.random() * 12,
+        delay: Math.random() * 2,
+        height: 12 + Math.random() * 14,
     }));
 
-const WeatherAnimatedSky = ({ weatherState = 'clear', isNight = false }) => {
-    const stars = useMemo(generateStars, []);
-    const clouds = useMemo(generateClouds, []);
-    const rainStreaks = useMemo(generateRainStreaks, []);
+// One distinct gradient per real condition x time-of-day combination -
+// richer than a single "night or not" split, so cloudy/rain/thunderstorm
+// each read as visually different, matching how Apple Weather's own sky
+// noticeably shifts hue per condition, not just brightness.
+const skyGradientFor = (weatherState, isNight) => {
+    if (weatherState === 'thunderstorm') return 'linear-gradient(to top, #0a0d1a, #141c33, #232c4a)';
+    if (weatherState === 'rain') return isNight
+        ? 'linear-gradient(to top, #0d1220, #17203a, #232f52)'
+        : 'linear-gradient(to top, #2a3a52, #3d5270, #56708f)';
+    if (weatherState === 'drizzle') return isNight
+        ? 'linear-gradient(to top, #10162a, #1b2440, #29365a)'
+        : 'linear-gradient(to top, #3a4a63, #506482, #6c84a3)';
+    if (weatherState === 'cloudy') return isNight
+        ? 'linear-gradient(to top, #12172a, #232c42, #37415c)'
+        : 'linear-gradient(to top, #4b5875, #6b7a99, #8b9bb8)';
+    // clear
+    return isNight
+        ? 'linear-gradient(to top, #0a0e1f, #141b38, #1f2c52)'
+        : 'linear-gradient(to top, #2e6da4, #4a90c9, #7fb8e8)';
+};
+
+const WeatherAnimatedSky = ({ weatherState = 'clear', isNight = false, fullPage = false, moon = null }) => {
+    const starCount = fullPage ? 70 : 26;
+    const cloudCount = fullPage ? 9 : 5;
+    const rainCount = fullPage ? 90 : 28;
+
+    const stars = useMemo(() => generateStars(starCount), [starCount]);
+    const clouds = useMemo(() => generateClouds(cloudCount), [cloudCount]);
+    const rainStreaks = useMemo(() => generateRainStreaks(rainCount), [rainCount]);
 
     const showRain = weatherState === 'rain' || weatherState === 'drizzle' || weatherState === 'thunderstorm';
     const showClouds = weatherState === 'cloudy' || weatherState === 'rain' || weatherState === 'drizzle' || weatherState === 'thunderstorm';
@@ -53,11 +81,7 @@ const WeatherAnimatedSky = ({ weatherState = 'clear', isNight = false }) => {
     const showMoon = weatherState === 'clear' && isNight;
     const showThunder = weatherState === 'thunderstorm';
 
-    const skyGradient = isNight || showRain
-        ? 'linear-gradient(to top, #0f1428, #1a2140, #232c52)'
-        : weatherState === 'cloudy'
-            ? 'linear-gradient(to top, #4b5875, #6b7a99, #8b9bb8)'
-            : 'linear-gradient(to top, #2e6da4, #4a90c9, #7fb8e8)';
+    const skyGradient = skyGradientFor(weatherState, isNight);
 
     return (
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: skyGradient, transition: 'background 1s ease' }}>
@@ -70,23 +94,32 @@ const WeatherAnimatedSky = ({ weatherState = 'clear', isNight = false }) => {
                 }} />
             ))}
 
-            {/* Sun / Moon disc */}
-            {(showSun || showMoon) && (
+            {/* Sun disc */}
+            {showSun && (
                 <div style={{
-                    position: 'absolute', top: '18%', right: '14%',
-                    width: '56px', height: '56px', borderRadius: '50%',
-                    background: showSun
-                        ? 'radial-gradient(circle, #fffdf5 0%, #fde68a 45%, #f59e0b 100%)'
-                        : 'radial-gradient(circle, #f8fafc 0%, #dde3ee 55%, #b6c0d4 100%)',
-                    boxShadow: showSun ? '0 0 34px rgba(251, 191, 36, 0.55)' : '0 0 22px rgba(226, 232, 240, 0.4)',
+                    position: 'absolute', top: fullPage ? '10%' : '18%', right: '14%',
+                    width: fullPage ? '84px' : '56px', height: fullPage ? '84px' : '56px', borderRadius: '50%',
+                    background: 'radial-gradient(circle, #fffdf5 0%, #fde68a 45%, #f59e0b 100%)',
+                    boxShadow: '0 0 34px rgba(251, 191, 36, 0.55)',
                     animation: 'weatherPulseGlow 4s ease-in-out infinite alternate',
                 }} />
             )}
 
-            {/* Clouds - simple drifting soft blobs, lighter-weight than
-                DynamicBackground's own (this is a small card, not a full
-                sky), but still built from a few overlapping puffs so they
-                read as real cloud shapes rather than plain ellipses. */}
+            {/* Moon disc - a real phase silhouette when moon data is passed
+                (see MoonPhaseIcon), otherwise a plain full-looking disc. */}
+            {showMoon && (
+                <div style={{
+                    position: 'absolute', top: fullPage ? '10%' : '18%', right: '14%',
+                    filter: 'drop-shadow(0 0 22px rgba(226, 232, 240, 0.45))',
+                    animation: 'weatherPulseGlow 4s ease-in-out infinite alternate',
+                }}>
+                    <MoonPhaseIcon size={fullPage ? 84 : 56} illumination={moon ? moon.illumination / 100 : 1} waxing={moon ? moon.ageDays < 14.77 : true} id={fullPage ? 'sky-full' : 'sky-hero'} />
+                </div>
+            )}
+
+            {/* Clouds - drifting soft blobs built from a few overlapping
+                puffs so they read as real cloud shapes rather than plain
+                ellipses. */}
             {showClouds && clouds.map((c) => (
                 <div key={c.id} style={{
                     position: 'absolute', top: `${c.top}%`, left: '-40%',
@@ -99,10 +132,12 @@ const WeatherAnimatedSky = ({ weatherState = 'clear', isNight = false }) => {
                 </div>
             ))}
 
-            {/* Rain streaks - straight diagonal drops looping downward */}
+            {/* Rain streaks - full-page mode seeds each streak at a random
+                starting top% (not just -10%) so the whole tall span looks
+                populated immediately rather than only near the very top. */}
             {showRain && rainStreaks.map((r) => (
                 <div key={r.id} style={{
-                    position: 'absolute', left: `${r.left}%`, top: '-10%',
+                    position: 'absolute', left: `${r.left}%`, top: `${fullPage ? r.top : -10}%`,
                     width: '2px', height: `${r.height}px`, borderRadius: '2px',
                     background: 'linear-gradient(to bottom, rgba(191, 219, 254, 0), rgba(191, 219, 254, 0.65))',
                     transform: 'rotate(12deg)',

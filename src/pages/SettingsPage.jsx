@@ -18,6 +18,7 @@ import { useCloudSync } from '../context/CloudSyncContext.jsx';
 import { useSoundSettings, useSoundActions, SOUND_CHANNELS } from '../context/SoundSettingsContext.jsx';
 import { getUiClickUrl, getTaskAlertUrl } from '../utils/noiseSynth.js';
 import { hashPin, isPinConfigured, isValidPinInput, verifyPin } from '../utils/pinSecurity.js';
+import { encryptBackupPayload, decryptBackupPayload, isEncryptedBackupPayload } from '../utils/backupEncryption.js';
 import { isBiometricSupported, isBiometricLockEnabled, registerBiometric, disableBiometricLock } from '../utils/biometricAuth.js';
 import { isValidPhoneNumber, isSyntheticPhoneEmail, syntheticEmailToPhone } from '../utils/phoneAuth.js';
 import { linkIdentifierToAccount, unlinkIdentifierFromAccount, getLinkedIdentifiers } from '../utils/accountLinking.js';
@@ -440,6 +441,82 @@ const PinVerifyModal = ({ fieldLabel, storedPinHash, onVerified, onClose }) => {
                         }}
                     >
                         {checking ? 'Verifying…' : 'Unlock'}
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+};
+
+// Prompts for the real AES-256-GCM passphrase used to encrypt (export) or
+// decrypt (import) a full-data backup - see utils/backupEncryption.js.
+// Deliberately a passphrase, not the 4-digit App Lock PIN: it protects the
+// exported FILE itself (which can leave the device entirely - a shared
+// drive, email, cloud storage), a different threat model than the PIN's
+// "someone picks up this unlocked device", and reusing a 4-digit PIN as an
+// AES key source would make the file trivial to brute-force offline.
+const BackupPassphraseModal = ({ mode, onSubmit, onClose }) => {
+    const [passphrase, setPassphrase] = useState('');
+    const [confirmPassphrase, setConfirmPassphrase] = useState('');
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const isExport = mode === 'export';
+
+    useEffect(() => {
+        const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', handleKey);
+        return () => document.removeEventListener('keydown', handleKey);
+    }, [onClose]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (busy) return;
+        if (passphrase.length < 6) { setError('Use at least 6 characters.'); return; }
+        if (isExport && passphrase !== confirmPassphrase) { setError('Passphrases do not match.'); return; }
+        setBusy(true);
+        setError('');
+        try {
+            await onSubmit(passphrase);
+        } catch (err) {
+            setError(isExport ? 'Could not encrypt the backup. Please try again.' : 'Incorrect passphrase, or this file is corrupted.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 220000 }} onClick={onClose}>
+            <form onSubmit={handleSubmit} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', width: '100%', maxWidth: '360px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                <Lock size={26} color="var(--accent)" />
+                <div style={{ textAlign: 'center' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{isExport ? 'Encrypt This Backup' : 'Enter Backup Passphrase'}</h3>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                        {isExport ? 'Choose a passphrase to encrypt your data. You will need it to restore this file - Nexus never stores it.' : 'This backup file is encrypted. Enter the passphrase you set when it was exported.'}
+                    </span>
+                </div>
+                <label htmlFor="backup-passphrase-input" style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>Passphrase</label>
+                <input
+                    id="backup-passphrase-input" name="backupPassphrase" type="password" autoFocus autoComplete="off"
+                    placeholder="Passphrase (min. 6 characters)"
+                    value={passphrase} onChange={(e) => { setPassphrase(e.target.value); setError(''); }}
+                    style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${error ? '#EF4444' : 'var(--border-premium)'}`, background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                />
+                {isExport && (
+                    <>
+                        <label htmlFor="backup-passphrase-confirm-input" style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>Confirm passphrase</label>
+                        <input
+                            id="backup-passphrase-confirm-input" name="backupPassphraseConfirm" type="password" autoComplete="off"
+                            placeholder="Confirm passphrase"
+                            value={confirmPassphrase} onChange={(e) => { setConfirmPassphrase(e.target.value); setError(''); }}
+                            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${error ? '#EF4444' : 'var(--border-premium)'}`, background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                    </>
+                )}
+                {error && <span style={{ fontSize: '11px', color: '#EF4444' }}>{error}</span>}
+                <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                    <button type="button" onClick={onClose} style={{ flex: 1, padding: '10px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+                    <button type="submit" disabled={busy} style={{ flex: 1, padding: '10px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+                        {busy ? (isExport ? 'Encrypting…' : 'Decrypting…') : (isExport ? 'Encrypt & Download' : 'Unlock Backup')}
                     </button>
                 </div>
             </form>
@@ -1161,6 +1238,8 @@ const SettingsPage = ({ setActiveTab }) => {
 
     const [pendingAction, setPendingAction] = useState(null); // null | 'export' | 'import' | 'factoryReset'
     const [pendingImportData, setPendingImportData] = useState(null);
+    // null | { mode: 'export' } | { mode: 'import', encryptedPayload }
+    const [passphraseModal, setPassphraseModal] = useState(null);
 
     // Real state for the email/password sign-in form - AuthContext's
     // login/signup functions already existed and worked, but nothing in
@@ -1375,13 +1454,29 @@ const SettingsPage = ({ setActiveTab }) => {
         });
     };
 
+    // Entry point every "Export Backup" call site already used - now opens
+    // the real passphrase prompt instead of exporting immediately.
+    // performEncryptedExport below does the actual work once a passphrase
+    // is chosen.
     const handleExportData = () => {
+        setPassphraseModal({ mode: 'export' });
+    };
+
+    // The real export - collects every real localStorage key (identical
+    // scope to the original plain-JSON export), then encrypts the whole
+    // JSON blob with AES-256-GCM (see utils/backupEncryption.js) before
+    // it ever touches disk. Thrown errors (extremely rare - a genuine
+    // crypto.subtle failure) propagate to BackupPassphraseModal's own
+    // catch, which shows a real error instead of silently downloading
+    // nothing.
+    const performEncryptedExport = async (passphrase) => {
         const allData = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             allData[key] = localStorage.getItem(key);
         }
-        const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+        const encryptedPayload = await encryptBackupPayload(JSON.stringify(allData), passphrase);
+        const blob = new Blob([JSON.stringify(encryptedPayload)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const downloadAnchor = document.createElement('a');
         downloadAnchor.setAttribute("href", url);
@@ -1389,6 +1484,22 @@ const SettingsPage = ({ setActiveTab }) => {
         document.body.appendChild(downloadAnchor);
         downloadAnchor.click();
         document.body.removeChild(downloadAnchor);
+        URL.revokeObjectURL(url);
+        setPassphraseModal(null);
+        setSettingsToast({ message: 'Encrypted backup downloaded.', type: 'success' });
+    };
+
+    // Shared by both real import paths (a legacy unencrypted backup file,
+    // or a freshly-decrypted one) - PIN-gates the actual destructive
+    // localStorage overwrite exactly like before, so encryption is
+    // additive, not a replacement for the existing PIN protection.
+    const proceedWithImportedData = (importedData) => {
+        if (isPinConfigured(settings.appPin)) {
+            setPendingImportData(importedData);
+            setPendingAction('import');
+        } else {
+            applyImportedData(importedData);
+        }
     };
 
     // Reading and parsing the file is not itself destructive - only
@@ -1400,12 +1511,11 @@ const SettingsPage = ({ setActiveTab }) => {
             fileReader.readAsText(e.target.files[0], "UTF-8");
             fileReader.onload = (event) => {
                 try {
-                    const importedData = JSON.parse(event.target.result);
-                    if (isPinConfigured(settings.appPin)) {
-                        setPendingImportData(importedData);
-                        setPendingAction('import');
+                    const parsed = JSON.parse(event.target.result);
+                    if (isEncryptedBackupPayload(parsed)) {
+                        setPassphraseModal({ mode: 'import', encryptedPayload: parsed });
                     } else {
-                        applyImportedData(importedData);
+                        proceedWithImportedData(parsed);
                     }
                 } catch (err) {
                     setSettingsToast({ message: 'Invalid backup file format!', type: 'error' });
@@ -1421,6 +1531,17 @@ const SettingsPage = ({ setActiveTab }) => {
             };
         }
         e.target.value = ''; // allow re-selecting the same filename later
+    };
+
+    // The real decrypt step for an encrypted backup file - a wrong
+    // passphrase throws (AES-GCM's own auth tag fails to verify), which
+    // propagates to BackupPassphraseModal's catch and shows a real error
+    // rather than importing garbage.
+    const performDecryptedImport = async (passphrase) => {
+        const decryptedJson = await decryptBackupPayload(passphraseModal.encryptedPayload, passphrase);
+        const importedData = JSON.parse(decryptedJson);
+        setPassphraseModal(null);
+        proceedWithImportedData(importedData);
     };
 
     const applyImportedData = (importedData) => {
@@ -2646,6 +2767,13 @@ const SettingsPage = ({ setActiveTab }) => {
                     storedPinHash={settings.appPin}
                     onVerified={runPendingAction}
                     onClose={() => { setPendingAction(null); setPendingImportData(null); }}
+                />
+            )}
+            {passphraseModal && (
+                <BackupPassphraseModal
+                    mode={passphraseModal.mode}
+                    onSubmit={passphraseModal.mode === 'export' ? performEncryptedExport : performDecryptedImport}
+                    onClose={() => setPassphraseModal(null)}
                 />
             )}
             {settingsConfirm && (

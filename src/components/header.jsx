@@ -8,6 +8,7 @@ import {
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import QuickNotesModal from './QuickNotesModal.jsx';
+import { parseQuickCommand } from '../utils/quickCommandParser.js';
 const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     const { click: playClickFeedback, modalOpen } = useMicroFeedback();
     // A single, delegated click handler on the header's own root element
@@ -42,6 +43,15 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     
     const [quickTitle, setQuickTitle] = useState("");
     const [quickCategory, setQuickCategory] = useState("Planner");
+
+    // Natural-language quick command ("Add expense 500 for lunch",
+    // "Schedule gym tomorrow at 6 PM") - a real regex parser (see
+    // utils/quickCommandParser.js), not a fake keyword forward. Separate
+    // state from the structured Planner/Study form above; both live in the
+    // same popover but are two independent, real entry paths.
+    const [quickCommandText, setQuickCommandText] = useState('');
+    const [quickCommandFeedback, setQuickCommandFeedback] = useState(null); // { type: 'error'|'success', message }
+    const quickCommandPreview = quickCommandText.trim() ? parseQuickCommand(quickCommandText) : null;
 
     // Play/Pause/Next/Prev here all operate on the one global audio engine
     // (mounted once at the app root), so this dropdown is always showing -
@@ -261,6 +271,54 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
         setIsQuickAddOpen(false);
         window.dispatchEvent(new Event('storage'));
         alert('Quick Item Added Successfully!');
+    };
+
+    // Executes an already-parsed quick command by writing directly to the
+    // same real localStorage keys and shapes FinancePage.jsx/CalendarPage.jsx
+    // themselves use, then dispatching the app's shared sync event - the
+    // same "write once, sync everywhere" pattern the SMS Auto-Tracking
+    // bridge and Settings' own Import Backup already use, not a second,
+    // parallel data path.
+    const executeQuickCommand = () => {
+        const parsed = quickCommandPreview;
+        if (!parsed) return;
+
+        if (parsed.module === 'finance') {
+            const accounts = JSON.parse(localStorage.getItem('nexus_finance_accounts') || '[]');
+            const targetAccount = accounts[0];
+            if (!targetAccount) {
+                setQuickCommandFeedback({ type: 'error', message: 'Create an account in the Finance Hub first.' });
+                return;
+            }
+            const transactions = JSON.parse(localStorage.getItem('nexus_finance_transactions') || '[]');
+            const { type, amount, title } = parsed.data;
+            const txItem = {
+                id: `qc_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                title: title.charAt(0).toUpperCase() + title.slice(1),
+                type, amount, category: 'Others', account: targetAccount.name,
+                date: new Date().toISOString().split('T')[0],
+            };
+            localStorage.setItem('nexus_finance_transactions', JSON.stringify([txItem, ...transactions]));
+            const updatedAccounts = accounts.map((acc) => acc.name === targetAccount.name
+                ? { ...acc, balance: acc.balance + (type === 'Income' ? amount : -amount) }
+                : acc);
+            localStorage.setItem('nexus_finance_accounts', JSON.stringify(updatedAccounts));
+            setQuickCommandFeedback({ type: 'success', message: `Added to ${targetAccount.name}.` });
+        } else if (parsed.module === 'calendar') {
+            const events = JSON.parse(localStorage.getItem('nexus_calendar_events') || '[]');
+            const eventItem = {
+                id: `qc_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+                title: parsed.data.title.charAt(0).toUpperCase() + parsed.data.title.slice(1),
+                category: 'Personal', date: parsed.data.date, time: parsed.data.time,
+                priority: 'Medium', location: '', completed: false,
+            };
+            localStorage.setItem('nexus_calendar_events', JSON.stringify([eventItem, ...events]));
+            setQuickCommandFeedback({ type: 'success', message: 'Added to your Calendar.' });
+        }
+
+        window.dispatchEvent(new Event('storage'));
+        setQuickCommandText('');
+        setTimeout(() => setQuickCommandFeedback(null), 2500);
     };
 
     const displayName = profileData.name || 'New User';
@@ -518,13 +576,49 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 <div ref={quickAddRef} style={{ position: 'relative' }}>
                     <button title="Quick Add Task" onClick={() => setIsQuickAddOpen(!isQuickAddOpen)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Plus size={18} /></button>
                     {isQuickAddOpen && (
-                        <div style={{ position: 'absolute', top: '120%', right: 0, width: '280px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px', zIndex: 1100, boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+                        <div style={{ position: 'absolute', top: '120%', right: 0, width: '300px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px', zIndex: 1100, boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                 <h4 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-primary)' }}>Quick Add Item</h4>
                                 <X size={14} style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setIsQuickAddOpen(false)} />
                             </div>
+
+                            {/* Natural-language quick command - a real parser
+                                (utils/quickCommandParser.js), routes straight
+                                to Finance or Calendar. Separate from the
+                                structured Planner/Study form below, which is
+                                untouched. */}
+                            <form
+                                onSubmit={(e) => { e.preventDefault(); executeQuickCommand(); }}
+                                style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px', paddingBottom: '14px', borderBottom: '1px solid var(--border-premium)' }}
+                            >
+                                <label htmlFor="quick-command-input" style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)' }}>Type a command</label>
+                                <input
+                                    id="quick-command-input" name="quickCommand" type="text" autoFocus
+                                    placeholder={'e.g. "Add expense 500 for lunch"'}
+                                    aria-label="Natural language quick command"
+                                    value={quickCommandText}
+                                    onChange={(e) => { setQuickCommandText(e.target.value); setQuickCommandFeedback(null); }}
+                                    style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+                                />
+                                {quickCommandPreview && (
+                                    <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '600' }}>{quickCommandPreview.summary}</span>
+                                )}
+                                {quickCommandText.trim() && !quickCommandPreview && (
+                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Try "Add expense 500 for lunch" or "Schedule gym tomorrow at 6 PM".</span>
+                                )}
+                                {quickCommandFeedback && (
+                                    <span style={{ fontSize: '11px', fontWeight: '700', color: quickCommandFeedback.type === 'error' ? '#EF4444' : '#10B981' }}>{quickCommandFeedback.message}</span>
+                                )}
+                                <button
+                                    type="submit" disabled={!quickCommandPreview}
+                                    style={{ padding: '8px', background: quickCommandPreview ? 'var(--primary)' : 'var(--widget-bg)', color: quickCommandPreview ? '#fff' : 'var(--text-muted)', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: quickCommandPreview ? 'pointer' : 'default' }}
+                                >
+                                    Run Command
+                                </button>
+                            </form>
+
                             <form onSubmit={handleQuickSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <input type="text" placeholder="Enter title..." aria-label="Quick add title" value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} autoFocus />
+                                <input type="text" placeholder="Enter title..." aria-label="Quick add title" value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }} />
                                 <select value={quickCategory} onChange={(e) => setQuickCategory(e.target.value)} aria-label="Quick add category" style={{ padding: '8px', borderRadius: '8px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '12px', outline: 'none' }}>
                                     <option value="Planner" style={{ background: 'var(--surface-inset)' }}>Planner Task</option>
                                     <option value="Study" style={{ background: 'var(--surface-inset)' }}>Study Item</option>

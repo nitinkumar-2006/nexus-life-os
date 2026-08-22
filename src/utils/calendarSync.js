@@ -122,9 +122,21 @@ export const parseIcsToEvents = (icsText) => {
     return events;
 };
 
-// Real "clear-before-sync + id-based merge" - shared by every import path
-// (ics file, ics feed, device calendar) in CalendarPage.jsx so there's one
-// real implementation instead of three hand-copies of the same logic.
+// Composite dedup key - date + title, trimmed and case-folded so "Team
+// Sync" and "team sync " on the same day are recognized as the same real
+// event. Deliberately NOT time-based: a device calendar or .ics feed can
+// legitimately report a slightly different time for the same logical
+// event between two syncs (an organizer nudging a meeting 15 minutes, a
+// timezone/DST quirk in the source data), and treating that as "a
+// different event" is exactly the bug this key avoids - the id-based
+// version this replaced could still double up in that case since a
+// different time could itself be baked into the fallback id.
+const buildDedupKey = (ev) => `${ev.date}|${String(ev.title || '').trim().toLowerCase()}`;
+
+// Real "clear-before-sync + composite-key merge" - shared by every import
+// path (ics file, ics feed, device calendar) in CalendarPage.jsx so
+// there's one real implementation instead of three hand-copies of the
+// same logic.
 //
 // Scope is deliberately per-source, not global: only previously-imported
 // events carrying this exact sourceFlagKey (e.g. 'importedFromIcs' or
@@ -133,27 +145,31 @@ export const parseIcsToEvents = (icsText) => {
 // are untouched - re-syncing your device calendar should never silently
 // delete an unrelated .ics file you imported yesterday.
 //
-// A matched id (same event, seen again) carries its `completed` flag
-// forward from the old copy onto the new one, so a re-sync can't silently
-// un-complete something the user already checked off - every other field
-// refreshes from the newly-fetched data, which is the actual "update, not
-// recreate" behavior.
+// A matched key (same date+title, seen again) carries its real, original
+// `id` and `completed` flag forward onto the refreshed copy - the id
+// carries forward so this is a genuine in-place UPDATE rather than a
+// delete+recreate (React's own list key, and any pending
+// toggle/delete referencing the old id, keep pointing at the same
+// logical event instead of silently orphaning), and completed carries
+// forward so a re-sync can't silently un-complete something the user
+// already checked off. Every other field still refreshes from the
+// newly-fetched data.
 export const mergeImportedEvents = (prevEvents, importedBatch, sourceFlagKey) => {
     // Defensive: a malformed feed/device response could itself contain the
-    // same id twice - de-duplicate the incoming batch first so a single
-    // sync run can't seed its own duplicates.
+    // same date+title twice - de-duplicate the incoming batch first so a
+    // single sync run can't seed its own duplicates.
     const dedupedIncoming = Array.from(
-        importedBatch.reduce((map, ev) => map.set(ev.id, ev), new Map()).values()
+        importedBatch.reduce((map, ev) => map.set(buildDedupKey(ev), ev), new Map()).values()
     );
 
     const staleSameSource = new Map(
-        prevEvents.filter((ev) => ev[sourceFlagKey] === true).map((ev) => [ev.id, ev])
+        prevEvents.filter((ev) => ev[sourceFlagKey] === true).map((ev) => [buildDedupKey(ev), ev])
     );
     const kept = prevEvents.filter((ev) => ev[sourceFlagKey] !== true);
 
     const refreshed = dedupedIncoming.map((ev) => {
-        const previous = staleSameSource.get(ev.id);
-        return previous ? { ...ev, completed: previous.completed } : ev;
+        const previous = staleSameSource.get(buildDedupKey(ev));
+        return previous ? { ...ev, id: previous.id, completed: previous.completed } : ev;
     });
 
     return [...refreshed, ...kept];

@@ -1,6 +1,6 @@
 // src/pages/FinancePage.jsx
 import { useState, useEffect } from 'react';
-import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload, Smartphone, RefreshCw, Tag } from 'lucide-react';
+import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload, Smartphone, RefreshCw, Tag, Utensils, ShoppingBag, Receipt, Plane, Clapperboard, HeartPulse } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { exportFinanceReportCsv, exportFinanceReportText } from '../utils/reportExport.js';
 import StatementImportModal from '../components/StatementImportModal.jsx';
@@ -67,7 +67,11 @@ const FinancePage = () => {
         return [];
     });
 
-    const [activeTab, setActiveTab] = useState('Dashboard');
+    // Persisted (not just in-memory) so switching to another Hub and back
+    // - or a full page reload - returns to the same tab instead of always
+    // resetting to Dashboard, the actual "state-persistent" requirement.
+    const [activeTab, setActiveTab] = useState(() => localStorage.getItem('nexus_finance_active_tab') || 'Dashboard');
+    useEffect(() => { localStorage.setItem('nexus_finance_active_tab', activeTab); }, [activeTab]);
     const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
     const [isStatementImportOpen, setIsStatementImportOpen] = useState(false);
 
@@ -416,6 +420,23 @@ const FinancePage = () => {
     const CATEGORY_BAR_COLORS = { Food: '#F59E0B', Bills: '#EF4444', Travel: '#3B82F6', Shopping: '#EC4899', Entertainment: '#8B5CF6', Health: '#10B981', Salary: '#14B8A6', Others: '#64748B' };
     const getCategoryBarColor = (cat) => CATEGORY_BAR_COLORS[cat] || 'var(--accent)';
 
+    // Category-specific glyph for the transaction feed (Recent Transactions
+    // preview + the full Transactions tab list) - replaces the old generic
+    // "up arrow for Income, down arrow for Expense" icon, which told you
+    // the direction of money movement but nothing about what the
+    // transaction actually was at a glance.
+    const CATEGORY_ICONS = { Food: Utensils, Bills: Receipt, Travel: Plane, Shopping: ShoppingBag, Entertainment: Clapperboard, Health: HeartPulse, Salary: Landmark, Others: Tag };
+    const getCategoryIcon = (cat) => CATEGORY_ICONS[cat] || Tag;
+
+    // Shared look for every Quick Action Bar button (Add/Import/Export) and
+    // each empty-state call-to-action below - one real definition instead
+    // of hand-copying the same style object at each of the several call
+    // sites that need it.
+    const quickActionButtonStyle = { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '12px 8px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', cursor: 'pointer', fontFamily: 'inherit', boxShadow: 'var(--premium-shadow)' };
+    const quickActionIconWrapStyle = (color) => ({ width: '40px', height: '40px', borderRadius: '50%', background: `${color}1F`, color, display: 'flex', alignItems: 'center', justifyContent: 'center' });
+    const quickActionLabelStyle = { fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)' };
+    const emptyStateCtaStyle = { display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' };
+
     const totalSavingsSaved = (savingsGoals || []).reduce((acc, curr) => acc + (curr.current || 0), 0);
     const estimatedNetWorth = totalBalance + totalSavingsSaved;
 
@@ -521,6 +542,11 @@ const FinancePage = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
+            {/* Scoped keyframes for the tab-content fade below - each tab's
+                content div is keyed by activeTab so React remounts it (and
+                replays this animation) on every tab switch, instead of an
+                abrupt instant swap. */}
+            <style>{`@keyframes financeTabFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }`}</style>
             {showTour && <TourGuide tourId="finance" steps={TOUR_STEPS.finance} onFinish={() => setShowTour(false)} />}
 
             {/* Header Section - clean hub title only, no subtitle, on
@@ -533,20 +559,26 @@ const FinancePage = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: '8px' }}>
-                    {activeTab === 'Transactions' && (
+                    {/* Add Transaction / Import Statement - desktop only here.
+                        Mobile gets these same two actions (plus Export) from
+                        the single, always-visible Quick Action Bar below the
+                        summary cards instead - keeping this header row from
+                        ever growing into the "overcrowded button stack" it
+                        used to wrap into on narrow screens. */}
+                    {!isMobile && activeTab === 'Transactions' && (
                         <button
                             onClick={openAddTransactionModal}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
                         >
                             <Plus size={16} /> Add Transaction
                         </button>
                     )}
-                    {activeTab === 'Transactions' && (
+                    {!isMobile && activeTab === 'Transactions' && (
                         <button
                             onClick={() => setIsStatementImportOpen(true)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
                         >
-                            <Upload size={16} /> {isMobile ? 'Import' : 'Import Statement'}
+                            <Upload size={16} /> Import Statement
                         </button>
                     )}
                     {activeTab === 'GoalsBills' && (
@@ -564,46 +596,39 @@ const FinancePage = () => {
                             <Plus size={16} /> Add Account
                         </button>
                     )}
-                    <div style={{ position: 'relative' }}>
-                        <button
-                            onClick={() => setIsExportMenuOpen((v) => !v)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}
-                        >
-                            <Download size={16} /> {isMobile ? 'Export' : 'Export Report'}
-                        </button>
-                        {isExportMenuOpen && (
-                            <>
-                                <div onClick={() => setIsExportMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1199 }} />
-                                <div style={{
-                                    /* Right-anchored (the desktop value) can put this
-                                       220px-wide menu's LEFT edge off-screen on mobile -
-                                       this button-group wraps by tab (Add Transaction +
-                                       Import Statement can push Export Report onto its
-                                       own row starting near the left edge), and a
-                                       right-anchored menu there hangs mostly off-screen.
-                                       Left-anchoring on mobile keeps it on-screen in that
-                                       case; matches the same fix already applied to the
-                                       identical Export Report menu on StudyPage. */
-                                    position: 'absolute', top: 'calc(100% + 8px)', right: isMobile ? 'auto' : 0, left: isMobile ? 0 : 'auto', width: '220px', zIndex: 1200,
-                                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '8px',
-                                    boxShadow: '0 10px 25px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: '4px',
-                                }}>
-                                    <button
-                                        onClick={() => { exportFinanceReportText({ ...(profile || {}), monthlyBudget: settings.monthlyBudgetCap || 0, currency: settings.currencySymbol }, transactions || []); setIsExportMenuOpen(false); }}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left' }}
-                                    >
-                                        <FileText size={15} color="var(--accent)" /> Monthly Summary (.txt)
-                                    </button>
-                                    <button
-                                        onClick={() => { exportFinanceReportCsv(profile, transactions); setIsExportMenuOpen(false); }}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left' }}
-                                    >
-                                        <Download size={15} color="var(--accent)" /> Transactions (.csv)
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </div>
+                    {!isMobile && (
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                onClick={() => setIsExportMenuOpen((v) => !v)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+                            >
+                                <Download size={16} /> Export Report
+                            </button>
+                            {isExportMenuOpen && (
+                                <>
+                                    <div onClick={() => setIsExportMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1199 }} />
+                                    <div style={{
+                                        position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px', zIndex: 1200,
+                                        background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '8px',
+                                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: '4px',
+                                    }}>
+                                        <button
+                                            onClick={() => { exportFinanceReportText({ ...(profile || {}), monthlyBudget: settings.monthlyBudgetCap || 0, currency: settings.currencySymbol }, transactions || []); setIsExportMenuOpen(false); }}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left' }}
+                                        >
+                                            <FileText size={15} color="var(--accent)" /> Monthly Summary (.txt)
+                                        </button>
+                                        <button
+                                            onClick={() => { exportFinanceReportCsv(profile, transactions); setIsExportMenuOpen(false); }}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left' }}
+                                        >
+                                            <Download size={15} color="var(--accent)" /> Transactions (.csv)
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
                     <button onClick={() => { setTempProfile(profile); setTempMonthlyBudget(settings.monthlyBudgetCap || 0); setTempCurrencySymbol(settings.currencySymbol || '₹'); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
                         <User size={16} /> Profile
                     </button>
@@ -670,6 +695,58 @@ const FinancePage = () => {
                 </div>
             </div>
 
+            {/* Quick Action Bar - mobile only, Paytm/GPay-style: exactly
+                three large icon-labeled buttons (Add/Import/Export),
+                always visible regardless of which tab is active. This is
+                the single real fix for the "overcrowded button stack"
+                complaint - it replaces both the header's own
+                tab-conditional Add Transaction/Import Statement/Export
+                Report buttons (hidden on mobile above) and the narrower
+                2-button row that used to live only inside the Dashboard
+                tab's own content. Desktop is unaffected - it keeps the
+                original header buttons, which have enough room there. */}
+            {isMobile && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                    <button type="button" onClick={openAddTransactionModal} style={quickActionButtonStyle}>
+                        <div style={quickActionIconWrapStyle('var(--primary)')}><Plus size={20} /></div>
+                        <span style={quickActionLabelStyle}>Add</span>
+                    </button>
+                    <button type="button" onClick={() => setIsStatementImportOpen(true)} style={quickActionButtonStyle}>
+                        <div style={quickActionIconWrapStyle('#3B82F6')}><Upload size={20} /></div>
+                        <span style={quickActionLabelStyle}>Import</span>
+                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button type="button" onClick={() => setIsExportMenuOpen((v) => !v)} style={quickActionButtonStyle}>
+                            <div style={quickActionIconWrapStyle('#8B5CF6')}><Download size={20} /></div>
+                            <span style={quickActionLabelStyle}>Export</span>
+                        </button>
+                        {isExportMenuOpen && (
+                            <>
+                                <div onClick={() => setIsExportMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1199 }} />
+                                <div style={{
+                                    position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '200px', zIndex: 1200,
+                                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '8px',
+                                    boxShadow: '0 10px 25px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', gap: '4px',
+                                }}>
+                                    <button
+                                        onClick={() => { exportFinanceReportText({ ...(profile || {}), monthlyBudget: settings.monthlyBudgetCap || 0, currency: settings.currencySymbol }, transactions || []); setIsExportMenuOpen(false); }}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+                                    >
+                                        <FileText size={15} color="var(--accent)" /> Summary (.txt)
+                                    </button>
+                                    <button
+                                        onClick={() => { exportFinanceReportCsv(profile, transactions); setIsExportMenuOpen(false); }}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+                                    >
+                                        <Download size={15} color="var(--accent)" /> Transactions (.csv)
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Navigation Tabs - shortened labels on mobile only (fade-mask
                 horizontal scroll still there as a fallback), same pattern
                 as every other Hub page's own tab row this session. */}
@@ -699,9 +776,9 @@ const FinancePage = () => {
                 is - the concrete "spacious, structured on desktop" fix.
                 Mobile stays the original single stacked column. */}
             {activeTab === 'Dashboard' && (
-                <div style={isMobile
-                    ? { display: 'flex', flexDirection: 'column', gap: '14px' }
-                    : { display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: '20px', alignItems: 'start' }
+                <div key="Dashboard" style={isMobile
+                    ? { display: 'flex', flexDirection: 'column', gap: '14px', animation: 'financeTabFade 0.25s ease' }
+                    : { display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: '20px', alignItems: 'start', animation: 'financeTabFade 0.25s ease' }
                 }>
                     {/* Mobile-only middle + bottom tiers of the requested
                         top/middle/bottom hierarchy - the Total Balance/
@@ -714,21 +791,11 @@ const FinancePage = () => {
                         <>
                             {isSmsFinanceBridgeAvailable() && renderSmsTrackingCard()}
 
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button
-                                    type="button" onClick={openAddTransactionModal}
-                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '11px 14px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                    <Plus size={14} /> Add Transaction
-                                </button>
-                                <button
-                                    type="button" onClick={() => setIsStatementImportOpen(true)}
-                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '11px 14px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                    <Upload size={14} /> Import
-                                </button>
-                            </div>
-
+                            {/* Transaction Feed - the hero element of this
+                                tab on mobile: category-specific icons (not
+                                just a generic income/expense arrow) and
+                                color-coded amounts, matching the rest of
+                                the Transactions tab's own row styling. */}
                             <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', boxShadow: 'var(--premium-shadow)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>Recent Transactions</h3>
@@ -739,16 +806,27 @@ const FinancePage = () => {
                                     )}
                                 </div>
                                 {transactions.length === 0 ? (
-                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                                        No transactions yet. Add one or import a statement to see it here.
+                                    <div style={{ padding: '20px 8px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: 'var(--widget-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                                            <Wallet size={24} />
+                                        </div>
+                                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>No transactions yet.</p>
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                            {isSmsFinanceBridgeAvailable() && smsPermission !== 'granted' && (
+                                                <button type="button" onClick={handleEnableSmsTracking} style={emptyStateCtaStyle}><Smartphone size={13} /> Enable SMS Tracking</button>
+                                            )}
+                                            <button type="button" onClick={openAddTransactionModal} style={emptyStateCtaStyle}><Plus size={13} /> Add First Transaction</button>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {transactions.slice(0, 5).map((tx) => (
+                                        {transactions.slice(0, 5).map((tx) => {
+                                            const CategoryIcon = getCategoryIcon(tx.category);
+                                            return (
                                             <div key={tx.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '10px 12px', background: 'var(--widget-bg)', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                                                     <div style={{ padding: '8px', borderRadius: '10px', background: tx.type === 'Income' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: tx.type === 'Income' ? '#10B981' : '#EF4444', flexShrink: 0, display: 'flex' }}>
-                                                        {tx.type === 'Income' ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
+                                                        <CategoryIcon size={14} />
                                                     </div>
                                                     <div style={{ minWidth: 0 }}>
                                                         <h4 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.title}</h4>
@@ -759,7 +837,8 @@ const FinancePage = () => {
                                                     {tx.type === 'Income' ? '+' : '-'}{settings.currencySymbol}{(tx.amount || 0).toLocaleString()}
                                                 </span>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
@@ -851,7 +930,7 @@ const FinancePage = () => {
 
             {/* TAB CONTENT: TRANSACTIONS */}
             {activeTab === 'Transactions' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px' }}>
+                <div key="Transactions" style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', animation: 'financeTabFade 0.25s ease' }}>
                     <div style={{ position: 'relative', width: '100%' }}>
                         <Search size={18} style={{ position: 'absolute', top: '14px', left: '14px', color: 'var(--text-muted)' }} />
                         <input
@@ -871,11 +950,13 @@ const FinancePage = () => {
                     {isSmsFinanceBridgeAvailable() && !isMobile && renderSmsTrackingCard()}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '10px' }}>
-                        {filteredTransactions.length > 0 ? filteredTransactions.map(tx => (
+                        {filteredTransactions.length > 0 ? filteredTransactions.map(tx => {
+                            const CategoryIcon = getCategoryIcon(tx.category);
+                            return (
                             <div key={tx.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderLeft: `3px solid ${tx.type === 'Income' ? '#10B981' : getCategoryBarColor(tx.category)}`, borderRadius: '14px', padding: isMobile ? '14px' : '16px 20px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '0' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
                                     <div style={{ padding: '10px', background: tx.type === 'Income' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', borderRadius: '11px', color: tx.type === 'Income' ? '#10B981' : '#EF4444', flexShrink: 0, display: 'flex' }}>
-                                        {tx.type === 'Income' ? <ArrowUpRight size={18} /> : <ArrowDownLeft size={18} />}
+                                        <CategoryIcon size={18} />
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
                                         <h4 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', overflowWrap: 'break-word' }}>{tx.title}</h4>
@@ -893,10 +974,26 @@ const FinancePage = () => {
                                     <button onClick={() => deleteTransaction(tx.id)} aria-label={`Delete ${tx.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex' }}><Trash2 size={15} /></button>
                                 </div>
                             </div>
-                        )) : (
+                            );
+                        }) : (
                             <div style={{ padding: isMobile ? '28px 20px' : '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
                                 <DollarSign size={isMobile ? 30 : 40} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
-                                <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px' }}>No transactions found</h3>
+                                <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                                    {transactions.length === 0 ? 'No transactions yet' : 'No transactions found'}
+                                </h3>
+                                {transactions.length === 0 ? (
+                                    <>
+                                        <p style={{ fontSize: '13px', margin: '0 0 14px 0' }}>Add your first transaction or enable SMS Auto-Tracking to get started.</p>
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                            {isSmsFinanceBridgeAvailable() && smsPermission !== 'granted' && (
+                                                <button type="button" onClick={handleEnableSmsTracking} style={emptyStateCtaStyle}><Smartphone size={13} /> Enable SMS Tracking</button>
+                                            )}
+                                            <button type="button" onClick={openAddTransactionModal} style={emptyStateCtaStyle}><Plus size={13} /> Add First Transaction</button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <p style={{ fontSize: '13px', margin: 0 }}>Try a different search term.</p>
+                                )}
                             </div>
                         )}
                     </div>
@@ -905,7 +1002,7 @@ const FinancePage = () => {
 
             {/* TAB CONTENT: SAVINGS GOALS & BILLS */}
             {activeTab === 'GoalsBills' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
+                <div key="GoalsBills" style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px', animation: 'financeTabFade 0.25s ease' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
                             <Target size={20} />
@@ -972,7 +1069,7 @@ const FinancePage = () => {
 
             {/* TAB CONTENT: AI COACH & ANALYTICS */}
             {activeTab === 'Analytics' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
+                <div key="Analytics" style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px', animation: 'financeTabFade 0.25s ease' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
                             <Sparkles size={20} />

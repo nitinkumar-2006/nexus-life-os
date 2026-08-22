@@ -109,6 +109,37 @@ export const WindCompassGauge = ({ size = 84, windDirection = 0, color = 'var(--
     );
 };
 
+// Real moon-phase silhouette via the standard "two overlapping discs, clipped
+// to a circle" technique: a dark disc and a light disc of the same radius,
+// the light one shifted horizontally by an amount derived from the real
+// illuminated fraction - at illumination=1 the shift is 0 (discs coincide,
+// fully lit), at illumination=0 the shift is a full diameter (no overlap,
+// fully dark), and waxing/waning flips which side grows the light from.
+// This is the conventional way every moon-phase icon is drawn; it isn't a
+// simplification that loses accuracy, just a rendering technique for a
+// genuinely-computed illumination fraction (see getMoonPhase in
+// WeatherContext.jsx).
+export const MoonPhaseIcon = ({ size = 64, illumination = 1, waxing = true, id = 'moon' }) => {
+    const r = size / 2;
+    const k = Math.max(0, Math.min(1, illumination));
+    const dx = 2 * r * (1 - k) * (waxing ? 1 : -1);
+    const clipId = `moon-phase-clip-${id}`;
+    return (
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            <defs>
+                <clipPath id={clipId}>
+                    <circle cx={r} cy={r} r={r} />
+                </clipPath>
+            </defs>
+            <g clipPath={`url(#${clipId})`}>
+                <circle cx={r} cy={r} r={r} fill="#1E293B" />
+                <circle cx={r + dx} cy={r} r={r} fill="#F1F5F9" />
+            </g>
+            <circle cx={r} cy={r} r={r - 0.5} fill="none" stroke="rgba(255,255,255,0.22)" strokeWidth="1" />
+        </svg>
+    );
+};
+
 // A sunrise -> sunset arc with a marker at the sun's current position along
 // it (0 = at sunrise, 1 = at/after sunset) - real progress, computed by the
 // caller from the actual current time vs. real sunrise/sunset strings, not
