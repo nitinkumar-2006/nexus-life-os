@@ -1,0 +1,611 @@
+/* src/css/masterSchedule.css
+ *
+ * Pure-CSS home for the "Master Schedule Flow & Active Timeline" section
+ * on HomePage.jsx - the queue container, its card list, hover/active/next
+ * states, and the mobile breakpoint. Dynamic, per-render values that
+ * genuinely can't be expressed as a fixed class (per-index fade opacity,
+ * a category's own accent color) are still passed in from JSX as CSS
+ * custom properties (--card-opacity / --card-accent) and consumed here,
+ * so the class rules stay the single source of truth for everything else
+ * that was previously duplicated inline per breakpoint in JS.
+ */
+
+.master-schedule {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 10px;
+}
+
+.master-schedule__drag-handle {
+    position: absolute;
+    top: 0;
+    right: 4px;
+    z-index: 5;
+    cursor: grab;
+    color: var(--text-muted);
+    opacity: 0.5;
+    padding: 4px;
+}
+
+.master-schedule__header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0;
+    padding-left: 4px;
+}
+
+.master-schedule__header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.master-schedule__title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.5px;
+}
+
+.master-schedule__count {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.master-schedule__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 48px 24px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-premium);
+    border-radius: 18px;
+    text-align: center;
+}
+
+.master-schedule__empty-title {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.master-schedule__empty-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Card                                                                */
+/* ------------------------------------------------------------------ */
+
+.schedule-card {
+    --card-opacity: 1;
+    --card-accent: var(--accent);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    cursor: pointer;
+    opacity: var(--card-opacity);
+    /* Premium glass container per this pass's own spec - kept on the
+       theme's real surface tokens (not a literal hardcoded rgba) so
+       every existing theme (Night/Comfort/Day/Dynamic) still gets a
+       correct, readable glass card instead of one fixed dark tint. */
+    background: var(--bg-surface);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-premium);
+    border-radius: 16px;
+    padding: 16px 26px;
+    box-shadow: none;
+    transition: background 0.3s ease, transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+}
+
+.schedule-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+    transform: translateX(4px);
+}
+
+.schedule-card--active {
+    background: var(--bg-surface-hover);
+    border: 1px solid var(--card-accent);
+    box-shadow: var(--premium-shadow);
+    padding: 22px 26px;
+}
+
+.schedule-card--active:hover {
+    background: var(--bg-surface-hover);
+    transform: translateX(4px);
+}
+
+/* Completed items recede - muted opacity on top of whatever fade the
+   card's own queue position already applies, so a done task visually
+   steps back without needing a second, separate visual language. */
+.schedule-card--completed {
+    opacity: calc(var(--card-opacity) * 0.6);
+}
+
+.schedule-card__row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+}
+
+.schedule-card__lead {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+/* Status dot - plain solid dot for queued/next cards */
+.schedule-card__dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-left: 3px;
+    flex-shrink: 0;
+    background: var(--text-primary);
+}
+
+/* Active dot - glowing pulse in the card's own category accent */
+.schedule-card__dot--active {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.schedule-card__dot-ping {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--success);
+    opacity: 0.6;
+    animation: nexusScheduleDotPing 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.schedule-card__dot-core {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--success);
+}
+
+@keyframes nexusScheduleDotPing {
+    75%, 100% { transform: scale(1.8); opacity: 0; }
+}
+
+.schedule-card__content {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.schedule-card__meta-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.schedule-card__status {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 800;
+    color: var(--text-muted);
+}
+
+.schedule-card__status--active { color: var(--success); }
+.schedule-card__status--next { color: var(--accent); }
+
+.schedule-card__tag {
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    padding: 2px 8px;
+}
+
+.schedule-card__title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.schedule-card__check-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
+.schedule-card__check-btn--completed {
+    color: var(--success);
+}
+
+.schedule-card__title {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: 0.2px;
+    margin: 0;
+    text-decoration: none;
+    opacity: 1;
+}
+
+.schedule-card--active .schedule-card__title {
+    font-size: 24px;
+}
+
+.schedule-card__title--completed {
+    opacity: 0.6;
+}
+
+.schedule-card__info-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.schedule-card__time {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 600;
+    background: var(--primary-muted);
+    padding: 2px 10px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.schedule-card__source-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    padding: 3px 10px 3px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.schedule-card__source-badge:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Countdown                                                           */
+/* ------------------------------------------------------------------ */
+
+.schedule-card__countdown {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0 8px;
+    text-align: center;
+}
+
+.schedule-card__countdown-value {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.schedule-card__countdown-value--active { color: var(--success); }
+.schedule-card__countdown-value--next { color: var(--accent); }
+
+.schedule-card__countdown-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    margin-top: 5px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Actions cluster                                                     */
+/* ------------------------------------------------------------------ */
+
+.schedule-card__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 16px;
+    padding: 6px 8px;
+}
+
+.schedule-card__reschedule-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 10px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.schedule-card__reschedule-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.schedule-card__ending-badge {
+    font-size: 11px;
+    font-weight: 800;
+    color: #F59E0B;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 20px;
+    padding: 7px 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    animation: nexusScheduleEndingPulse 2s ease-in-out infinite;
+}
+
+@keyframes nexusScheduleEndingPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.schedule-card__status-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 14px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.schedule-card__status-btn--queued {
+    background: var(--primary-muted);
+    color: var(--text-primary);
+}
+
+.schedule-card__status-btn--active,
+.schedule-card__status-btn--completed {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.schedule-card__chevron {
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+.schedule-card__chevron--expanded {
+    transform: rotate(180deg);
+}
+
+/* ------------------------------------------------------------------ */
+/* Expanded details                                                    */
+/* ------------------------------------------------------------------ */
+
+.schedule-card__details {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-premium);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    cursor: default;
+}
+
+.schedule-card__details-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.schedule-card__subtasks {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.schedule-card__subtask {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.schedule-card__note-row {
+    display: flex;
+    gap: 8px;
+}
+
+.schedule-card__note-input {
+    flex: 1;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text-primary);
+    outline: none;
+    font-family: inherit;
+}
+
+.schedule-card__note-save {
+    background: var(--primary);
+    border: none;
+    color: #fff;
+    border-radius: 10px;
+    padding: 0 16px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.schedule-card__note-saved {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mobile - strict 768px breakpoint. Layout stacks, touch targets grow */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 768px) {
+    .master-schedule {
+        gap: 12px;
+    }
+
+    .master-schedule__header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .master-schedule__title {
+        font-size: 15px;
+    }
+
+    .master-schedule__count {
+        font-size: 11px;
+    }
+
+    .master-schedule__empty {
+        padding: 32px 20px;
+        gap: 8px;
+    }
+
+    .schedule-card {
+        padding: 12px 14px;
+        border-radius: 14px;
+    }
+
+    .schedule-card--active {
+        padding: 15px 14px;
+    }
+
+    /* A translateX hover shift reads as a mis-tap nudge on touch, and
+       ":hover" itself can stick after a tap on many mobile browsers -
+       switch to a plain, static tap highlight instead. */
+    .schedule-card:hover,
+    .schedule-card--active:hover {
+        background: var(--bg-surface);
+        transform: none;
+    }
+
+    .schedule-card--active:hover {
+        background: var(--bg-surface-hover);
+    }
+
+    .schedule-card:active {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .schedule-card__row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+    }
+
+    .schedule-card__title {
+        font-size: 16px;
+    }
+
+    .schedule-card--active .schedule-card__title {
+        font-size: 19px;
+    }
+
+    .schedule-card__countdown-value {
+        font-size: 20px;
+    }
+
+    .schedule-card__actions {
+        flex-wrap: wrap;
+        row-gap: 8px;
+    }
+
+    /* Every tappable control in the queue gets a real >=44px touch
+       target on mobile - the desktop sizing above is comfortable for a
+       mouse pointer but too tight to reliably tap. */
+    .schedule-card__check-btn {
+        width: 44px;
+        height: 44px;
+    }
+
+    .schedule-card__source-badge,
+    .schedule-card__reschedule-btn,
+    .schedule-card__status-btn {
+        padding-top: 11px;
+        padding-bottom: 11px;
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+
+    .schedule-card__note-input,
+    .schedule-card__note-save {
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+}

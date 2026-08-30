@@ -283,7 +283,7 @@ const formatCountdown = (hoursRemaining, zeroLabel = 'Ending now') => {
 // own micro-note draft, and - for the active card only - a real-time
 // countdown ticking independently of the parent's 60-second queue reload.
 // ---------------------------------------------------------------------------
-const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, setActiveTab, cardState, onToggleComplete, onSaveNote, onTimeShift, isMobile }) => {
+const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, setActiveTab, cardState, onToggleComplete, onSaveNote, onTimeShift }) => {
     const [expanded, setExpanded] = useState(false);
     const [noteDraft, setNoteDraft] = useState(cardState.note || '');
     const [now, setNow] = useState(() => new Date());
@@ -361,64 +361,39 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
         onTimeShift(item.id, 30);
     };
 
+    const statusBtnClass = completed
+        ? 'schedule-card__status-btn schedule-card__status-btn--completed'
+        : isActive
+            ? 'schedule-card__status-btn schedule-card__status-btn--active'
+            : isNext
+                ? 'schedule-card__status-btn schedule-card__status-btn--queued'
+                : 'schedule-card__status-btn';
+
     return (
         <div
             onClick={handleCardClick}
-            style={{
-                background: isActive ? 'var(--bg-surface-hover)' : 'var(--bg-surface)',
-                border: isActive ? '1px solid var(--accent)' : '1px solid var(--border-premium)',
-                display: 'flex', flexDirection: 'column',
-                padding: isMobile ? (isActive ? '15px 14px' : '12px 14px') : (isActive ? '22px 26px' : '16px 26px'),
-                borderRadius: '18px', opacity: opacityLevel,
-                boxShadow: isActive ? 'var(--premium-shadow)' : 'none',
-                transition: 'all 0.3s ease',
-                position: 'relative', zIndex: 1,
-                cursor: 'pointer',
-            }}
+            className={`schedule-card${isActive ? ' schedule-card--active' : ''}${completed ? ' schedule-card--completed' : ''}`}
+            style={{ '--card-opacity': opacityLevel, '--card-accent': style.accent }}
         >
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '14px' : '18px' }}>
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center', minWidth: 0, flex: '1 1 auto' }}>
+            <div className="schedule-card__row">
+                <div className="schedule-card__lead">
                     {isActive ? (
-                        <div style={{ position: 'relative', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <div style={{ position: 'absolute', width: '22px', height: '22px', borderRadius: '50%', background: 'var(--success)', opacity: 0.6, animation: 'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite' }}></div>
-                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--success)' }}></div>
+                        <div className="schedule-card__dot--active">
+                            <div className="schedule-card__dot-ping"></div>
+                            <div className="schedule-card__dot-core"></div>
                         </div>
                     ) : (
-                        // Clean solid white dot for every non-active card -
-                        // no per-category tinting, no glow. var(--text-primary)
-                        // rather than a literal white for the same theme-
-                        // safety reason as the title below: it resolves to
-                        // solid white in this dark/dynamic view without
-                        // going invisible on a light theme's pale glass.
-                        <div style={{
-                            width: '12px', height: '12px', borderRadius: '50%', marginLeft: '3px', flexShrink: 0,
-                            background: 'var(--text-primary)',
-                        }}></div>
+                        <div className="schedule-card__dot"></div>
                     )}
 
-                    <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-                        {/* Header row - now genuinely decluttered per this
-                            request's own restructuring ask: only the
-                            status label and category tag live here. The
-                            time range moved to its own row below, and the
-                            countdown moved to the new center column /
-                            the "Ending now" badge near the action button
-                            on the right. */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1.5px', color: isActive ? 'var(--success)' : isNext ? 'var(--accent)' : 'var(--text-muted)', fontWeight: '800' }}>
+                    <div className="schedule-card__content">
+                        <div className="schedule-card__meta-row">
+                            <span className={`schedule-card__status${isActive ? ' schedule-card__status--active' : isNext ? ' schedule-card__status--next' : ''}`}>
                                 {isActive ? 'Active Now' : isNext ? 'Up Next' : `Queue #${index + 1}`}
                             </span>
-                            {style.tag && (
-                                <span style={{
-                                    fontSize: '10px', color: 'var(--text-secondary)', fontWeight: '800', letterSpacing: '0.5px',
-                                    background: 'var(--widget-bg)', border: '1px solid var(--border-premium)',
-                                    borderRadius: '20px', padding: '2px 8px',
-                                }}>
-                                    [{style.tag}]
-                                </span>
-                            )}
+                            {style.tag && <span className="schedule-card__tag">[{style.tag}]</span>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                        <div className="schedule-card__title-row">
                             {/* Dedicated mark-done checkbox, right next to the
                                 title - a second, more discoverable entry
                                 point to the same completion state the status
@@ -427,61 +402,25 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                             <button
                                 onClick={handleCompleteClick}
                                 title={completed ? 'Mark as not done' : 'Mark as done'}
-                                style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    width: '22px', height: '22px', padding: 0, flexShrink: 0,
-                                    background: 'transparent', border: 'none', cursor: 'pointer', color: completed ? 'var(--success)' : 'var(--text-muted)',
-                                }}
+                                className={`schedule-card__check-btn${completed ? ' schedule-card__check-btn--completed' : ''}`}
                             >
                                 {completed ? <CheckSquare size={20} /> : <Circle size={18} />}
                             </button>
-                            {/* High-contrast title: var(--text-primary) is
-                                this theme's own "maximum contrast" text
-                                token - it resolves to solid white in this
-                                dark/dynamic view, which is exactly the crisp
-                                look being asked for, but (unlike a literal
-                                hardcoded white) stays correct on the
-                                theme(s) where dark text sits on light glass
-                                instead of going invisible there. No
-                                text-shadow now either - that soft drop-
-                                shadow was what read as "blurry" against a
-                                perfectly crisp title; removed entirely. */}
-                            <h3 style={{
-                                fontSize: isActive ? (isMobile ? '19px' : '24px') : '17px', fontWeight: '800', color: 'var(--text-primary)', letterSpacing: '0.2px', margin: 0,
-                                textDecoration: 'none', opacity: completed ? 0.6 : 1,
-                            }}>
+                            <h3 className={`schedule-card__title${completed ? ' schedule-card__title--completed' : ''}`}>
                                 {item.title}
                             </h3>
                         </div>
 
-                        {/* Structured time-range row, directly beneath the
-                            title - relocated here per this request's own
-                            "beneath the status or next to the title" ask,
-                            paired with the source badge so both pieces of
-                            "when and where this came from" context sit
-                            together, rather than crowding the header row
-                            above. */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <div className="schedule-card__info-row">
                             {item.hasRealTime && (
-                                <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '600', background: 'var(--primary-muted)', padding: '2px 10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <span className="schedule-card__time">
                                     <Clock size={11} /> {item.time}
                                 </span>
                             )}
                             {/* Clickable source badge - navigates straight to the
                                 module page. stopPropagation so it never also
                                 triggers the card's own expand/collapse. */}
-                            <button
-                                onClick={handleBadgeClick}
-                                title={`Go to ${style.tab}`}
-                                style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                    fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--widget-bg)',
-                                    border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '3px 10px 3px 12px',
-                                    cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-premium)'; }}
-                            >
+                            <button onClick={handleBadgeClick} title={`Go to ${style.tab}`} className="schedule-card__source-badge">
                                 Source Section: {item.category} <ArrowUpRight size={12} />
                             </button>
                         </div>
@@ -490,49 +429,30 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
 
                 {/* Genuinely prominent center countdown - covers both the
                     active card (time remaining until it ends) and the
-                    upcoming card (time until it starts), per this
-                    request's own explicit "until the task ends or
-                    starts" ask. Queued cards further back show nothing
-                    here - only the very next item's own start time is
-                    meaningfully imminent enough to warrant a live
-                    countdown. */}
+                    upcoming card (time until it starts). Queued cards
+                    further back show nothing here - only the very next
+                    item's own start time is meaningfully imminent enough
+                    to warrant a live countdown. */}
                 {isActive && remainingLabel && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '0 8px', textAlign: 'center' }}>
-                        {/* fontSize 24px + fontVariantNumeric: tabular-nums
-                            genuinely matches GreetingCard's own live clock
-                            styling (the "header/sleep time text" this
-                            request specifically points to), including a
-                            matching Clock icon for the same visual family. */}
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: isMobile ? '20px' : '24px', fontWeight: '700', color: 'var(--success)', letterSpacing: '0.5px', lineHeight: '1', fontVariantNumeric: 'tabular-nums' }}>
-                            <Clock size={isMobile ? 17 : 20} />
+                    <div className="schedule-card__countdown">
+                        <span className="schedule-card__countdown-value schedule-card__countdown-value--active">
+                            <Clock size={20} />
                             {remainingLabel}
                         </span>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', marginTop: '5px' }}>
-                            Remaining
-                        </span>
+                        <span className="schedule-card__countdown-label">Remaining</span>
                     </div>
                 )}
                 {isNext && startsInLabel && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '0 8px', textAlign: 'center' }}>
-                        {/* var(--accent) - the same blue this card already
-                            uses for its own "Up Next" header label above,
-                            so the countdown's own color reinforces which
-                            state (active vs upcoming) is being shown. */}
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: isMobile ? '20px' : '24px', fontWeight: '700', color: 'var(--accent)', letterSpacing: '0.5px', lineHeight: '1', fontVariantNumeric: 'tabular-nums' }}>
-                            <Clock size={isMobile ? 17 : 20} />
+                    <div className="schedule-card__countdown">
+                        <span className="schedule-card__countdown-value schedule-card__countdown-value--next">
+                            <Clock size={20} />
                             {startsInLabel}
                         </span>
-                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '700', marginTop: '5px' }}>
-                            Starts In
-                        </span>
+                        <span className="schedule-card__countdown-label">Starts In</span>
                     </div>
                 )}
 
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0,
-                    background: 'var(--widget-bg)', border: '1px solid var(--border-premium)',
-                    borderRadius: '16px', padding: '6px 8px', flexWrap: isMobile ? 'wrap' : 'nowrap',
-                }}>
+                <div className="schedule-card__actions">
                     {/* Quick reschedule - queued/upcoming cards only (the
                         active card is already running; shifting IT forward
                         isn't a "push back a not-yet-started task" action),
@@ -542,35 +462,17 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                         anything. Cumulative: each click adds another 30
                         minutes. */}
                     {!isActive && item.hasRealTime && (
-                        <button
-                            onClick={handleTimeShiftClick}
-                            title="Push this task back by 30 minutes"
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 10px',
-                                background: 'transparent', color: 'var(--text-secondary)',
-                                border: '1px solid var(--border-premium)', borderRadius: '20px',
-                                fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-premium)'; }}
-                        >
+                        <button onClick={handleTimeShiftClick} title="Push this task back by 30 minutes" className="schedule-card__reschedule-btn">
                             <Timer size={12} /> +30m{cardState.timeShift ? ` (+${cardState.timeShift})` : ''}
                         </button>
                     )}
 
-                    {/* "Ending now" badge - relocated here, directly beside
-                        the "In Progress" action button, per this request's
-                        own explicit restructuring ask. Only appears at the
-                        genuine zero-time moment (isEndingNow), not for the
-                        whole active duration - the ongoing countdown
-                        already lives in the new center column above. */}
+                    {/* "Ending now" badge - only appears at the genuine
+                        zero-time moment (isEndingNow), not for the whole
+                        active duration - the ongoing countdown already
+                        lives in the center column above. */}
                     {isActive && isEndingNow && (
-                        <span style={{
-                            fontSize: '11px', fontWeight: '800', color: '#F59E0B',
-                            background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)',
-                            borderRadius: '20px', padding: '7px 10px', display: 'flex', alignItems: 'center', gap: '4px',
-                            animation: 'pulse 2s ease-in-out infinite',
-                        }}>
+                        <span className="schedule-card__ending-badge">
                             <Clock size={11} /> Ending now
                         </span>
                     )}
@@ -578,21 +480,11 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                     {/* Inline completion toggle - the actual interactive
                         status control. Clicking marks the task done/not-done
                         immediately, no page switch, persisted locally. */}
-                    <button
-                        onClick={handleCompleteClick}
-                        title={completed ? 'Mark as not done' : 'Mark as done'}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '7px', padding: '7px 14px',
-                            background: completed ? 'rgba(16, 185, 129, 0.15)' : isActive ? 'rgba(16, 185, 129, 0.15)' : isNext ? 'var(--primary-muted)' : 'transparent',
-                            color: completed || isActive ? 'var(--success)' : isNext ? 'var(--text-primary)' : 'var(--text-muted)',
-                            border: completed || isActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border-premium)',
-                            borderRadius: '20px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
-                        }}
-                    >
+                    <button onClick={handleCompleteClick} title={completed ? 'Mark as not done' : 'Mark as done'} className={statusBtnClass}>
                         {completed ? <CheckCircle2 size={15} /> : isActive ? <PlayCircle size={15} /> : <Circle size={13} />}
                         {completed ? 'Completed' : isActive ? 'In Progress' : isNext ? 'Queued' : 'Upcoming'}
                     </button>
-                    <ChevronDown size={15} color="var(--text-muted)" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+                    <ChevronDown size={15} color="var(--text-muted)" className={`schedule-card__chevron${expanded ? ' schedule-card__chevron--expanded' : ''}`} />
                 </div>
             </div>
 
@@ -602,18 +494,12 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                 content - same mock-data approach the rest of this schedule
                 already uses - plus a real, saved micro-note field. */}
             {expanded && (
-                <div
-                    onClick={stop}
-                    style={{
-                        marginTop: '18px', paddingTop: '16px', borderTop: '1px solid var(--border-premium)',
-                        display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'default',
-                    }}
-                >
+                <div onClick={stop} className="schedule-card__details">
                     <div>
-                        <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '8px' }}>Sub-tasks</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div className="schedule-card__details-label">Sub-tasks</div>
+                        <div className="schedule-card__subtasks">
                             {getSubtasks(item.category).map((sub, i) => (
-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                <div key={i} className="schedule-card__subtask">
                                     <Circle size={6} fill="var(--text-muted)" color="var(--text-muted)" /> {sub}
                                 </div>
                             ))}
@@ -621,10 +507,10 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                     </div>
 
                     <div>
-                        <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div className="schedule-card__details-label">
                             <StickyNote size={12} /> Micro-note
                         </div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div className="schedule-card__note-row">
                             <input
                                 id={`queue-card-note-${item.id}`} name={`queueCardNote-${item.id}`}
                                 value={noteDraft}
@@ -632,23 +518,14 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                                 onKeyDown={(e) => { if (e.key === 'Enter') handleNoteSave(e); }}
                                 aria-label="Quick note"
                                 placeholder='Quick status, e.g. "Half done"'
-                                style={{
-                                    flex: 1, background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px',
-                                    padding: '8px 12px', fontSize: '13px', color: 'var(--text-primary)', outline: 'none', fontFamily: 'inherit',
-                                }}
+                                className="schedule-card__note-input"
                             />
-                            <button
-                                onClick={handleNoteSave}
-                                style={{
-                                    background: 'var(--primary)', border: 'none', color: '#fff', borderRadius: '10px',
-                                    padding: '0 16px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                            >
+                            <button onClick={handleNoteSave} className="schedule-card__note-save">
                                 Save
                             </button>
                         </div>
                         {cardState.note && (
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>Saved: "{cardState.note}"</div>
+                            <div className="schedule-card__note-saved">Saved: "{cardState.note}"</div>
                         )}
                     </div>
                 </div>
@@ -1025,38 +902,31 @@ const HomePage = ({ setActiveTab }) => {
             )}
 
             <div
-                className="col-12"
+                className="col-12 master-schedule"
                 draggable
                 onDragStart={() => setDraggedWidget('schedule')}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleWidgetDrop('schedule')}
                 onDragEnd={() => setDraggedWidget(null)}
                 data-tour-id="home-schedule"
-                style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', marginTop: '10px', order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
+                style={{ order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
             >
-                <div
-                    title="Drag to reorder"
-                    style={{ position: 'absolute', top: '0', right: '4px', zIndex: 5, cursor: 'grab', color: 'var(--text-muted)', opacity: 0.5, padding: '4px' }}
-                >
+                <div title="Drag to reorder" className="master-schedule__drag-handle">
                     <GripVertical size={16} />
                 </div>
-                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: isMobile ? '4px' : '0', paddingLeft: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Clock size={isMobile ? 16 : 18} color="var(--accent)" />
-                        <h2 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', letterSpacing: '0.5px' }}>{isMobile ? 'Schedule & Timeline' : 'Master Schedule Flow & Active Timeline'}</h2>
+                <div className="master-schedule__header">
+                    <div className="master-schedule__header-left">
+                        <Clock size={18} color="var(--accent)" />
+                        <h2 className="master-schedule__title">Master Schedule Flow &amp; Active Timeline</h2>
                     </div>
-                    <span style={{ fontSize: isMobile ? '11px' : '13px', color: 'var(--text-muted)' }}>{masterQueue.length} Master Queue Blocks Active</span>
+                    <span className="master-schedule__count">{masterQueue.length} Master Queue Blocks Active</span>
                 </div>
 
                 {masterQueue.length === 0 ? (
-                    <div style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: isMobile ? '8px' : '10px',
-                        padding: isMobile ? '32px 20px' : '48px 24px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px',
-                        textAlign: 'center',
-                    }}>
-                        <Clock size={isMobile ? 24 : 28} color="var(--text-muted)" style={{ opacity: 0.5 }} />
-                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: '600' }}>No tasks in your queue yet</span>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Add a task in the Planner, Timetable, Gym, or Diet and it'll show up here automatically.</span>
+                    <div className="master-schedule__empty">
+                        <Clock size={28} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+                        <span className="master-schedule__empty-title">No tasks in your queue yet</span>
+                        <span className="master-schedule__empty-sub">Add a task in the Planner, Timetable, Gym, or Diet and it'll show up here automatically.</span>
                     </div>
                 ) : (
                     (() => {
@@ -1089,7 +959,6 @@ const HomePage = ({ setActiveTab }) => {
                                     isNext={isNext}
                                     opacityLevel={opacityLevel}
                                     setActiveTab={setActiveTab}
-                                    isMobile={isMobile}
                                     cardState={{
                                         ...storedCardState,
                                         // The source module's own real status
