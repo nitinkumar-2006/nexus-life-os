@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import GreetingCard from '../components/GreetingCard';
 import AIDailyBriefingCard from '../components/AIDailyBriefingCard.jsx';
-import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical } from 'lucide-react';
+import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical, CalendarDays, Repeat } from 'lucide-react';
 import { useTaskRegistry } from '../context/TaskRegistryContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import TourGuide from '../components/TourGuide.jsx';
@@ -49,23 +49,6 @@ const CATEGORY_STYLE = {
 const DEFAULT_CATEGORY_STYLE = { tab: 'Planner', accent: 'var(--text-muted)', tag: null };
 const resolveCategoryStyle = (category) => CATEGORY_STYLE[category] || DEFAULT_CATEGORY_STYLE;
 
-// A couple of short, generic, category-flavored placeholder sub-tasks shown
-// in the expanded card view - real per-task sub-tasks would come from
-// wherever `item` itself is eventually sourced from (planner tasks already
-// have real titles/dates; the static default items are demo content, same
-// as the rest of this mock schedule).
-const SUBTASK_LIBRARY = {
-    'Study Hub': ['Review core concepts', 'Work through practice problems', 'Note down open questions'],
-    'Study': ['Review core concepts', 'Work through practice problems', 'Note down open questions'],
-    'Development': ['Pull latest changes', 'Implement + test the next unit', 'Push and update the task tracker'],
-    'College': ['Skim today\u2019s reading', 'Attend/rewatch the session', 'Write a 3-line summary'],
-    'Review': ['Re-read yesterday\u2019s notes', 'Spot-check weak areas', 'Plan tomorrow\u2019s focus'],
-    'Fitness': ['Warm up', 'Main set', 'Cool down + stretch'],
-    'Diet': ['Log the meal', 'Check hydration for the day', 'Prep next meal if needed'],
-    'Night Flow': ['Tidy up the desk', 'Quick journal line', 'Screens off'],
-};
-const DEFAULT_SUBTASKS = ['Get started', 'Make progress', 'Wrap up'];
-const getSubtasks = (category) => SUBTASK_LIBRARY[category] || DEFAULT_SUBTASKS;
 
 // Converts a fractional-hours value back into a "HH:MM AM/PM" label - used
 // to regenerate a card's displayed time after a +30m reschedule. Wraps
@@ -97,10 +80,17 @@ const applyTimeShift = (item, shiftMinutes) => {
     const shiftHours = shiftMinutes / 60;
     const shiftedStart = item.startHour + shiftHours;
     const shiftedEnd = item.endHour + shiftHours;
+    const shiftMs = shiftMinutes * 60 * 1000;
     return {
         ...item,
         startHour: shiftedStart,
         endHour: shiftedEnd,
+        // Keep the real absolute occurrence timestamps in sync with the
+        // same shift, so a reschedule genuinely moves both when this
+        // item is (or isn't) currently active AND its live "starts in"/
+        // "remaining" countdown - not just the displayed hour-of-day.
+        startAtMs: (item.startAtMs !== null && item.startAtMs !== undefined) ? item.startAtMs + shiftMs : item.startAtMs,
+        endAtMs: (item.endAtMs !== null && item.endAtMs !== undefined) ? item.endAtMs + shiftMs : item.endAtMs,
         time: FIXED_TIME_RANGE_RE.test(item.time) ? `${formatHour(shiftedStart)} - ${formatHour(shiftedEnd)}` : item.time,
         shiftedMinutes: shiftMinutes,
     };
@@ -125,35 +115,104 @@ const loadCardState = () => {
     }
 };
 
-// Formats a fractional-hours "time remaining" value the way a live
-// countdown reads naturally: hours+minutes while there's more than an hour
-// left, just minutes under that, and a clear "Ending now" right at zero
-// (never a confusing "0h 0m").
-// Real, overnight-aware "is currentHour within this range" check - a
-// plain current >= start && current < end can never match a range that
-// crosses midnight (e.g. 8:30 PM -> 12:30 AM, stored as
-// startHour=20.5/endHour=0.5), since no value can be both >= 20.5 and
-// < 0.5 at the same time. When start > end, the range genuinely
-// crosses midnight, so current is within it if it's either after start
-// (the late-night portion, e.g. 11 PM) or before end (the early-
-// morning portion after actual midnight, e.g. 2 AM) - an OR, not an
-// AND, since these are two disjoint clock-time segments of one single
-// overnight block, not a range a single value must satisfy both ends
-// of at once.
-const isWithinTimeRange = (currentHour, startHour, endHour) => {
-    if (startHour <= endHour) return currentHour >= startHour && currentHour < endHour;
-    return currentHour >= startHour || currentHour < endHour;
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+// Real, reported gap this closes: a weekly-recurring Timetable slot (one
+// registry entry PER day of the week it's scheduled on - see
+// TaskRegistryContext.jsx's own normalizeTimetableSlots) used to only
+// ever surface in today's queue, via a bare day-name match - so a task
+// scheduled on all 7 days only ever showed a single occurrence at a
+// time, one day at a time, never the several genuinely-upcoming ones a
+// "next 8" queue is actually supposed to project. Worse, two such
+// entries sharing the same bare hour-of-day (every "Sleep Time" starts
+// at 23:00, whichever day it's filed under) sorted and counted down
+// identically regardless of which real calendar day each belonged to -
+// the exact reason two different "Sleep Time" cards once showed the
+// identical "starts in" value.
+//
+// This finds ONE recurring day+hour slot's own next real occurrence, as
+// a genuine absolute timestamp pair - searching forward from right now,
+// so a still-active overnight block that started YESTERDAY is correctly
+// found and flagged active (checked first), otherwise the nearest
+// matching day within the next week. Every timed queue item (Timetable,
+// Calendar, Diet alike) gets startAtMs/endAtMs this way now, so sorting
+// and "is this active right now" can use real Date math throughout
+// instead of a day-blind hour-of-day number.
+const computeOccurrence = (dayName, startHour, endHour, now) => {
+    if (startHour === null || startHour === undefined || endHour === null || endHour === undefined) return null;
+    const crossesMidnight = endHour < startHour;
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (crossesMidnight) {
+        const yesterdayName = DAY_NAMES[(now.getDay() + 6) % 7];
+        if (dayName === yesterdayName) {
+            const startAtMs = todayMidnight - DAY_MS + startHour * HOUR_MS;
+            const endAtMs = todayMidnight + endHour * HOUR_MS;
+            if (now.getTime() < endAtMs) return { startAtMs, endAtMs };
+        }
+    }
+    for (let offset = 0; offset <= 7; offset++) {
+        const dayStartMs = todayMidnight + offset * DAY_MS;
+        if (DAY_NAMES[new Date(dayStartMs).getDay()] !== dayName) continue;
+        const startAtMs = dayStartMs + startHour * HOUR_MS;
+        const endAtMs = dayStartMs + (crossesMidnight ? endHour + 24 : endHour) * HOUR_MS;
+        if (now.getTime() < endAtMs) return { startAtMs, endAtMs };
+    }
+    return null;
+};
+
+// A weekly-recurring slot doesn't stop after its own NEXT occurrence -
+// it keeps happening every week, forever. Real, reported gap: with only
+// one recurring task on the whole week (e.g. "Sleep Time" scheduled
+// every day), computeOccurrence's single next-occurrence-per-entry
+// result topped out at 7 distinct cards (one per day of the week) and
+// then stopped, even though the queue's own real capacity is
+// MAX_QUEUE_SIZE (8) and the 8th slot should genuinely be filled by
+// that same task's occurrence ONE WEEK after its own first one (once
+// the very first, nearest occurrence eventually completes/expires, the
+// one after it should already be waiting in the 8th slot, not leave a
+// gap). Every occurrence after the first is exactly 7 real days later -
+// no new day-name search needed, just repeated +7-day steps from
+// whatever computeOccurrence already found.
+const computeOccurrences = (dayName, startHour, endHour, now, count) => {
+    const first = computeOccurrence(dayName, startHour, endHour, now);
+    if (!first) return [];
+    const results = [first];
+    for (let i = 1; i < count; i++) {
+        const prev = results[results.length - 1];
+        results.push({ startAtMs: prev.startAtMs + 7 * DAY_MS, endAtMs: prev.endAtMs + 7 * DAY_MS });
+    }
+    return results;
+};
+
+// Same absolute-timestamp treatment for a plain same-day item (Calendar/
+// Diet - already scoped to today by their own real date, never a
+// recurring multi-day slot), so every timed queue item ends up with a
+// startAtMs/endAtMs pair in the same shape regardless of source.
+const todayOccurrence = (startHour, endHour, now) => {
+    if (startHour === null || startHour === undefined || endHour === null || endHour === undefined) return null;
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return {
+        startAtMs: todayMidnight + startHour * HOUR_MS,
+        endAtMs: todayMidnight + (endHour < startHour ? endHour + 24 : endHour) * HOUR_MS,
+    };
 };
 
 // No "left" in the value itself - the adjacent countdown-label span
 // already says "Remaining"/"Starts In", so the two together read as
 // "4h 45m REMAINING" / "20h 45m STARTS IN" rather than the redundant
 // "4h 45m left" + "Remaining" this used to produce side by side.
+// Days shown once genuinely relevant (>= 24h) - real, reported need now
+// that a Timetable slot can project up to a week out ("1d 5h STARTS IN"
+// reads far more clearly than "29h 12m").
 const formatCountdown = (hoursRemaining, zeroLabel = 'Ending now') => {
     if (hoursRemaining <= 0) return zeroLabel;
     const totalMinutes = Math.max(1, Math.round(hoursRemaining * 60));
-    const h = Math.floor(totalMinutes / 60);
+    const d = Math.floor(totalMinutes / 1440);
+    const h = Math.floor((totalMinutes % 1440) / 60);
     const m = totalMinutes % 60;
+    if (d > 0) return `${d}d ${h}h`;
     if (h <= 0) return `${m}m`;
     return `${h}h ${m}m`;
 };
@@ -166,6 +225,11 @@ const formatCountdown = (hoursRemaining, zeroLabel = 'Ending now') => {
 // countdown ticking independently of the parent's 60-second queue reload.
 // ---------------------------------------------------------------------------
 const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, setActiveTab, cardState, onToggleComplete, onSaveNote, onTimeShift }) => {
+    // Mobile needs a genuinely different DOM grouping than desktop for
+    // time+actions - see the real, reported bug this fixes further down
+    // (schedule-card__footer's own comment) - not just different CSS on
+    // the same markup.
+    const isMobile = useIsMobile();
     const [expanded, setExpanded] = useState(false);
     const [noteDraft, setNoteDraft] = useState(cardState.note || '');
     const [now, setNow] = useState(() => new Date());
@@ -187,23 +251,19 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
 
     const remainingLabel = useMemo(() => {
         // An all-day item (a festival/holiday with no clock time) has no
-        // genuine "time remaining" to count down - endHour is honestly
+        // genuine "time remaining" to count down - endAtMs is honestly
         // null for it, and without this guard that null would coerce to
         // 0 below and falsely show "Ending now" for something that's
         // actually live all day.
-        if (!isActive || item.endHour === null || item.endHour === undefined) return null;
-        const nowHours = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
-        // Real overnight adjustment - when this active item's own end
-        // time has already wrapped past midnight (endHour is numerically
-        // smaller than the current clock time, and the block is
-        // genuinely an overnight one), the end is actually on the next
-        // calendar day, so a full 24 hours is added back before
-        // subtracting - otherwise this would compute a large negative
-        // number and incorrectly show "Ending now" for an item that may
-        // have only just started.
-        const effectiveEndHour = (item.endHour < item.startHour && item.endHour <= nowHours) ? item.endHour + 24 : item.endHour;
-        return formatCountdown(effectiveEndHour - nowHours);
-    }, [isActive, now, item.endHour, item.startHour]);
+        if (!isActive || item.endAtMs === null || item.endAtMs === undefined) return null;
+        // Real, genuine absolute-timestamp math now (see computeOccurrence/
+        // todayOccurrence in the module scope above) - endAtMs already
+        // correctly accounts for an overnight crossing at the point it
+        // was computed, so this is just a plain subtraction, no
+        // modular-hour "did this already wrap past midnight" guesswork
+        // needed here at all.
+        return formatCountdown((item.endAtMs - now.getTime()) / HOUR_MS);
+    }, [isActive, now, item.endAtMs]);
 
     // Real "is this genuinely at zero time" flag - derived directly
     // from remainingLabel's own already-computed value, rather than a
@@ -216,17 +276,13 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
     // back queued card ("Queue #2", "Queue #3", ...) used to show nothing
     // at all in this slot, leaving it looking emptier/less finished than
     // the Up Next card right above it, which has real time info here.
-    // Mirrors remainingLabel's own overnight-aware adjustment: this app's
-    // own queue reordering only ever places an item with a numerically-
-    // smaller startHour after the active/reference item when it genuinely
-    // starts on the next calendar day, so that same day-wraparound
-    // adjustment applies here too.
+    // Same real absolute-timestamp math as remainingLabel above - genuinely
+    // correct for a Timetable slot projected several calendar days out
+    // (see computeOccurrence), not just "later today".
     const startsInLabel = useMemo(() => {
-        if (isActive || item.startHour === null || item.startHour === undefined) return null;
-        const nowHours = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
-        const effectiveStartHour = item.startHour <= nowHours ? item.startHour + 24 : item.startHour;
-        return formatCountdown(effectiveStartHour - nowHours, 'Starting now');
-    }, [isActive, now, item.startHour]);
+        if (isActive || item.startAtMs === null || item.startAtMs === undefined) return null;
+        return formatCountdown((item.startAtMs - now.getTime()) / HOUR_MS, 'Starting now');
+    }, [isActive, now, item.startAtMs]);
 
     const handleCardClick = () => setExpanded((v) => !v);
     const stop = (e) => e.stopPropagation();
@@ -258,6 +314,74 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
             : isNext
                 ? 'schedule-card__status-btn schedule-card__status-btn--queued'
                 : 'schedule-card__status-btn';
+
+    // Real, reported request: the expanded card used to show generic,
+    // made-up "Get started / Make progress / Wrap up" filler regardless
+    // of what the task actually was - explicitly asked to be replaced
+    // with genuinely real information instead, specifically the exact
+    // calendar date this card is for. That became actively necessary
+    // once a recurring Timetable slot can now project several distinct
+    // future occurrences of the SAME title into the queue at once (see
+    // computeOccurrences in the module scope above) - without a real
+    // date shown somewhere, two "Sleep Time" cards are otherwise
+    // indistinguishable at a glance.
+    const occurrenceDateLabel = (item.startAtMs !== null && item.startAtMs !== undefined)
+        ? new Date(item.startAtMs).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        : null;
+    // Only a Timetable-sourced, timed slot is genuinely a repeating
+    // weekly thing - a Calendar event or Diet meal is scoped to its own
+    // one real date/day, not a recurring template.
+    const isRecurringWeekly = item.widgetGroup === 'timetable' && item.hasRealTime;
+
+    // Extracted so both the desktop layout (time inside .info-row,
+    // actions standalone at the row's far right) and the mobile layout
+    // (time+actions grouped together in .schedule-card__footer, see its
+    // own comment below) can render the exact same real JSX/handlers,
+    // just placed in different DOM positions - not two copies that could
+    // drift apart.
+    const timeBlock = (item.hasRealTime || item.isAllDayToday) ? (
+        <span className="schedule-card__time">
+            <Clock size={11} />
+            <span className="schedule-card__time-text">{item.time}</span>
+        </span>
+    ) : null;
+
+    const actionsBlock = (
+        <div className="schedule-card__actions">
+            {/* Quick reschedule - queued/upcoming cards only (the
+                active card is already running; shifting IT forward
+                isn't a "push back a not-yet-started task" action),
+                AND only for items with a real clock time - pushing
+                back a flexible Planner task or a completed Gym log
+                that has no time to begin with doesn't mean
+                anything. Cumulative: each click adds another 30
+                minutes. */}
+            {!isActive && item.hasRealTime && (
+                <button onClick={handleTimeShiftClick} title="Push this task back by 30 minutes" className="schedule-card__reschedule-btn">
+                    <Timer size={12} /> +30m{cardState.timeShift ? ` (+${cardState.timeShift})` : ''}
+                </button>
+            )}
+
+            {/* "Ending now" badge - only appears at the genuine
+                zero-time moment (isEndingNow), not for the whole
+                active duration - the ongoing countdown already
+                lives in the center column above. */}
+            {isActive && isEndingNow && (
+                <span className="schedule-card__ending-badge">
+                    <Clock size={11} /> Ending now
+                </span>
+            )}
+
+            {/* Inline completion toggle - the actual interactive
+                status control. Clicking marks the task done/not-done
+                immediately, no page switch, persisted locally. */}
+            <button onClick={handleCompleteClick} title={completed ? 'Mark as not done' : 'Mark as done'} className={statusBtnClass}>
+                {completed ? <CheckCircle2 size={15} /> : isActive ? <PlayCircle size={15} /> : <Circle size={13} />}
+                {completed ? 'Completed' : isActive ? 'In Progress' : isNext ? 'Queued' : 'Upcoming'}
+            </button>
+            <ChevronDown size={15} color="var(--text-muted)" className={`schedule-card__chevron${expanded ? ' schedule-card__chevron--expanded' : ''}`} />
+        </div>
+    );
 
     return (
         <div
@@ -302,12 +426,11 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                         </div>
 
                         <div className="schedule-card__info-row">
-                            {(item.hasRealTime || item.isAllDayToday) && (
-                                <span className="schedule-card__time">
-                                    <Clock size={11} />
-                                    <span className="schedule-card__time-text">{item.time}</span>
-                                </span>
-                            )}
+                            {/* Mobile renders its own copy of this inside
+                                schedule-card__footer below instead (see
+                                that block's own comment for why) - never
+                                both at once. */}
+                            {!isMobile && timeBlock}
                             {/* Clickable source badge - navigates straight to the
                                 module page. stopPropagation so it never also
                                 triggers the card's own expand/collapse. */}
@@ -343,57 +466,66 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                     </div>
                 )}
 
-                <div className="schedule-card__actions">
-                    {/* Quick reschedule - queued/upcoming cards only (the
-                        active card is already running; shifting IT forward
-                        isn't a "push back a not-yet-started task" action),
-                        AND only for items with a real clock time - pushing
-                        back a flexible Planner task or a completed Gym log
-                        that has no time to begin with doesn't mean
-                        anything. Cumulative: each click adds another 30
-                        minutes. */}
-                    {!isActive && item.hasRealTime && (
-                        <button onClick={handleTimeShiftClick} title="Push this task back by 30 minutes" className="schedule-card__reschedule-btn">
-                            <Timer size={12} /> +30m{cardState.timeShift ? ` (+${cardState.timeShift})` : ''}
-                        </button>
-                    )}
-
-                    {/* "Ending now" badge - only appears at the genuine
-                        zero-time moment (isEndingNow), not for the whole
-                        active duration - the ongoing countdown already
-                        lives in the center column above. */}
-                    {isActive && isEndingNow && (
-                        <span className="schedule-card__ending-badge">
-                            <Clock size={11} /> Ending now
-                        </span>
-                    )}
-
-                    {/* Inline completion toggle - the actual interactive
-                        status control. Clicking marks the task done/not-done
-                        immediately, no page switch, persisted locally. */}
-                    <button onClick={handleCompleteClick} title={completed ? 'Mark as not done' : 'Mark as done'} className={statusBtnClass}>
-                        {completed ? <CheckCircle2 size={15} /> : isActive ? <PlayCircle size={15} /> : <Circle size={13} />}
-                        {completed ? 'Completed' : isActive ? 'In Progress' : isNext ? 'Queued' : 'Upcoming'}
-                    </button>
-                    <ChevronDown size={15} color="var(--text-muted)" className={`schedule-card__chevron${expanded ? ' schedule-card__chevron--expanded' : ''}`} />
-                </div>
+                {/* Real, reported bug this split fixes: on mobile, time
+                    and actions used to be two independent grid items
+                    sharing the SAME column-3 track that rows 1-2 (status
+                    label / title) also use. That coupling is what made
+                    "Sleep Time"/"Queue #2" wrap to 2 lines whenever the
+                    actions column needed to be wide enough to fit
+                    "Upcoming" + "+30m" + the chevron - a wider column 3
+                    for row 4 directly meant a narrower column 2 (the
+                    title) for the WHOLE card, not just that one row.
+                    schedule-card__footer (mobile only - see its own CSS)
+                    groups time+actions into one independent mini-grid
+                    that spans the full card width on its own row,
+                    completely decoupled from column 3's width elsewhere
+                    in the card - so actions can size itself to fit
+                    perfectly (auto, no more guessed fixed px), and the
+                    title/status label above are never squeezed by it
+                    again. Desktop is untouched: .schedule-card__footer
+                    is display:contents there, so actionsBlock renders
+                    exactly where it always did (the far right of the
+                    whole row), and timeBlock only ever renders via the
+                    !isMobile branch above instead. */}
+                {isMobile ? (
+                    <div className="schedule-card__footer">
+                        {timeBlock}
+                        {actionsBlock}
+                    </div>
+                ) : actionsBlock}
             </div>
 
             {/* Expanded details: toggled by clicking anywhere on the card
                 body (except the source badge / complete toggle above).
-                Sub-tasks are lightweight, category-flavored placeholder
-                content - same mock-data approach the rest of this schedule
-                already uses - plus a real, saved micro-note field. */}
+                Real info about THIS specific occurrence (which exact date
+                it's for, its scheduled time, its source category, and
+                whether it's a weekly-recurring Timetable slot) - not the
+                generic, made-up "Get started/Make progress/Wrap up"
+                filler this used to show regardless of what the task
+                actually was - plus a real, saved micro-note field. */}
             {expanded && (
                 <div onClick={stop} className="schedule-card__details">
                     <div>
-                        <div className="schedule-card__details-label">Sub-tasks</div>
+                        <div className="schedule-card__details-label">Details</div>
                         <div className="schedule-card__subtasks">
-                            {getSubtasks(item.category).map((sub, i) => (
-                                <div key={i} className="schedule-card__subtask">
-                                    <Circle size={6} fill="var(--text-muted)" color="var(--text-muted)" /> {sub}
+                            {occurrenceDateLabel && (
+                                <div className="schedule-card__subtask">
+                                    <CalendarDays size={12} color="var(--text-muted)" /> {occurrenceDateLabel}
                                 </div>
-                            ))}
+                            )}
+                            {item.hasRealTime && (
+                                <div className="schedule-card__subtask">
+                                    <Clock size={12} color="var(--text-muted)" /> {item.time}
+                                </div>
+                            )}
+                            <div className="schedule-card__subtask">
+                                <Circle size={6} fill="var(--text-muted)" color="var(--text-muted)" /> {item.category}
+                            </div>
+                            {isRecurringWeekly && (
+                                <div className="schedule-card__subtask">
+                                    <Repeat size={12} color="var(--text-muted)" /> Repeats every {DAY_NAMES[new Date(item.startAtMs).getDay()]}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -558,15 +690,52 @@ const HomePage = ({ setActiveTab }) => {
         const todayStr = getLocalDateString();
         const queueItems = [];
 
-        // Timetable is a weekly-recurring template, not date-specific -
-        // only TODAY's slots belong in a daily timeline. No completion
-        // tracking exists for these in the source data, so they're always
-        // pending.
-        registryBySource.timetable.filter((e) => e.isToday).forEach((e) => {
-            queueItems.push({
-                id: e.id, startHour: e.startHour, endHour: e.endHour,
-                time: e.raw.time || 'Scheduled', title: e.title, category: e.category,
-                hasRealTime: e.startHour !== null, preCompleted: e.status === 'completed', widgetGroup: 'timetable',
+        const now = new Date();
+
+        // Timetable is a weekly-recurring template - one registry entry
+        // PER day of the week it's scheduled on (see
+        // TaskRegistryContext.jsx's own normalizeTimetableSlots), not a
+        // single "today only" thing, and it keeps recurring forever, not
+        // just once - a real, reported follow-up gap: with computeOccurrence
+        // finding only ONE (the next) occurrence per entry, a single
+        // recurring task on every day of the week topped out at 7 cards
+        // and then just stopped, even though the queue's own real
+        // capacity is MAX_QUEUE_SIZE (8) and an 8th, later occurrence of
+        // that SAME task genuinely exists and should already be queued
+        // up - not leave a visible gap until the first one completes.
+        // computeOccurrences (plural) generates up to MAX_QUEUE_SIZE
+        // future occurrences per entry (provably enough: the true
+        // globally-soonest 8 across every entry can never need more than
+        // 8 from any single one), each becoming its own real, distinct
+        // queue item with a unique id (`${e.id}::occN`) - so completing/
+        // rescheduling/noting one specific dated occurrence never
+        // touches another week's. The first occurrence keeps the base id
+        // unchanged, preserving any already-saved cardState for it.
+        // Untimed slots (no parseable clock time) have no day to project
+        // by, so they keep the original isToday-only, single-instance
+        // behavior instead. No completion tracking exists for Timetable
+        // slots in the source data itself, so a synthetic future
+        // occurrence is always honestly pending, never inheriting
+        // whichever real-world day the template happens to be checked
+        // off for right now.
+        registryBySource.timetable.forEach((e) => {
+            if (e.startHour === null || e.startHour === undefined) {
+                if (!e.isToday) return;
+                queueItems.push({
+                    id: e.id, startHour: null, endHour: null, startAtMs: null, endAtMs: null,
+                    time: e.raw.time || 'Scheduled', title: e.title, category: e.category,
+                    hasRealTime: false, preCompleted: e.status === 'completed', widgetGroup: 'timetable',
+                });
+                return;
+            }
+            const occurrences = computeOccurrences(e.day, e.startHour, e.endHour, now, MAX_QUEUE_SIZE);
+            occurrences.forEach((occ, i) => {
+                queueItems.push({
+                    id: i === 0 ? e.id : `${e.id}::occ${i}`,
+                    startHour: e.startHour, endHour: e.endHour, startAtMs: occ.startAtMs, endAtMs: occ.endAtMs,
+                    time: e.raw.time || 'Scheduled', title: e.title, category: e.category,
+                    hasRealTime: true, preCompleted: i === 0 ? e.status === 'completed' : false, widgetGroup: 'timetable',
+                });
             });
         });
 
@@ -574,10 +743,15 @@ const HomePage = ({ setActiveTab }) => {
         // derived virtual ones CalendarPage itself already shows, which
         // are covered by the Timetable source above - registering both
         // would double-count them). Today's real events only, matching
-        // Timetable's own today-scoping, with the real logged time.
+        // Timetable's own today-scoping, with the real logged time - a
+        // dated Calendar event genuinely only happens on its own one
+        // real date, never a recurring multi-day projection the way a
+        // Timetable slot can.
         registryBySource.calendarEvents.filter((e) => e.date === todayStr).forEach((e) => {
+            const occ = todayOccurrence(e.startHour, e.endHour, now);
             queueItems.push({
                 id: e.id, startHour: e.startHour, endHour: e.endHour,
+                startAtMs: occ?.startAtMs ?? null, endAtMs: occ?.endAtMs ?? null,
                 time: e.raw.time || 'Scheduled', title: e.title, category: e.category,
                 hasRealTime: e.startHour !== null, preCompleted: e.status === 'completed', widgetGroup: 'calendar',
                 // A dated calendar event with no parseable clock time (an
@@ -632,8 +806,10 @@ const HomePage = ({ setActiveTab }) => {
         // represent the current day's plan), so all of them show here,
         // each carrying its own real completed status.
         registryBySource.diet.forEach((e) => {
+            const occ = todayOccurrence(e.startHour, e.endHour, now);
             queueItems.push({
                 id: e.id, startHour: e.startHour, endHour: e.endHour,
+                startAtMs: occ?.startAtMs ?? null, endAtMs: occ?.endAtMs ?? null,
                 time: e.raw.time || 'Scheduled', title: e.title, category: e.category,
                 hasRealTime: e.startHour !== null, preCompleted: e.status === 'completed', widgetGroup: 'diet',
             });
@@ -702,8 +878,14 @@ const HomePage = ({ setActiveTab }) => {
 
         // Split timed from untimed - "which item is currently active" is a
         // genuinely time-based question, so it can only ever be answered
-        // using items that actually have a real clock time.
-        const timed = visibleItems.filter((i) => i.hasRealTime).sort((a, b) => a.startHour - b.startHour);
+        // using items that actually have a real clock time. Sorted by the
+        // real absolute startAtMs now (see computeOccurrence/
+        // todayOccurrence above), not the old bare startHour - a bare
+        // hour-of-day can't correctly order items that span different
+        // calendar days (today's 11 PM is sooner than tomorrow's 2 AM
+        // even though 2 < 23), which was the actual root cause behind
+        // both the duplicate-"Sleep Time" and identical-countdown bugs.
+        const timed = visibleItems.filter((i) => i.hasRealTime).sort((a, b) => a.startAtMs - b.startAtMs);
         const untimedAll = visibleItems.filter((i) => !i.hasRealTime);
         // All-day calendar events dated today are split out here and
         // pre-marked live - see the isAllDayToday comment above where
@@ -718,9 +900,14 @@ const HomePage = ({ setActiveTab }) => {
             return;
         }
 
-        const currentHour = new Date().getHours() + new Date().getMinutes() / 60;
-
-        let activeIndex = timed.findIndex(item => isWithinTimeRange(currentHour, item.startHour, item.endHour));
+        // Real Date-math "is this active right now" check, replacing the
+        // old isWithinTimeRange(currentHour, startHour, endHour) modular-
+        // hour comparison - startAtMs/endAtMs are already genuine absolute
+        // timestamps (computeOccurrence/todayOccurrence above already
+        // resolved the overnight-crossing case correctly when building
+        // them), so a plain range check is now sufficient and correct
+        // for any item regardless of which calendar day it falls on.
+        let activeIndex = timed.findIndex(item => now.getTime() >= item.startAtMs && now.getTime() < item.endAtMs);
         // Real, honest flag - true only if a genuine match was found
         // above, captured BEFORE the index-0 fallback below. Without
         // this, the render logic downstream has no way to tell "this
@@ -794,7 +981,34 @@ const HomePage = ({ setActiveTab }) => {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleWidgetDrop('greeting')}
                 onDragEnd={() => setDraggedWidget(null)}
-                style={{ order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1, position: 'relative' }}
+                style={{
+                    order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1, position: isMobile ? 'sticky' : 'relative',
+                    // Real, explicit request: the Greeting card should
+                    // stay pinned on screen at all times on mobile -
+                    // regardless of which order the reorder feature above
+                    // has it in (swapWidgetOrder can put Master Schedule
+                    // first) - with only Master Schedule's own cards
+                    // (and its own header/heading) actually scrolling
+                    // underneath/past it. `order` and `position:sticky`
+                    // are independent CSS mechanisms - swapping order
+                    // still works exactly as before, sticky just means
+                    // THIS card never leaves the top of the viewport once
+                    // scrolled to it, wherever it currently sits in that
+                    // order. top matches the real mobile header height
+                    // (same expression MobileSidebarDrawer.jsx already
+                    // uses) so this sits directly below it, never
+                    // overlapping. --glass-blur is locally floored here
+                    // (same non-destructive max()-floor idiom already
+                    // used for the bottom tab bar's own identical bleed-
+                    // through issue) since Master Schedule's cards now
+                    // genuinely scroll past behind this card's glass
+                    // background.
+                    ...(isMobile ? {
+                        top: 'max(60px, calc(54px + env(safe-area-inset-top, 0px)))',
+                        zIndex: 20,
+                        '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
+                    } : {}),
+                }}
             >
                 <div
                     title="Drag to reorder (desktop) or tap to swap order (mobile)"

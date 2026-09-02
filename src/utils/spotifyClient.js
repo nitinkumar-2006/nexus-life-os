@@ -315,6 +315,36 @@ export const getSpotifyAlbumTracks = async (accessToken, albumId, albumArtworkUr
     }));
 };
 
+// Real, explicitly-requested feature: "Up Next" only ever showed this
+// app's own local queue, even while Spotify was the genuinely active,
+// audible source ("jab main Spotify chalau toh Spotify ka dikhe"). Spotify
+// has a real, documented endpoint for exactly this - GET /v1/me/player/
+// queue - the currently playing track plus its own real upcoming queue (as
+// actually set by the user inside Spotify itself / Spotify's own shuffle-
+// radio logic), not something this app can fabricate or derive from the
+// local playlist. Requires an active Spotify Connect session (a device
+// actively playing) - Spotify returns an empty/absent queue otherwise,
+// handled as a real empty result rather than an error.
+export const getSpotifyQueue = async (accessToken, { signal } = {}) => {
+    if (!accessToken) throw new Error('Spotify is not connected.');
+    let res;
+    try {
+        res = await fetch('https://api.spotify.com/v1/me/player/queue', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal,
+        });
+    } catch (e) {
+        if (e?.name === 'AbortError') throw e;
+        throw new Error('Could not reach the Spotify API (network error).');
+    }
+    if (!res.ok) throw new Error(await describeSpotifyError(res, "Could not load Spotify's queue"));
+    const json = await res.json();
+    return {
+        currentlyPlaying: json?.currently_playing ? normalizeSpotifyTrack(json.currently_playing) : null,
+        queue: (Array.isArray(json?.queue) ? json.queue : []).filter((t) => t?.id).map(normalizeSpotifyTrack),
+    };
+};
+
 function normalizeSpotifyTrack(t) {
     return {
         id: t.id,

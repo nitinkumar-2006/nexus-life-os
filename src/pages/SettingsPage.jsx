@@ -543,41 +543,95 @@ const BackupPassphraseModal = ({ mode, onSubmit, onClose }) => {
 // clicking the pencil icon opens a real PIN challenge, and the actual
 // editable content (passed as children) only ever renders after a correct
 // PIN is verified.
-const LockedApiField = ({ label, pinConfigured, storedPinHash, hasValue, children }) => {
-    const [isUnlocked, setIsUnlocked] = useState(false);
+// Explicit request: every credential row here used to render fully
+// expanded, always, regardless of whether the service was even in use -
+// "sab khula khula dikhta hai", cluttering the page with input fields for
+// services most people never touch. Replaces the old LockedApiField (PIN-
+// gated collapse only) with a genuinely collapsed-by-default row for every
+// field, PIN or no PIN:
+// - Not yet connected: a small ON/OFF toggle (the exact same ToggleSwitch
+//   component/style Saavn's own "enable this service" row already uses,
+//   per explicit reference) - flip it on to reveal the real input fields,
+//   off to hide them again without losing anything typed.
+// - Already connected: a compact row with just a pencil/edit icon (the
+//   same affordance the old PIN-locked view already had) - click it to
+//   reopen the fields for editing.
+// - Auto-collapses itself the instant a field goes from not-yet-confirmed
+//   to confirmed (a real Confirm click just succeeded) - "daalne ke baad
+//   hide ho jaaye" - so a fresh save always settles back into the compact
+//   pencil-edit state without a separate manual step.
+// PIN-gating (when the user HAS set up a security PIN) still applies on
+// top of this exactly as before - opening either affordance asks for the
+// PIN first if one is configured, unchanged from the old behavior.
+const CollapsibleApiField = ({ label, isConnected, pinConfigured, storedPinHash, children }) => {
+    const [isOpen, setIsOpen] = useState(false);
     const [showPinModal, setShowPinModal] = useState(false);
+    const wasConnectedRef = useRef(isConnected);
 
-    if (!pinConfigured || isUnlocked) {
-        return <>{children}</>;
+    useEffect(() => {
+        if (isConnected && !wasConnectedRef.current) {
+            setIsOpen(false);
+        }
+        wasConnectedRef.current = isConnected;
+    }, [isConnected]);
+
+    const requestOpen = () => {
+        if (pinConfigured) {
+            setShowPinModal(true);
+            return;
+        }
+        setIsOpen(true);
+    };
+
+    if (isOpen) {
+        return (
+            <div>
+                {children}
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '4px', marginTop: '8px', padding: 0,
+                        background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '11px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                >
+                    <ChevronDown size={13} style={{ transform: 'rotate(180deg)' }} /> Collapse
+                </button>
+            </div>
+        );
     }
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                <span>{label}</span>
-                <span style={{ color: 'var(--text-muted)', fontWeight: '600', fontSize: '11px' }}>{hasValue ? 'Locked' : 'Not Set · Locked'}</span>
-            </div>
             <div style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 16px',
                 borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', boxSizing: 'border-box',
             }}>
-                <span style={{ color: 'var(--text-muted)', fontSize: '14px', letterSpacing: hasValue ? '3px' : 'normal' }}>
-                    {hasValue ? '••••••••••••' : 'Not set'}
-                </span>
-                <button
-                    type="button"
-                    onClick={() => setShowPinModal(true)}
-                    title={`Verify PIN to edit ${label}`}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', display: 'flex', padding: '2px' }}
-                >
-                    <Edit3 size={15} />
-                </button>
+                <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{label}</div>
+                    <div style={{ fontSize: '11px', fontWeight: '700', color: isConnected ? 'var(--success)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                        {isConnected && <Check size={11} />}
+                        {isConnected ? 'Connected' : 'Not Connected'}
+                    </div>
+                </div>
+                {isConnected ? (
+                    <button
+                        type="button"
+                        onClick={requestOpen}
+                        title={`Edit ${label}`}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', display: 'flex', padding: '2px', flexShrink: 0 }}
+                    >
+                        <Edit3 size={15} />
+                    </button>
+                ) : (
+                    <ToggleSwitch checked={false} onChange={requestOpen} compact />
+                )}
             </div>
             {showPinModal && (
                 <PinVerifyModal
                     fieldLabel={label}
                     storedPinHash={storedPinHash}
-                    onVerified={() => { setIsUnlocked(true); setShowPinModal(false); }}
+                    onVerified={() => { setIsOpen(true); setShowPinModal(false); }}
                     onClose={() => setShowPinModal(false)}
                 />
             )}
@@ -2780,7 +2834,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                 {activeCategory === 'api' && (
                 <>
                 <SettingCard icon={Key} title="Media & Developer API Integrations" subtitle="GitHub, Apple Music, Spotify, and Saavn" defaultOpen>
-                    <LockedApiField label="GitHub API Token" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.githubToken}>
+                    <CollapsibleApiField label="GitHub API Token" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.githubTokenConfirmed}>
                         <div>
                             <label htmlFor="githubToken" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>GitHub API Token</span>
@@ -2806,19 +2860,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('githubTokenConfirmed')}
-                                    disabled={githubTokenStatus !== 'connected'}
-                                    title={githubTokenStatus === 'connected' ? 'Save this token' : 'Token must validate successfully before it can be confirmed'}
+                                    disabled={githubTokenStatus !== 'connected' || settings.githubTokenConfirmed}
+                                    title={settings.githubTokenConfirmed ? 'Already saved' : githubTokenStatus === 'connected' ? 'Save this token' : 'Token must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: githubTokenStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: githubTokenStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${githubTokenStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (githubTokenStatus === 'connected' && !settings.githubTokenConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (githubTokenStatus === 'connected' && !settings.githubTokenConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(githubTokenStatus === 'connected' && !settings.githubTokenConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: githubTokenStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: githubTokenStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (githubTokenStatus === 'connected' && !settings.githubTokenConfirmed) ? 'pointer' : 'default',
+                                        opacity: (githubTokenStatus === 'connected' && !settings.githubTokenConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.githubTokenConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             <span style={{ fontSize: '11px', color: (githubTokenStatus === 'invalid' || githubTokenStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
@@ -2830,9 +2884,9 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 {githubTokenStatus === 'idle' && 'Enter a token to verify it'}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
-                    <LockedApiField label="Apple Music API Token" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.appleMusicToken}>
+                    <CollapsibleApiField label="Apple Music API Token" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.appleMusicTokenConfirmed}>
                         <div>
                             <label htmlFor="appleMusicToken" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>Apple Music API Token</span>
@@ -2858,19 +2912,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('appleMusicTokenConfirmed')}
-                                    disabled={appleMusicTokenStatus !== 'connected'}
-                                    title={appleMusicTokenStatus === 'connected' ? 'Save this token' : 'Token must validate successfully before it can be confirmed'}
+                                    disabled={appleMusicTokenStatus !== 'connected' || settings.appleMusicTokenConfirmed}
+                                    title={settings.appleMusicTokenConfirmed ? 'Already saved' : appleMusicTokenStatus === 'connected' ? 'Save this token' : 'Token must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: appleMusicTokenStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: appleMusicTokenStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${appleMusicTokenStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (appleMusicTokenStatus === 'connected' && !settings.appleMusicTokenConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (appleMusicTokenStatus === 'connected' && !settings.appleMusicTokenConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(appleMusicTokenStatus === 'connected' && !settings.appleMusicTokenConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: appleMusicTokenStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: appleMusicTokenStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (appleMusicTokenStatus === 'connected' && !settings.appleMusicTokenConfirmed) ? 'pointer' : 'default',
+                                        opacity: (appleMusicTokenStatus === 'connected' && !settings.appleMusicTokenConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.appleMusicTokenConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             <span style={{ fontSize: '11px', color: (appleMusicTokenStatus === 'invalid' || appleMusicTokenStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
@@ -2882,9 +2936,9 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 {appleMusicTokenStatus === 'idle' && 'Enter a token to verify it'}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
-                    <LockedApiField label="Spotify Client ID & Secret" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!(settings.spotifyClientId || settings.spotifyClientSecret)}>
+                    <CollapsibleApiField label="Spotify Client ID & Secret" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.spotifyCredConfirmed}>
                         <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>Spotify Client ID & Secret</span>
@@ -2919,19 +2973,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('spotifyCredConfirmed')}
-                                    disabled={spotifyCredStatus !== 'connected'}
-                                    title={spotifyCredStatus === 'connected' ? 'Save these credentials' : 'Credentials must validate successfully before they can be confirmed'}
+                                    disabled={spotifyCredStatus !== 'connected' || settings.spotifyCredConfirmed}
+                                    title={settings.spotifyCredConfirmed ? 'Already saved' : spotifyCredStatus === 'connected' ? 'Save these credentials' : 'Credentials must validate successfully before they can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '11px 16px', borderRadius: '12px',
-                                        background: spotifyCredStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: spotifyCredStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${spotifyCredStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (spotifyCredStatus === 'connected' && !settings.spotifyCredConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (spotifyCredStatus === 'connected' && !settings.spotifyCredConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(spotifyCredStatus === 'connected' && !settings.spotifyCredConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit',
-                                        cursor: spotifyCredStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: spotifyCredStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (spotifyCredStatus === 'connected' && !settings.spotifyCredConfirmed) ? 'pointer' : 'default',
+                                        opacity: (spotifyCredStatus === 'connected' && !settings.spotifyCredConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.spotifyCredConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             <span style={{ fontSize: '11px', color: (spotifyCredStatus === 'invalid' || spotifyCredStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
@@ -2943,7 +2997,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 {spotifyCredStatus === 'idle' && 'Enter both fields to verify'}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
                     {/* Saavn (unofficial JioSaavn API) - needs no secret key at
                         all (every public mirror of this reverse-engineered API
@@ -2996,19 +3050,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('saavnApiBaseUrlConfirmed')}
-                                    disabled={saavnBaseUrlStatus !== 'connected'}
-                                    title={saavnBaseUrlStatus === 'connected' ? 'Save this base URL' : 'The mirror must respond successfully before this can be confirmed'}
+                                    disabled={saavnBaseUrlStatus !== 'connected' || settings.saavnApiBaseUrlConfirmed}
+                                    title={settings.saavnApiBaseUrlConfirmed ? 'Already saved' : saavnBaseUrlStatus === 'connected' ? 'Save this base URL' : 'The mirror must respond successfully before this can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: saavnBaseUrlStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: saavnBaseUrlStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${saavnBaseUrlStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (saavnBaseUrlStatus === 'connected' && !settings.saavnApiBaseUrlConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (saavnBaseUrlStatus === 'connected' && !settings.saavnApiBaseUrlConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(saavnBaseUrlStatus === 'connected' && !settings.saavnApiBaseUrlConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: saavnBaseUrlStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: saavnBaseUrlStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (saavnBaseUrlStatus === 'connected' && !settings.saavnApiBaseUrlConfirmed) ? 'pointer' : 'default',
+                                        opacity: (saavnBaseUrlStatus === 'connected' && !settings.saavnApiBaseUrlConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.saavnApiBaseUrlConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             <span style={{ fontSize: '11px', color: saavnBaseUrlStatus === 'error' ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
@@ -3047,7 +3101,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                 </SettingCard>
 
                 <SettingCard icon={Cpu} title="AI & Learning API Integrations" subtitle="Chat providers and the Syllabus Hub's YouTube search">
-                    <LockedApiField label="OpenAI (ChatGPT) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.openaiApiKey}>
+                    <CollapsibleApiField label="OpenAI (ChatGPT) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.openaiApiKeyConfirmed}>
                         <div>
                             <label htmlFor="openaiApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>OpenAI (ChatGPT) API Key</span>
@@ -3073,19 +3127,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('openaiApiKeyConfirmed')}
-                                    disabled={openaiKeyStatus !== 'connected'}
-                                    title={openaiKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    disabled={openaiKeyStatus !== 'connected' || settings.openaiApiKeyConfirmed}
+                                    title={settings.openaiApiKeyConfirmed ? 'Already saved' : openaiKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: openaiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: openaiKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${openaiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: openaiKeyStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: openaiKeyStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed) ? 'pointer' : 'default',
+                                        opacity: (openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.openaiApiKeyConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             {/* Once a key is genuinely confirmed (settings.openaiApiKeyConfirmed,
@@ -3114,9 +3168,9 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 )}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
-                    <LockedApiField label="Google (Gemini) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.geminiApiKey}>
+                    <CollapsibleApiField label="Google (Gemini) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.geminiApiKeyConfirmed}>
                         <div>
                             <label htmlFor="geminiApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>Google (Gemini) API Key</span>
@@ -3142,19 +3196,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('geminiApiKeyConfirmed')}
-                                    disabled={geminiKeyStatus !== 'connected'}
-                                    title={geminiKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    disabled={geminiKeyStatus !== 'connected' || settings.geminiApiKeyConfirmed}
+                                    title={settings.geminiApiKeyConfirmed ? 'Already saved' : geminiKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: geminiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: geminiKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${geminiKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: geminiKeyStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: geminiKeyStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed) ? 'pointer' : 'default',
+                                        opacity: (geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.geminiApiKeyConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             {/* Same "an already-confirmed key always wins over
@@ -3171,14 +3225,14 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 )}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
                     {/* Optional - the Syllabus Hub's YouTube resource search
                         works with zero configuration (a real "Search on
                         YouTube" link for every topic), this key only
                         upgrades that to real embeddable video cards with
                         genuine thumbnails/titles from Google's own API. */}
-                    <LockedApiField label="YouTube Data API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.youtubeApiKey}>
+                    <CollapsibleApiField label="YouTube Data API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.youtubeApiKeyConfirmed}>
                         <div>
                             <label htmlFor="youtubeApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>YouTube Data API Key <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>(optional)</span></span>
@@ -3204,19 +3258,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('youtubeApiKeyConfirmed')}
-                                    disabled={youtubeKeyStatus !== 'connected'}
-                                    title={youtubeKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    disabled={youtubeKeyStatus !== 'connected' || settings.youtubeApiKeyConfirmed}
+                                    title={settings.youtubeApiKeyConfirmed ? 'Already saved' : youtubeKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: youtubeKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: youtubeKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${youtubeKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (youtubeKeyStatus === 'connected' && !settings.youtubeApiKeyConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (youtubeKeyStatus === 'connected' && !settings.youtubeApiKeyConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(youtubeKeyStatus === 'connected' && !settings.youtubeApiKeyConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: youtubeKeyStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: youtubeKeyStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (youtubeKeyStatus === 'connected' && !settings.youtubeApiKeyConfirmed) ? 'pointer' : 'default',
+                                        opacity: (youtubeKeyStatus === 'connected' && !settings.youtubeApiKeyConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.youtubeApiKeyConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             {/* Same "an already-confirmed key always wins over
@@ -3234,13 +3288,13 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 )}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
                     {/* Same priority/treatment as OpenAI/Gemini above, per
                         explicit request - Grok (xAI) is an OpenAI-compatible
                         REST API, so this reuses the identical verification
                         and confirm-flow pattern, just pointed at api.x.ai. */}
-                    <LockedApiField label="Grok (xAI) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.grokApiKey}>
+                    <CollapsibleApiField label="Grok (xAI) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.grokApiKeyConfirmed}>
                         <div>
                             <label htmlFor="grokApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>Grok (xAI) API Key <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>(optional)</span></span>
@@ -3266,19 +3320,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('grokApiKeyConfirmed')}
-                                    disabled={grokKeyStatus !== 'connected'}
-                                    title={grokKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    disabled={grokKeyStatus !== 'connected' || settings.grokApiKeyConfirmed}
+                                    title={settings.grokApiKeyConfirmed ? 'Already saved' : grokKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: grokKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: grokKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${grokKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (grokKeyStatus === 'connected' && !settings.grokApiKeyConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (grokKeyStatus === 'connected' && !settings.grokApiKeyConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(grokKeyStatus === 'connected' && !settings.grokApiKeyConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: grokKeyStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: grokKeyStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (grokKeyStatus === 'connected' && !settings.grokApiKeyConfirmed) ? 'pointer' : 'default',
+                                        opacity: (grokKeyStatus === 'connected' && !settings.grokApiKeyConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.grokApiKeyConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             <span style={{ fontSize: '11px', color: !settings.grokApiKeyConfirmed && (grokKeyStatus === 'invalid' || grokKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
@@ -3293,10 +3347,10 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 )}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
 
                     {/* DeepSeek - also OpenAI-compatible, same pattern again. */}
-                    <LockedApiField label="DeepSeek API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.deepseekApiKey}>
+                    <CollapsibleApiField label="DeepSeek API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} isConnected={settings.deepseekApiKeyConfirmed}>
                         <div>
                             <label htmlFor="deepseekApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
                                 <span>DeepSeek API Key <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>(optional)</span></span>
@@ -3322,19 +3376,19 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 <button
                                     type="button"
                                     onClick={() => confirmApiField('deepseekApiKeyConfirmed')}
-                                    disabled={deepseekKeyStatus !== 'connected'}
-                                    title={deepseekKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    disabled={deepseekKeyStatus !== 'connected' || settings.deepseekApiKeyConfirmed}
+                                    title={settings.deepseekApiKeyConfirmed ? 'Already saved' : deepseekKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
-                                        background: deepseekKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
-                                        color: deepseekKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
-                                        border: `1px solid ${deepseekKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        background: (deepseekKeyStatus === 'connected' && !settings.deepseekApiKeyConfirmed) ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: (deepseekKeyStatus === 'connected' && !settings.deepseekApiKeyConfirmed) ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${(deepseekKeyStatus === 'connected' && !settings.deepseekApiKeyConfirmed) ? 'var(--primary)' : 'var(--border-premium)'}`,
                                         fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
-                                        cursor: deepseekKeyStatus === 'connected' ? 'pointer' : 'default',
-                                        opacity: deepseekKeyStatus === 'connected' ? 1 : 0.6,
+                                        cursor: (deepseekKeyStatus === 'connected' && !settings.deepseekApiKeyConfirmed) ? 'pointer' : 'default',
+                                        opacity: (deepseekKeyStatus === 'connected' && !settings.deepseekApiKeyConfirmed) ? 1 : 0.6,
                                     }}
                                 >
-                                    <Check size={14} /> Confirm
+                                    <Check size={14} /> {settings.deepseekApiKeyConfirmed ? 'Confirmed' : 'Confirm'}
                                 </button>
                             </div>
                             <span style={{ fontSize: '11px', color: !settings.deepseekApiKeyConfirmed && (deepseekKeyStatus === 'invalid' || deepseekKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
@@ -3349,7 +3403,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                 )}
                             </span>
                         </div>
-                    </LockedApiField>
+                    </CollapsibleApiField>
                 </SettingCard>
                 </>
                 )}

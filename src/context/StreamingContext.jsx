@@ -562,12 +562,20 @@ export const StreamingProvider = ({ children }) => {
     const [youtubeIsPlaying, setYoutubeIsPlaying] = useState(false);
     const [youtubeCurrentTime, setYoutubeCurrentTime] = useState(0);
     const [youtubeDuration, setYoutubeDuration] = useState(0);
-    // Plain refs, not state - a linear browsable queue for next/prev over a
-    // set of search results, same idea as AudioPlayerContext's own
-    // playlist/currentSongIndex but intentionally separate (YouTube's queue
-    // is its own thing, not spliced into the local <audio> playlist).
+    // Refs are the real source of truth for the imperative next/prev logic
+    // below (avoids stale-closure issues inside useCallback) - a linear
+    // browsable queue for next/prev over a set of search results, same idea
+    // as AudioPlayerContext's own playlist/currentSongIndex but
+    // intentionally separate (YouTube's queue is its own thing, not
+    // spliced into the local <audio> playlist). Mirrored into real React
+    // state alongside (youtubeQueue/youtubeQueueIndex below) purely so
+    // "Up Next" can actually display it reactively - explicit, reported
+    // gap: Up Next only ever showed the local queue, even while YouTube
+    // was the genuinely active, audible source.
     const youtubeQueueRef = useRef([]);
     const youtubeQueueIndexRef = useRef(-1);
+    const [youtubeQueue, setYoutubeQueueDisplay] = useState([]);
+    const [youtubeQueueIndex, setYoutubeQueueIndexDisplay] = useState(-1);
 
     const loadYoutubeIframeApi = () =>
         new Promise((resolve) => {
@@ -647,9 +655,12 @@ export const StreamingProvider = ({ children }) => {
     // queuePlaylistTracks, kept deliberately separate from it (see the
     // queue-ref comment above).
     const setYoutubeQueue = useCallback((tracks, startIndex = 0) => {
-        youtubeQueueRef.current = Array.isArray(tracks) ? tracks : [];
+        const list = Array.isArray(tracks) ? tracks : [];
+        youtubeQueueRef.current = list;
         youtubeQueueIndexRef.current = startIndex;
-        const track = youtubeQueueRef.current[startIndex];
+        setYoutubeQueueDisplay(list);
+        setYoutubeQueueIndexDisplay(startIndex);
+        const track = list[startIndex];
         if (track) playYoutubeTrack(track);
     }, [playYoutubeTrack]);
 
@@ -669,6 +680,7 @@ export const StreamingProvider = ({ children }) => {
         const nextIndex = youtubeQueueIndexRef.current + 1;
         if (!queue.length || nextIndex >= queue.length) return; // end of queue - nothing to advance to
         youtubeQueueIndexRef.current = nextIndex;
+        setYoutubeQueueIndexDisplay(nextIndex);
         playYoutubeTrack(queue[nextIndex]);
     }, [playYoutubeTrack]);
 
@@ -677,6 +689,7 @@ export const StreamingProvider = ({ children }) => {
         const prevIndex = youtubeQueueIndexRef.current - 1;
         if (!queue.length || prevIndex < 0) return;
         youtubeQueueIndexRef.current = prevIndex;
+        setYoutubeQueueIndexDisplay(prevIndex);
         playYoutubeTrack(queue[prevIndex]);
     }, [playYoutubeTrack]);
 
@@ -791,6 +804,8 @@ export const StreamingProvider = ({ children }) => {
         youtubeSeek,
         playYoutubeTrack,
         setYoutubeQueue,
+        youtubeQueue,
+        youtubeQueueIndex,
         saavnAuth,
         connectSaavn,
         disconnectSaavn,
@@ -824,6 +839,7 @@ export const useStreaming = () => {
             youtubeNowPlaying: null, youtubeIsPlaying: false, youtubeCurrentTime: 0, youtubeDuration: 0,
             youtubeTogglePlay: () => {}, youtubeNext: () => {}, youtubePrevious: () => {}, youtubeSeek: () => {},
             playYoutubeTrack: () => {}, setYoutubeQueue: () => {},
+            youtubeQueue: [], youtubeQueueIndex: -1,
             saavnAuth: { connected: false, error: null },
             connectSaavn: () => {}, disconnectSaavn: () => {},
             activeSource: 'local', setActiveSource: () => {},

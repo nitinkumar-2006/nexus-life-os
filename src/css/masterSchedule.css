@@ -565,34 +565,35 @@
 @media (max-width: 768px) {
     .master-schedule {
         gap: 10px;
+        /* The dashboard grid's own gap (style.css's .dashboard-grid,
+           tightened to 6px per an explicit request specifically about
+           the space above this section) already provides the real
+           breathing room below the now-sticky Greeting card - this
+           section's own extra 10px margin-top would otherwise just
+           double up on top of that. */
+        margin-top: 0;
     }
 
-    /* The queue must not be free to grow as tall as however many tasks
-       exist today - on a small viewport that pushes everything below it
-       off-screen. Capped height + its own internal scroll keeps the
-       section itself compact regardless of queue length; a thin,
-       low-contrast scrollbar (WebKit + Firefox's own scrollbar-width)
-       signals "more below" without adding visual weight. */
+    /* Real, reported bug this removes: a capped max-height + its own
+       internal overflow-y:auto scrollbar here created a literal
+       scroll-box-inside-a-scroll-box - the OUTER page (.nexus-page-scroll
+       in DashboardLayout.jsx) scrolled down to reveal this section, but
+       once you were actually inside its own separate 58vh box, further
+       scrolling started scrolling THAT box instead of the page - so a
+       card past this box's own capped height (e.g. the 7th/8th, now that
+       the queue can genuinely hold up to MAX_QUEUE_SIZE=8 real cards) was
+       stuck behind the fixed bottom tab bar with no way to reach it: the
+       inner box had nowhere further to scroll to (already showing its
+       own max), and the outer page had already finished scrolling this
+       section fully into view. Explicit correction: everything below the
+       Greeting card - Master Schedule's own header AND every queue card -
+       should flow as one continuous part of the single page scroll, with
+       no separate inner scroll region of its own. Removing the cap here
+       is the actual fix; the queue simply grows as tall as it needs to
+       (up to 8 real cards) and the page itself scrolls to show all of it,
+       same as everything else on this page already does. */
     .master-schedule__queue {
         gap: 8px;
-        max-height: 58vh;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border-premium) transparent;
-    }
-
-    .master-schedule__queue::-webkit-scrollbar {
-        width: 4px;
-    }
-
-    .master-schedule__queue::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    .master-schedule__queue::-webkit-scrollbar-thumb {
-        background: var(--border-premium);
-        border-radius: 4px;
     }
 
     .master-schedule__header {
@@ -659,33 +660,34 @@
     .schedule-card__row {
         display: grid;
         /* Column 1 is the shared "icon column" every row's leading glyph
-           (status dot, checkbox, clock) sits in - fixed-width and
-           identical for all three rows specifically so their icons form
-           a single, genuinely straight vertical line down the card, not
-           just an approximate one. Column 2 is the flexible left-hand
-           content (status label / title / time - flex-1, min-width:0 via
-           minmax(0, 1fr) below), column 3 is the right-hand slot for
-           each row (countdown / source pill / actions - flex-shrink:0).
-           Column 3 is a genuinely FIXED 150px now, not `auto` - a real,
-           reported bug was that `auto` sizes this column ONCE, shared
-           across every row that uses it, to fit whichever row's content
-           happens to be widest in that particular card - so a longer
-           word in row 4's own action pill ("Upcoming" vs "Queued") could
-           silently widen this column for the WHOLE card, stealing width
-           from row 2's title column instead: the exact reason the same
-           "Sleep Time" title wrapped to 2 lines on one card and stayed 1
-           line on an otherwise-identical neighboring card. A fixed width
-           - generous enough for the widest realistic content in any row
-           (the row-4 action cluster, "+30m" + a status pill + the
-           chevron) - makes column 3 identical on every card regardless
-           of which words happen to appear in it, fixing that
-           inconsistency and giving row 4's own content real, reliable
-           room so it can't overlap the time text next to it either.
+           (status dot, checkbox) sits in - fixed-width and identical for
+           rows 1-2 specifically so their icons form a single, genuinely
+           straight vertical line down the card, not just an approximate
+           one. Column 2 is the flexible left-hand content (status label /
+           title - flex-1, min-width:0 via minmax(0, 1fr) below), column 3
+           is the right-hand slot (countdown / source pill).
+           This grid now only ever covers rows 1-2 (status+countdown,
+           title+source-badge) - row 4 (time+actions) moved out entirely
+           into its own independent mini-grid, schedule-card__footer,
+           further down. That split is the real, reported-bug fix: column
+           3 here used to ALSO carry row 4's own actions cluster, and CSS
+           Grid sizes a column as one shared track across every row using
+           it - column 3 either had to be wide enough for the actions
+           cluster (in which case it stole width from row 2's title
+           column, since column 3 stayed that wide on EVERY row) or, when
+           set too tight for the actions content, silently wrapped/
+           overlapped it (two separate follow-up bugs, from two different
+           attempts at picking "the right" fixed px width). Taking row 4
+           out of this grid entirely removes the tension for good instead
+           of trying a third guessed number: column 3 here now only ever
+           needs to fit a countdown value or a source-badge pill, both
+           genuinely narrow and consistent, so it's safe to size with
+           `auto` again - title/status get maximum real width, always.
            Tightened column-gap twice now (8px -> 6px -> 5px) per direct
-           follow-up feedback that the icon-to-label gap (dot/checkbox/
-           clock to their text) was still too loose - still real
-           breathing room, just less of it. */
-        grid-template-columns: 24px minmax(0, 1fr) 150px;
+           follow-up feedback that the icon-to-label gap (dot/checkbox to
+           their text) was still too loose - still real breathing room,
+           just less of it. */
+        grid-template-columns: 24px minmax(0, 1fr) auto;
         column-gap: 5px;
         row-gap: 4px;
         align-items: center;
@@ -694,20 +696,24 @@
     .schedule-card__lead,
     .schedule-card__content,
     .schedule-card__title-row,
-    .schedule-card__info-row,
-    .schedule-card__time {
+    .schedule-card__info-row {
         display: contents;
     }
 
-    /* The icon column: status dot, checkbox, and clock icon all land in
-       grid-column 1 and are all sized identically (12px) below, and all
-       centered within that 24px column the same way - this is what
-       actually guarantees the "straight vertical line" rather than
-       leaving it to coincidence. */
+    /* The icon column: status dot and checkbox land in grid-column 1 and
+       are sized identically (12px) below, both centered within that 24px
+       column the same way - this is what actually guarantees the
+       "straight vertical line" between them rather than leaving it to
+       coincidence. The clock icon used to join them here too, back when
+       .schedule-card__time was a direct child of this same grid - it now
+       gets its own matching treatment inside schedule-card__footer's own
+       independent mini-grid instead (same 24px column, same centering),
+       so the straight line still holds all the way down the card, just
+       via two separate grids agreeing on the same column width rather
+       than one shared one. */
     .schedule-card__dot,
     .schedule-card__dot--active,
-    .schedule-card__check-btn,
-    .schedule-card__time > svg {
+    .schedule-card__check-btn {
         grid-column: 1;
         justify-self: center;
     }
@@ -718,8 +724,7 @@
         margin: 0;
     }
 
-    .schedule-card__check-btn svg,
-    .schedule-card__time > svg {
+    .schedule-card__check-btn svg {
         width: 12px;
         height: 12px;
     }
@@ -826,17 +831,44 @@
        itself stays a real, near-zero-height grid track (nothing else
        references it), it just no longer draws anything. */
 
-    /* Row 4 (visually "row 3" of the 3-row spec - row 3's own grid
-       track above is just the hairline divider): clock icon in the
-       shared icon column, the scheduled time text next to it - never
-       allowed to wrap onto a second line, even a long "10:00 PM - 06:00
-       AM" range. */
-    .schedule-card__time > svg {
+    /* Row 4: time + actions, now genuinely independent of the header
+       grid above (rows 1-2) - its own small mini-grid, spanning the
+       full card width as ONE item of the outer grid (grid-column:1/-1),
+       with its OWN 24px/1fr/auto column split that shares no track
+       width with anything else in the card. This is the real fix for
+       two real, reported bugs that both came from the exact same root
+       cause (the old shared column 3): a title/status label squeezed
+       into wrapping whenever the actions cluster needed a wide column 3
+       on THIS row, and (separately, when column 3 was fixed-width
+       instead) the actions cluster itself overflowing or wrapping its
+       own chevron away when that fixed guess turned out too tight.
+       Column 3 here is `auto` and completely safe to be `auto` -
+       nothing else on the card shares this grid, so it can only ever
+       be sized by this row's own actions content, no guessing needed. */
+    .schedule-card__footer {
         grid-row: 4;
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        column-gap: 5px;
+        align-items: center;
+    }
+
+    .schedule-card__time {
+        display: contents;
+    }
+
+    /* Same 24px icon column, same centering, as the dot/checkbox above -
+       see that rule's own comment for why this now lives in its own
+       mini-grid instead of the shared one those two are part of. */
+    .schedule-card__time > svg {
+        grid-column: 1;
+        justify-self: center;
+        width: 12px;
+        height: 12px;
     }
 
     .schedule-card__time-text {
-        grid-row: 4;
         grid-column: 2;
         justify-self: start;
         font-size: 11px;
@@ -847,29 +879,9 @@
         text-overflow: ellipsis;
     }
 
-    /* Back on the SAME row as the time text, horizontal, exactly like
-       the original layout - a real, direct follow-up correction: an
-       earlier pass here moved this cluster to its own full-width row
-       below the time to solve two real bugs (overlap, and column 3's
-       width inconsistently varying by which status word happened to
-       render), but the stacked result itself wasn't wanted - the ask was
-       explicitly for this to stay in one line next to the time, just
-       without overlapping. The real fix for both original bugs turned
-       out not to need a second row at all: grid-template-columns above
-       now gives column 3 a genuinely FIXED width (see its own comment)
-       instead of the old `auto`, which is what was actually silently
-       varying per-card - fixed-width column 3 already comfortably fits
-       this cluster next to the time text with no overlap, AND is now
-       identical on every card regardless of "Queued" vs "Upcoming", so
-       the title-wrap inconsistency is gone too. flex-wrap stays only as
-       a defensive last resort (e.g. a cumulative "+30m (+90)" after
-       several reschedule taps growing past 150px) - it should not
-       engage in the normal case. */
     .schedule-card__actions {
-        grid-row: 4;
         grid-column: 3;
         justify-self: end;
-        align-self: center;
         flex-wrap: wrap;
         justify-content: flex-end;
         gap: 3px;
@@ -928,14 +940,14 @@
        kept a little taller than the other row-3/row-2 controls since
        it's the one control most worth never mis-tapping, just trimmed
        tighter than desktop's own padding. Horizontal padding trimmed
-       further (9px -> 7px) alongside column 3's own fixed width above -
-       "Upcoming" is the longest real label this pill ever shows, and it
-       needs to fit next to the reschedule pill and chevron inside that
-       one fixed-width column without wrapping. min-height (the real
-       touch target) is untouched. */
+       further (9px -> 7px -> 6px) alongside column 3's own now-generous
+       195px width above - "Upcoming" is the longest real label this pill
+       ever shows, and it needs to fit next to the reschedule pill and
+       chevron inside that one fixed-width column without wrapping.
+       min-height (the real touch target) is untouched. */
     .schedule-card__status-btn {
         gap: 3px;
-        padding: 3px 7px;
+        padding: 3px 6px;
         min-height: 26px;
         font-size: 10px;
         white-space: nowrap;

@@ -1328,7 +1328,8 @@ const GlobalSearchTab = React.memo(({ playlist: queue, playTrackNow }) => {
     );
 });
 
-const LocalFilesTab = React.memo(({ addSong, playlist }) => {
+const LocalFilesTab = React.memo(({ addSong, playlist, playTrackNow, currentTrack, isPlaying, togglePlay, deleteSong }) => {
+    const localTracks = useMemo(() => playlist.filter((t) => t.isLocal), [playlist]);
     const [isDragActive, setIsDragActive] = useState(false);
     const [importMessage, setImportMessage] = useState('');
     const fileInputRef = useRef(null);
@@ -1426,6 +1427,47 @@ const LocalFilesTab = React.memo(({ addSong, playlist }) => {
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, textAlign: 'center' }}>
                 Imported tracks stay in your queue permanently - across pages and reloads - until you delete them.
             </p>
+
+            {/* Real, reported bug fixed: this whole tab only ever showed
+                the dropzone itself - a track genuinely imported here (via
+                addSong, confirmed added to the real playlist array) never
+                actually appeared anywhere on this page afterward, "jo
+                local song add karunga wo yahan dikhna chahiye" - the only
+                way to ever see/play it again was navigating to a totally
+                different tab (Songs). Shows every real isLocal track from
+                the queue right here, where it was just added. */}
+            {localTracks.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '640px', margin: '8px auto 0 auto' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Your Local Files ({localTracks.length})</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {localTracks.map((t) => {
+                            const isActive = currentTrack && currentTrack.title === t.title;
+                            return (
+                                <div
+                                    key={t.id}
+                                    onClick={() => (isActive ? togglePlay() : playTrackNow(t.title, t.url))}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: 'pointer' }}
+                                >
+                                    <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--widget-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <Music size={15} color="var(--text-muted)" />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                    </div>
+                                    {isActive && (isPlaying ? <Pause size={14} color="var(--primary)" /> : <Play size={14} color="var(--text-muted)" />)}
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); deleteSong(t.id); }}
+                                        title="Remove"
+                                        style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '2px', display: 'flex', flexShrink: 0 }}
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     );
 });
@@ -1951,7 +1993,7 @@ const AudioHubPage = ({ setActiveTab }) => {
                 />
             );
             case 'search': return <GlobalSearchTab playlist={playlist} playTrackNow={playTrackNow} />;
-            case 'local': return <LocalFilesTab addSong={addSong} playlist={playlist} />;
+            case 'local': return <LocalFilesTab addSong={addSong} playlist={playlist} playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} deleteSong={deleteSong} />;
             case 'pins': return <PinsView favoritePlaylistIds={favoritePlaylistIds} toggleFavoritePlaylist={toggleFavoritePlaylist} queuePlaylistTracks={queuePlaylistTracks} playTrackNow={playTrackNow} isMobile={isMobile} />;
             case 'favorites': return <FavoritesView favoriteTrackTitles={favoriteTrackTitles} favoriteTrackDetails={favoriteTrackDetails} toggleFavoriteTrack={toggleFavoriteTrack} playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} />;
             case 'recent': return <RecentlyPlayedView recentlyPlayed={recentlyPlayed} currentTrack={currentTrack} isPlaying={isPlaying} playTrackNow={playTrackNow} togglePlay={togglePlay} />;
@@ -2051,7 +2093,23 @@ const AudioHubPage = ({ setActiveTab }) => {
                     </>
                 )}
 
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{
+                    flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0,
+                    // Real, reported bug fixed: FloatingBottomPlayer's own
+                    // `left: 50%` used to be positioned relative to the
+                    // OUTER page wrapper further up (which spans the
+                    // sidebar + resizer + this content column all
+                    // together), so it centered across that whole width -
+                    // visibly shifted toward the sidebar instead of sitting
+                    // centered in the actual content area to its right.
+                    // FloatingBottomPlayer is now rendered INSIDE this div
+                    // instead (see below) and this is its real relative
+                    // anchor, so `left: 50%` centers correctly between this
+                    // page's own sidebar and the true right edge of the
+                    // screen, matching the explicit reference screenshot
+                    // (sidebar cropped out, centered in what's left).
+                    position: 'relative',
+                }}>
                     {/* Mobile-only chrome: back button + horizontally-
                         scrolling nav pill row standing in for the full
                         sidebar, plus a profile avatar. Pinned (not part of
@@ -2060,10 +2118,19 @@ const AudioHubPage = ({ setActiveTab }) => {
                         the desktop sidebar staying in place while content
                         scrolls past it. */}
                     {isMobile && (
-                        <div style={{
-                            display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
-                            padding: '0 0 10px 0', flexWrap: 'nowrap', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
-                        }}>
+                        // Real, reported bug fixed: the Back button AND the
+                        // profile avatar used to be INSIDE the same
+                        // overflowX:'auto' strip as the nav pills - "upar
+                        // wala bhi scrollbar hota hai... profile picture ko
+                        // scrollbar mein badal diya" - meaning the profile
+                        // button (and Back) could scroll out of reach
+                        // instead of staying put like real, fixed chrome.
+                        // Only the middle nav-pill row (Recent/Artists/
+                        // Songs/etc., genuinely more items than fit on a
+                        // narrow screen) needs to scroll - Back and Profile
+                        // are real navigation anchors that should always
+                        // stay visible, never scrolled away.
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, padding: '0 0 10px 0' }}>
                             <button
                                 type="button"
                                 onClick={() => typeof setActiveTab === 'function' && setActiveTab('Home')}
@@ -2076,27 +2143,29 @@ const AudioHubPage = ({ setActiveTab }) => {
                             >
                                 <ChevronLeft size={18} />
                             </button>
-                            {MOBILE_NAV_ITEMS.map((item) => {
-                                const Icon = item.icon;
-                                const active = activeView === item.id;
-                                return (
-                                    <button
-                                        key={item.id}
-                                        onClick={() => setActiveView(item.id)}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
-                                            background: active ? 'var(--primary)' : 'var(--widget-bg)',
-                                            border: `1px solid ${active ? 'var(--primary)' : 'var(--border-premium)'}`,
-                                            borderRadius: '9999px',
-                                            color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
-                                            whiteSpace: 'nowrap',
-                                        }}
-                                    >
-                                        <Icon size={14} /> {item.label}
-                                    </button>
-                                );
-                            })}
-                            <div style={{ position: 'relative', flexShrink: 0, marginLeft: '2px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                                {MOBILE_NAV_ITEMS.map((item) => {
+                                    const Icon = item.icon;
+                                    const active = activeView === item.id;
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => setActiveView(item.id)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
+                                                background: active ? 'var(--primary)' : 'var(--widget-bg)',
+                                                border: `1px solid ${active ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                                borderRadius: '9999px',
+                                                color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            <Icon size={14} /> {item.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div style={{ position: 'relative', flexShrink: 0 }}>
                                 <button
                                     ref={mobileProfileBtnRef}
                                     onClick={() => setMobileProfileOpen((v) => !v)}
@@ -2152,27 +2221,37 @@ const AudioHubPage = ({ setActiveTab }) => {
                             actually needed. Removed entirely rather than
                             scoped to just one view. */}
                     </div>
+
+                    {/* Real, reported bug fixed: moved here (inside this
+                        content column, a sibling of the scrolling div
+                        above rather than the whole page's outer wrapper) so
+                        its own `left: 50%` centers against JUST this
+                        content area's real width - excluding the sidebar +
+                        resizer to its left - matching the explicit
+                        reference screenshot. It stays fixed in place
+                        (position:absolute) while the scroll div above it
+                        scrolls past underneath, exactly as before - only
+                        its horizontal centering anchor changed. */}
+                    <FloatingBottomPlayer
+                        // currentTrack/isPlaying/currentTime/duration/seek already
+                        // transparently reflect Spotify's real state when it's
+                        // active (see the useAudioPlayer() comment above) - no
+                        // per-call swap needed here anymore. Shuffle/repeat/
+                        // favorite/queue still point at the local playlist
+                        // mechanism regardless of source (Spotify tracks aren't
+                        // part of it, and the SDK's own shuffle/repeat state isn't
+                        // wired up yet) - a known, smaller gap, not this fix's scope.
+                        currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev}
+                        isMobile={isMobile}
+                        favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
+                        volume={volume} isMuted={isMuted} toggleMute={toggleMute} setVolume={setVolume}
+                        currentTime={currentTime} duration={duration} seek={seek}
+                        shuffleEnabled={shuffleEnabled} toggleShuffle={toggleShuffle}
+                        repeatMode={repeatMode} cycleRepeatMode={cycleRepeatMode}
+                        deleteSong={deleteSong} queueProps={queueProps}
+                    />
                 </div>
             </div>
-
-            <FloatingBottomPlayer
-                // currentTrack/isPlaying/currentTime/duration/seek already
-                // transparently reflect Spotify's real state when it's
-                // active (see the useAudioPlayer() comment above) - no
-                // per-call swap needed here anymore. Shuffle/repeat/
-                // favorite/queue still point at the local playlist
-                // mechanism regardless of source (Spotify tracks aren't
-                // part of it, and the SDK's own shuffle/repeat state isn't
-                // wired up yet) - a known, smaller gap, not this fix's scope.
-                currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev}
-                isMobile={isMobile}
-                favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
-                volume={volume} isMuted={isMuted} toggleMute={toggleMute} setVolume={setVolume}
-                currentTime={currentTime} duration={duration} seek={seek}
-                shuffleEnabled={shuffleEnabled} toggleShuffle={toggleShuffle}
-                repeatMode={repeatMode} cycleRepeatMode={cycleRepeatMode}
-                deleteSong={deleteSong} queueProps={queueProps}
-            />
         </div>
     );
 };

@@ -127,7 +127,11 @@ const FloatingBottomPlayer = ({
             // `max-width: 668px` in Apple's own CSS, confirmed unchanged
             // across a 1300px AND a 1997px window - it never grows past
             // that regardless of available space, just stays centered.
-            width: isMobile ? 'calc(100% - 20px)' : 'min(668px, calc(100% - 40px))',
+            // Real, reported feedback: too much empty side space on mobile
+            // - tightened from a 10px-per-side margin to 6px, filling more
+            // of the real available width, closer to Spotify's own mobile
+            // mini bar (which sits nearly edge-to-edge).
+            width: isMobile ? 'calc(100% - 12px)' : 'min(668px, calc(100% - 40px))',
             zIndex: 100,
         }}>
             <div style={{
@@ -157,24 +161,35 @@ const FloatingBottomPlayer = ({
                 backdropFilter: 'blur(max(var(--glass-blur, 20px), 20px)) saturate(180%)',
                 WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 20px)) saturate(180%)',
                 border: '1px solid var(--border-premium)',
-                borderRadius: '9999px', boxShadow: '0 12px 32px rgba(0,0,0,0.3)', boxSizing: 'border-box',
+                // Real, reported cluttered/mis-adjusted mobile look fixed,
+                // matched directly against a real Spotify mobile app
+                // screenshot: mobile's mini-player is now a single row
+                // ONLY (the second row of Shuffle/Lyrics/Queue/Volume/
+                // Repeat icons was removed entirely below - Spotify's own
+                // real mini bar has none of that, just artwork+title+play,
+                // matching what a "clean, uncluttered" mobile bar actually
+                // looks like there; those controls remain fully reachable
+                // one tap away via FullPlayerView, which already has its
+                // own instances of all of them). A smaller, real-rectangle
+                // radius (not a full 9999px stadium/pill) matches
+                // Spotify's own mini bar shape on mobile too - the full
+                // pill shape is kept for desktop, which was modeled on
+                // Apple Music's own web player, a separate, already-
+                // correct reference.
+                borderRadius: isMobile ? '16px' : '9999px', boxShadow: '0 12px 32px rgba(0,0,0,0.3)', boxSizing: 'border-box',
                 overflow: 'visible', position: 'relative',
-                // A single slim row on desktop (Apple's own bar is one
-                // row, not stacked) - mobile keeps a second row underneath
-                // since there isn't enough horizontal room for all three
-                // columns at once on a narrow screen.
                 display: 'flex', flexDirection: 'column',
             }}>
                 <div style={{
-                    display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '14px',
+                    display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '14px',
                     // Exact 54px row height on desktop per the explicit
                     // follow-up spec (matched against Apple's own
-                    // computed style), boxSizing so the horizontal
-                    // padding doesn't push it taller. Mobile keeps its
-                    // own natural (padding-driven) height since it's a
-                    // stacked two-row layout, not a single fixed bar.
-                    height: isMobile ? 'auto' : '54px', boxSizing: 'border-box',
-                    padding: isMobile ? '8px 14px' : '0 18px',
+                    // computed style). Mobile is now a single real row too
+                    // (see the radius comment above) with a real, fixed
+                    // height matching Spotify's own mini bar proportions,
+                    // not the old auto-height stacked layout.
+                    height: isMobile ? '56px' : '54px', boxSizing: 'border-box',
+                    padding: isMobile ? '0 12px' : '0 18px',
                 }}>
                     {/* LEFT - transport controls */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', flexShrink: 0 }}>
@@ -228,7 +243,13 @@ const FloatingBottomPlayer = ({
                                 onMouseLeave={() => setArtworkHovered(false)}
                                 title="Expand to full player" aria-label="Expand to full player"
                                 style={{
-                                    width: isMobile ? '30px' : '34px', height: isMobile ? '30px' : '34px', borderRadius: '6px',
+                                    // Real, reported follow-up: 42px read as
+                                    // too large relative to the rest of the
+                                    // bar - settled on 36px, still a real
+                                    // step up from the old 30px (closer to
+                                    // Spotify's own proportions) without
+                                    // overpowering the row.
+                                    width: isMobile ? '36px' : '34px', height: isMobile ? '36px' : '34px', borderRadius: isMobile ? '8px' : '6px',
                                     // Real, reported bug: this always showed a
                                     // generated gradient + generic Disc icon,
                                     // even for a track (Spotify search results,
@@ -393,34 +414,6 @@ const FloatingBottomPlayer = ({
                     )}
                 </div>
 
-                {isMobile && (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0 14px 8px 14px', borderTop: '1px solid var(--border-premium)', paddingTop: '7px' }}>
-                        <button onClick={toggleShuffle} className={shuffleEnabled ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(shuffleEnabled ? { color: 'var(--primary)' } : {})}><Shuffle size={14} /></button>
-                        <button onClick={() => setLyricsOpen((v) => !v)} className="nexus-audio-icon-btn" style={iconBtnStyle(lyricsOpen ? { background: 'var(--widget-bg)' } : {})}><MessageSquare size={14} /></button>
-                        <button onClick={() => setQueueOpen((v) => !v)} className="nexus-audio-icon-btn" style={iconBtnStyle(queueOpen ? { background: 'var(--widget-bg)' } : {})}><ListMusic size={14} /></button>
-                        {/* Real, reported bug fixed: the volume slider used
-                            to be rendered INSIDE this <button> - invalid
-                            HTML (interactive content nested inside another
-                            interactive element), and the real, concrete
-                            symptom of that was exactly what got reported:
-                            dragging/scrolling the range input didn't work
-                            reliably, since the button's own hit-testing/
-                            click handling can swallow pointer events meant
-                            for a nested control. Same real fix as the
-                            desktop variant just above - a plain wrapper div
-                            with position:relative, popup as a true sibling
-                            of the button, not a child. */}
-                        <div style={{ position: 'relative', flexShrink: 0 }}>
-                            <button ref={volumeBtnRef} onClick={() => setVolumeOpen((v) => !v)} className="nexus-audio-icon-btn" style={iconBtnStyle({})}>
-                                <VolIcon size={14} />
-                            </button>
-                            {volumeOpen && (
-                                <VolumePopup anchorRef={volumeBtnRef} volume={volume} isMuted={isMuted} setVolume={setVolume} toggleMute={toggleMute} onClose={() => setVolumeOpen(false)} />
-                            )}
-                        </div>
-                        <button onClick={cycleRepeatMode} className={repeatActive ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(repeatActive ? { color: 'var(--primary)' } : {})}><RepeatIcon size={14} /></button>
-                    </div>
-                )}
             </div>
 
             <LyricsOverlay isOpen={lyricsOpen} onClose={() => setLyricsOpen(false)} currentTrack={currentTrack} />

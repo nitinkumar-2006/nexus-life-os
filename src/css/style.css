@@ -663,8 +663,13 @@ html.nexus-battery-saver [data-diag="sky-root"] * {
     .dashboard-grid {
         /* The real, existing 24px gap and 40px bottom padding are
            substantial on a narrow, short mobile viewport - reduced
-           here without touching the desktop values above. */
-        gap: 14px;
+           here without touching the desktop values above. Tightened
+           again (14px -> 6px) per an explicit follow-up specifically
+           about the gap between the (now sticky) Greeting card and
+           Master Schedule right below it - this is the one place that
+           gap actually renders (this class is only ever used on
+           HomePage.jsx), so shrinking it here is scoped to exactly that. */
+        gap: 6px;
         padding-bottom: 24px;
     }
 
