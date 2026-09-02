@@ -9,7 +9,21 @@ import { X, ZoomIn, Check, Move } from 'lucide-react';
 
 const ImageCropModal = ({ imageSrc, shape = 'circle', onSave, onCancel }) => {
     const previewSize = shape === 'circle' ? { width: 280, height: 280 } : { width: 560, height: 200 };
-    const exportSize = shape === 'circle' ? { width: 400, height: 400 } : { width: 1200, height: 428 };
+    // Downsized from the original 400x400 / 1200x428 - both this avatar
+    // and the cover banner get base64-embedded directly into
+    // nexus_user_profile, which CloudSyncContext.jsx bundles alongside
+    // every other module's data into ONE Firestore document capped at
+    // 1MB. A full-size avatar+cover pair could alone run several hundred
+    // KB, leaving too little headroom for a real user's actual Planner/
+    // Finance/Gym/Study history once synced - a genuine, confirmed cause
+    // of "I restored on a new device but my settings/theme never came
+    // back" (the whole merged write fails atomically past the 1MB cap,
+    // so nothing in that push lands, not just the oversized field).
+    // These dimensions still comfortably exceed every real on-screen use
+    // (a 112px avatar, a 160px cover banner) at 2x+ pixel density, so
+    // this is a real size reduction with no visible quality loss for how
+    // either image actually gets displayed.
+    const exportSize = shape === 'circle' ? { width: 320, height: 320 } : { width: 900, height: 322 };
 
     const imgRef = useRef(null);
     const containerRef = useRef(null);
@@ -83,14 +97,21 @@ const ImageCropModal = ({ imageSrc, shape = 'circle', onSave, onCancel }) => {
         // rectangular with no transparency need, so they stay JPEG for a
         // smaller file size.
         const mimeType = shape === 'circle' ? 'image/png' : 'image/jpeg';
-        onSave(canvas.toDataURL(mimeType, shape === 'circle' ? undefined : 0.92));
+        // 0.85, not 0.92 - matches the same quality this codebase already
+        // settled on for the other user-uploaded-photo path (Settings'
+        // own custom wallpaper upload, see SettingsPage.jsx's
+        // handleCustomImageFile), and meaningfully shrinks the payload
+        // for the same 1MB Firestore document budget this shares with
+        // every other synced module - not visually distinguishable from
+        // 0.92 at this file's actual display sizes.
+        onSave(canvas.toDataURL(mimeType, shape === 'circle' ? undefined : 0.85));
     }, [naturalSize, baseScale, scale, offset, shape, onSave, exportSize, previewSize]);
 
     return (
         <div
             style={{
                 position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(0,0,0,0.7)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
             }}
             onMouseUp={endDrag}
             onMouseLeave={endDrag}

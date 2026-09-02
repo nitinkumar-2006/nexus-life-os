@@ -1,0 +1,61 @@
+/* src/css/audioPlayer.css
+ *
+ * Two narrowly-scoped additions for the audio player UI:
+ * 1. A thinner custom track/thumb for the bottom player's native volume
+ *    <input type="range"> - browsers render a native range track taller
+ *    than this app's own established "refined thin bar" language (the
+ *    seek bar elsewhere already uses an explicit 3px track), which is
+ *    what actually made the volume control look thick. `accentColor`
+ *    alone (the previous styling) only tints a native control, it can't
+ *    resize its track/thumb - only the pseudo-elements below can.
+ * 2. The .nexus-volume-range class is applied on top of the existing
+ *    inline width/accentColor style in AudioHubPage.jsx, not instead of
+ *    it - kept as a harmless fallback for the rare engine that doesn't
+ *    honor the vendor-prefixed pseudo-elements below.
+ */
+
+.nexus-volume-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 14px;
+}
+
+.nexus-volume-range::-webkit-slider-runnable-track {
+    height: 3px;
+    border-radius: 3px;
+    background: var(--border-premium);
+}
+
+.nexus-volume-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--primary);
+    /* Centers the 10px thumb on the 3px track: (10 - 3) / 2. */
+    margin-top: -3.5px;
+    cursor: pointer;
+}
+
+.nexus-volume-range::-moz-range-track {
+    height: 3px;
+    border-radius: 3px;
+    background: var(--border-premium);
+}
+
+.nexus-volume-range::-moz-range-progress {
+    height: 3px;
+    border-radius: 3px;
+    background: var(--primary);
+}
+
+.nexus-volume-range::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: none;
+    cursor: pointer;
+}

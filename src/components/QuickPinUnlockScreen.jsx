@@ -41,7 +41,7 @@ const QuickPinUnlockScreen = ({ onUnlock, onUseDifferentAccount }) => {
         <div style={{ minHeight: '100vh', width: '100vw', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f0f17', gap: '20px', padding: '20px', boxSizing: 'border-box' }}>
             <div style={{
                 width: '72px', height: '72px', borderRadius: '50%',
-                background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)',
+                background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
                 border: '1px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818CF8',
             }}>
                 <KeyRound size={32} />

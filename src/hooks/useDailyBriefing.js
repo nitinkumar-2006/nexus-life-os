@@ -10,8 +10,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTaskRegistry } from '../context/TaskRegistryContext.jsx';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
+import { getLocalDateString } from '../utils/dateUtils.js';
+import { buildBriefingSentences } from '../utils/briefingText.js';
 
-const todayIso = () => new Date().toISOString().split('T')[0];
+const todayIso = () => getLocalDateString();
 
 const readJson = (key, fallback) => {
     try {
@@ -30,6 +32,25 @@ const getGreeting = () => {
     if (hour >= 12 && hour < 17) return 'Good afternoon';
     if (hour >= 17 && hour < 22) return 'Good evening';
     return 'Good night';
+};
+
+// SettingsPage.jsx's own "Voice & Language" section, read directly the
+// same way this file's own readJson helper already reads every other
+// localStorage-backed store - not routed through GlobalUserSettingsContext,
+// since that context's own whitelist is a real, curated cross-reference
+// (monthlyBudgetCap/currencySymbol resolve against Finance's own data),
+// not a general settings pass-through, and this is a plain flat
+// preference with nothing to de-duplicate.
+//
+// A real, standalone Language field again - explicitly selected, not
+// inferred from whichever voice is picked. That coupling (a prior
+// version of this file) was the actual bug just reported: picking a
+// voice could silently swap the spoken language out from under the
+// user with no separate way to just choose a voice character. Voice and
+// Language are two fully independent settings now.
+const readAiVoiceLanguage = () => {
+    const saved = readJson('nexus_global_settings', {});
+    return saved.aiVoiceLanguage === 'hi' || saved.aiVoiceLanguage === 'hinglish' ? saved.aiVoiceLanguage : 'en';
 };
 
 export const useDailyBriefing = () => {
@@ -106,33 +127,21 @@ export const useDailyBriefing = () => {
         // from the real numbers above, not a fixed template with blanks
         // filled in regardless of what the data actually says (e.g. a
         // genuinely empty task list gets its own honest sentence, not
-        // "You have 0 tasks today").
-        const namePart = userName ? `, ${userName}` : '';
-        const sentences = [`${getGreeting()}${namePart}.`];
-
-        if (pendingToday === 0) {
-            sentences.push("You have a clear schedule today - nothing pending in Planner or today's timetable.");
-        } else {
-            sentences.push(`You have ${pendingToday} task${pendingToday === 1 ? '' : 's'} pending today across your planner and schedule.`);
-        }
-
-        if (gymStatus.hasPlan) {
-            sentences.push(gymStatus.loggedToday
-                ? `Today's ${gymStatus.planName} workout is already logged - nice work.`
-                : `Your ${gymStatus.planName} split is active, but today's workout isn't logged yet.`);
-        }
-
-        if (dietStatus.total > 0) {
-            sentences.push(`You've logged ${dietStatus.logged} of ${dietStatus.total} meals today.`);
-        }
-
-        if (monthlyBudgetCap > 0) {
-            sentences.push(`You have ${currency}${Math.round(budgetRemaining).toLocaleString()} left in this month's budget.`);
-        }
+        // "You have 0 tasks today"). Language comes from Settings' own
+        // real "Voice & Language" section (see briefingText.js for the
+        // actual English/Hindi/Hinglish sentences) - a plain static
+        // template per language, not a live translation call, so this
+        // keeps working with zero AI key configured, exactly like the
+        // English version always has.
+        const language = readAiVoiceLanguage();
+        const sentences = buildBriefingSentences(language, {
+            userName, pendingToday, gymStatus, dietStatus, monthlyBudgetCap, budgetRemaining, currency,
+        });
 
         return {
             userName,
             greeting: getGreeting(),
+            language,
             pendingTasksToday: pendingToday,
             gymStatus,
             dietStatus,

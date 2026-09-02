@@ -3,12 +3,13 @@ import { useState, useEffect } from 'react';
 import {
     CheckSquare, Circle, Plus, Trash2, Calendar,
     Clock, ArrowUpRight, ClipboardList,
-    Search, List, Columns, ChevronLeft, ChevronRight,
+    Search, List, Columns, ChevronLeft, ChevronRight, Pencil,
 } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import { toTitleCase } from '../utils/textFormat.js';
 import { sanitizeNumberInput } from '../utils/smartNumberInput.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { getLocalDateString } from '../utils/dateUtils.js';
 const PlannerPage = ({ setActiveTab }) => {
     const { taskComplete, modalOpen } = useMicroFeedback();
     const isMobile = useIsMobile();
@@ -23,6 +24,11 @@ const PlannerPage = ({ setActiveTab }) => {
 
     const [activeTab, setActiveTabFilter] = useState('All Tasks');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    // null while adding a fresh task; holds the task's own stored `id`
+    // while editing an existing one - the single flag the shared modal
+    // below branches on for its title/submit label and for whether
+    // handleCreateTask appends a new task or updates one in place.
+    const [editingTaskId, setEditingTaskId] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState('list'); // 'list' | 'kanban'
     
@@ -77,25 +83,88 @@ const PlannerPage = ({ setActiveTab }) => {
         // left the field blank, rather than saving an empty domain.
         const resolvedProject = toTitleCase(isCustomDomain ? (customDomain.trim() || 'Custom') : project);
 
-        const newTask = {
-            id: Date.now().toString(),
-            title: toTitleCase(title.trim()),
-            description: description.trim(),
-            project: resolvedProject,
-            priority,
-            status: 'To Do',
-            dueDate: dueDate || new Date().toISOString().split('T')[0],
-            estimatedMins: Number(estimatedMins),
-            completed: false
-        };
+        if (editingTaskId !== null) {
+            // Editing an existing task in place - keeps its own `status`/
+            // `completed`/`id` untouched, only the fields the form itself
+            // exposes are overwritten.
+            setTasks(tasks.map(t => t.id === editingTaskId ? {
+                ...t,
+                title: toTitleCase(title.trim()),
+                description: description.trim(),
+                project: resolvedProject,
+                priority,
+                dueDate: dueDate || getLocalDateString(),
+                estimatedMins: Number(estimatedMins),
+            } : t));
+        } else {
+            const newTask = {
+                id: Date.now().toString(),
+                title: toTitleCase(title.trim()),
+                description: description.trim(),
+                project: resolvedProject,
+                priority,
+                status: 'To Do',
+                dueDate: dueDate || getLocalDateString(),
+                estimatedMins: Number(estimatedMins),
+                completed: false
+            };
+            setTasks([newTask, ...tasks]);
+        }
 
-        setTasks([newTask, ...tasks]);
         setTitle('');
         setDescription('');
         setDueDate('');
         setIsCustomDomain(false);
         setCustomDomain('');
+        setEditingTaskId(null);
         setIsModalOpen(false);
+    };
+
+    // Opens the shared Add/Edit modal fresh for a brand-new task - resets
+    // every field to its default so a previous Add or a cancelled Edit
+    // never leaves stale values behind for the next "New Task" click.
+    const openAddModal = () => {
+        modalOpen();
+        setEditingTaskId(null);
+        setTitle('');
+        setDescription('');
+        setProject('Study');
+        setIsCustomDomain(false);
+        setCustomDomain('');
+        setPriority('High');
+        setDueDate('');
+        setEstimatedMins(60);
+        setIsModalOpen(true);
+    };
+
+    const KNOWN_DOMAINS = ['Study', 'College', 'Syllabus', 'Fitness', 'Gym', 'Diet', 'Finance', 'Calendar', 'Analytics', 'AI', 'Development', 'Review'];
+
+    // Opens the same modal pre-filled with an existing task's own real
+    // stored values, so editing round-trips exactly rather than resetting
+    // to defaults.
+    const openEditModal = (task) => {
+        setTitle(task.title || '');
+        setDescription(task.description || '');
+        if (KNOWN_DOMAINS.includes(task.project)) {
+            setIsCustomDomain(false);
+            setProject(task.project);
+        } else {
+            setIsCustomDomain(true);
+            setCustomDomain(task.project || '');
+        }
+        setPriority(task.priority || 'High');
+        setDueDate(task.dueDate || '');
+        setEstimatedMins(task.estimatedMins ?? 60);
+        setEditingTaskId(task.id);
+        setIsModalOpen(true);
+    };
+
+    const closeAddModal = () => {
+        setIsModalOpen(false);
+        setEditingTaskId(null);
+        setDescription('');
+        setIsCustomDomain(false);
+        setCustomDomain('');
     };
 
     const toggleTaskCompletion = (id) => {
@@ -166,7 +235,7 @@ const PlannerPage = ({ setActiveTab }) => {
                 </div>
                 
                 <button
-                    onClick={() => { modalOpen(); setIsModalOpen(true); }}
+                    onClick={openAddModal}
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 22px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', boxShadow: '0 0 20px rgba(var(--primary-rgb), 0.3)' }}
                 >
                     <Plus size={18} /> New Task
@@ -365,7 +434,15 @@ const PlannerPage = ({ setActiveTab }) => {
                                         {task.priority}
                                     </span>
 
-                                    <button 
+                                    <button
+                                        onClick={() => openEditModal(task)}
+                                        title="Edit Task"
+                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: isMobile ? '12px' : '6px', borderRadius: '8px' }}
+                                    >
+                                        <Pencil size={16} />
+                                    </button>
+
+                                    <button
                                         onClick={() => deleteTask(task.id)}
                                         style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: isMobile ? '12px' : '6px', borderRadius: '8px' }}
                                     >
@@ -428,13 +505,22 @@ const PlannerPage = ({ setActiveTab }) => {
                                                     >
                                                         <ChevronLeft size={13} /> Back
                                                     </button>
-                                                    <button
-                                                        onClick={() => deleteTask(task.id)}
-                                                        title="Delete"
-                                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', display: 'flex' }}
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <button
+                                                            onClick={() => openEditModal(task)}
+                                                            title="Edit"
+                                                            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                                                        >
+                                                            <Pencil size={13} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => deleteTask(task.id)}
+                                                            title="Delete"
+                                                            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
                                                     <button
                                                         onClick={() => setTaskStatus(task.id, ['To Do', 'In Progress', 'Completed'][columnIndex + 1])}
                                                         disabled={columnIndex === 2}
@@ -462,9 +548,12 @@ const PlannerPage = ({ setActiveTab }) => {
                 // removed) instead of a centered dialog floating in the
                 // middle of a small screen. Desktop keeps the original
                 // centered modal, completely unchanged.
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
+                    onClick={closeAddModal}
+                >
                     <form
-                        onSubmit={handleCreateTask} className="nexus-glass-modal"
+                        onSubmit={handleCreateTask} onClick={(e) => e.stopPropagation()} className="nexus-glass-modal"
                         style={{
                             background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
                             borderRadius: isMobile ? '24px 24px 0 0' : '24px',
@@ -479,7 +568,7 @@ const PlannerPage = ({ setActiveTab }) => {
                         {isMobile && (
                             <div style={{ width: '40px', height: '4px', borderRadius: '4px', background: 'var(--border-premium)', margin: '-8px auto 0 auto', flexShrink: 0 }} />
                         )}
-                        <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Create New Task</h3>
+                        <h3 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{editingTaskId !== null ? 'Edit Task' : 'Create New Task'}</h3>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <label htmlFor="taskTitle" style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Task Title</label>
@@ -589,18 +678,18 @@ const PlannerPage = ({ setActiveTab }) => {
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
-                            <button 
-                                type="button" 
-                                onClick={() => { setIsModalOpen(false); setDescription(''); setIsCustomDomain(false); setCustomDomain(''); }}
+                            <button
+                                type="button"
+                                onClick={closeAddModal}
                                 style={{ padding: '12px 20px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
                             >
                                 Cancel
                             </button>
-                            <button 
+                            <button
                                 type="submit"
                                 style={{ padding: '12px 24px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
                             >
-                                Save Task
+                                {editingTaskId !== null ? 'Save Changes' : 'Save Task'}
                             </button>
                         </div>
                     </form>

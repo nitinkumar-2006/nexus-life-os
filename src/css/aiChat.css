@@ -1,0 +1,1898 @@
+/* src/css/aiChat.css
+ *
+ * Dedicated stylesheet for the redesigned AI Chat section
+ * (AILayout / AISidebar / AIChatArea) - real CSS classes instead of
+ * inline styles, per explicit request for this section specifically.
+ * Every color/surface/blur value below reuses this app's own existing
+ * theme variables (--bg-surface, --widget-bg, --border-premium,
+ * --primary, --glass-blur, --premium-shadow, etc. - see variables.css)
+ * rather than hardcoded literals, so this section stays genuinely
+ * correct across all four themes (Night/Dusk/Dawn/Day) and the
+ * Dynamic weather theme, and honors the user's own Glass Blur/Opacity/
+ * Accent sliders in Settings instead of silently ignoring them.
+ * Font-family is deliberately never set anywhere in this file - the
+ * global `* { font-family: var(--font-primary) }` rule in style.css
+ * already cascades the user's chosen Typography & Styling font (see
+ * fontOptions.js) into every element here; overriding it locally would
+ * silently break that system for this one section.
+ */
+
+/* ============================================================
+   LAYOUT ROOT
+   ============================================================ */
+.ai-layout {
+    --ai-sidebar-width: 280px;
+    --ai-sidebar-collapsed-width: 64px;
+    --ai-content-max-width: 800px;
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+/* ============================================================
+   SIDEBAR - "Specialized AI Coaches" + real chat history.
+   Desktop: an in-flow column that pushes/pulls the chat area via a
+   real width transition (never display:none - animating display is
+   not possible, so the collapsed state keeps the sidebar mounted at
+   --ai-sidebar-collapsed-width instead, showing an icon-only rail).
+   ============================================================ */
+.ai-sidebar {
+    position: relative;
+    width: var(--ai-sidebar-width);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    /* Same real surface the main OS sidebar itself uses (--sidebar-bg),
+       so this genuinely reads as "the same sidebar family" rather than a
+       different, disconnected panel - the faint ::before tint below is
+       the "very subtle difference" that still keeps them visually
+       distinguishable from each other. */
+    background: var(--sidebar-bg);
+    backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
+    border-right: 1px solid var(--border-premium);
+    box-sizing: border-box;
+    overflow: hidden;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s ease;
+}
+
+/* Desktop only: the real "floating card" treatment (rounded corners +
+   a soft directional shadow instead of a flat 1px border) - the exact
+   same recipe AudioSidebar.jsx's own sidebar uses (see its comment:
+   "a standalone floating card, not a flush docked column"), and the
+   main OS sidebar itself (sidebar.jsx's own 16px radius). A real,
+   reported comparison against that reference: this panel read as a
+   flat, glued-on strip next to it, not "the same sidebar family" it
+   otherwise already matches (background, blur). Scoped to desktop
+   only - the mobile off-canvas drawer below keeps its own flush,
+   full-height edge treatment (a rounded corner flush against the
+   physical screen edge would just show a background-colored notch, not
+   read as a floating card there). */
+@media (min-width: 769px) {
+    .ai-sidebar {
+        border-right: none;
+        border-radius: 16px;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+    }
+}
+
+/* A faint accent-color wash, always using the theme's own current
+   --primary so it never clashes - layered behind the real content
+   (z-index:0, content pinned to z-index:1 below) rather than mixed into
+   the background color itself, so it stays correct even though
+   --sidebar-bg's own format differs per theme (solid hex on Night/Dusk/
+   Day, translucent rgba on Dynamic). */
+.ai-sidebar::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--primary);
+    opacity: 0.025;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.ai-sidebar-inner,
+.ai-sidebar-rail {
+    position: relative;
+    z-index: 1;
+}
+
+.ai-sidebar.is-collapsed {
+    width: var(--ai-sidebar-collapsed-width);
+}
+
+/* Dragging updates width on every mousemove tick - the 0.3s width
+   transition meant for the collapse/expand toggle would otherwise fight
+   that, making the sidebar visibly lag behind the cursor instead of
+   tracking it 1:1. .is-resizing is added to .ai-layout for exactly the
+   duration of a real drag (see useResizableSidebar.js). */
+.ai-layout.is-resizing .ai-sidebar {
+    transition: none;
+}
+
+/* The scrollable inner column - fixed at the sidebar's own EXPANDED
+   width regardless of the collapsing outer wrapper's current width, so
+   text never wraps/reflows mid-transition; it just slides out of view
+   as the outer clips it via overflow:hidden. This is what makes the
+   width animation read as a clean slide rather than a jarring reflow. */
+.ai-sidebar-inner {
+    width: var(--ai-sidebar-width);
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    box-sizing: border-box;
+    opacity: 1;
+    transition: opacity 0.2s ease;
+}
+
+.ai-sidebar.is-collapsed .ai-sidebar-inner {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* The icon-only rail shown ONLY while collapsed - a separate, absolutely
+   positioned layer rather than trying to reflow the same content down to
+   64px, since coach labels/history titles genuinely cannot render
+   meaningfully that narrow. */
+.ai-sidebar-rail {
+    position: absolute;
+    inset: 0;
+    width: var(--ai-sidebar-collapsed-width);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease 0.1s;
+}
+
+.ai-sidebar.is-collapsed .ai-sidebar-rail {
+    display: flex;
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* The hamburger-above-New-Chat toggle - sits as the sidebar's own first
+   row, directly above .ai-new-chat-btn below, so the two form the
+   "logical, clean visual sequence" requested (hamburger, then +, one
+   directly under the other, both anchored to the sidebar's own left
+   edge regardless of whether it's expanded or collapsed to the rail). */
+.ai-sidebar-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    font-family: inherit;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-sidebar-toggle-btn:hover {
+    background: var(--widget-bg);
+    color: var(--text-primary);
+}
+
+.ai-sidebar-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.ai-new-chat-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    border: none;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-family: inherit;
+    transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+.ai-new-chat-btn:hover { filter: brightness(1.08); }
+.ai-new-chat-btn:active { transform: scale(0.97); }
+
+.ai-rail-icon-btn {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: 1px solid transparent;
+    background: var(--widget-bg);
+    color: var(--text-secondary);
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ai-rail-icon-btn.is-primary {
+    background: var(--primary);
+    color: var(--text-on-primary);
+}
+
+.ai-sidebar-section-label {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 4px 6px 0;
+    flex-shrink: 0;
+}
+
+.ai-sidebar-divider {
+    height: 1px;
+    background: var(--border-premium);
+    flex-shrink: 0;
+    margin: 2px 0;
+}
+
+/* Chat History's own search box (see AISidebar.jsx) - same surface/
+   border tokens as every other sidebar control here (.ai-coach-item,
+   .ai-provider-pill-group), not a separately-styled one-off. */
+.ai-sidebar-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    margin: 2px 2px 0;
+    border-radius: 10px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    flex-shrink: 0;
+}
+
+.ai-sidebar-search input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.ai-sidebar-search input::placeholder {
+    color: var(--text-muted);
+}
+
+/* .ai-coach-item - used by the sidebar's Voice Assistant entry, the
+   coach picker trigger, Live Context, and Clear Chat (see AISidebar.jsx)
+   - active state uses the coach's own accent color for a genuine,
+   per-coach highlight rather than one generic color for all of them. */
+.ai-coach-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 0;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+
+.ai-coach-item:hover {
+    background: var(--widget-bg);
+}
+
+.ai-coach-item.is-active {
+    background: color-mix(in srgb, var(--ai-coach-accent, var(--primary)) 14%, transparent);
+    border-color: var(--ai-coach-accent, var(--primary));
+    color: var(--ai-coach-accent, var(--primary));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ai-coach-accent, var(--primary)) 35%, transparent), 0 0 14px color-mix(in srgb, var(--ai-coach-accent, var(--primary)) 25%, transparent);
+}
+
+.ai-coach-item-icon { flex-shrink: 0; display: flex; }
+
+/* Real edge-case handling: a long coach label or session title never
+   pushes the row wider than the sidebar - it truncates with an ellipsis
+   and exposes the full text via the row's own title attribute instead. */
+.ai-coach-item-label,
+.ai-history-item-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Chat history - real sessions, scrolls independently of the fixed
+   sections above/below it. */
+.ai-history-list {
+    flex: 1;
+    min-height: 60px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.ai-history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid transparent;
+    min-width: 0;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ai-history-item:hover { background: var(--widget-bg); }
+
+.ai-history-item.is-active {
+    background: var(--widget-bg);
+    border-color: var(--border-premium);
+}
+
+.ai-history-item-icon { flex-shrink: 0; display: flex; }
+
+.ai-history-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.ai-history-item.is-active .ai-history-item-title {
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.ai-history-delete-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 3px;
+    display: flex;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    opacity: 0;
+    border-radius: 6px;
+    transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.ai-history-item:hover .ai-history-delete-btn,
+.ai-history-item.is-active .ai-history-delete-btn {
+    opacity: 0.75;
+}
+
+.ai-history-delete-btn:hover {
+    opacity: 1 !important;
+    color: #EF4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+/* Mobile off-canvas overlay - see the 768px breakpoint block near the
+   bottom for the transform-based slide-in and the backdrop element. */
+.ai-sidebar-backdrop {
+    display: none;
+}
+
+/* ============================================================
+   RESIZER - the draggable divider between AISidebar and AIChatArea.
+   A wide (10px) transparent hit-area with a slim (2px) visible bar
+   centered inside it - the visible line stays thin and unobtrusive
+   while the actual draggable target is comfortably wider than 2px,
+   which a real 2px-only hit-area would make genuinely hard to grab
+   with a mouse. useResizableSidebar.js (onMouseDown here) does the
+   actual width math; this is purely the visual affordance.
+   ============================================================ */
+.ai-resizer {
+    flex-shrink: 0;
+    width: 10px;
+    margin: 0 -5px;
+    height: 100%;
+    position: relative;
+    z-index: 5;
+    cursor: col-resize;
+    background: transparent;
+}
+
+.ai-resizer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: transparent;
+    border-radius: 2px;
+    transition: background 0.15s ease;
+}
+
+.ai-resizer:hover::after,
+.ai-resizer.is-dragging::after {
+    background: var(--primary);
+}
+
+/* Sidebar collapse is meaningless on mobile (off-canvas overlay has no
+   persistent width to drag), and the resizer is never rendered there
+   anyway (see AILayout.jsx) - this is just a defensive backstop. */
+@media (max-width: 768px) {
+    .ai-resizer {
+        display: none;
+    }
+}
+
+/* ============================================================
+   CHAT AREA - header, scrollable message log, pinned input.
+   ============================================================ */
+.ai-chat-area {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    position: relative;
+}
+
+.ai-chat-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    /* Tightened from the original 12px/18px - with DashboardLayout's own
+       32px top gap now removed for this tab (see isAIFullBleed), this
+       header sits genuinely flush at the very top of the available
+       space, so its own padding is what's left determining "how much
+       dead space sits above the chat", and space efficiency was an
+       explicit ask. */
+    padding: 10px 20px;
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+.ai-chat-header-btn {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ai-chat-header-btn:hover {
+    background: var(--surface-inset);
+    color: var(--text-primary);
+}
+
+/* No visible box at rest - a real, confirmed mismatch against ChatGPT's
+   own mobile header reference, which shows this icon as two bare lines
+   directly on the background, no border/fill box around them at all.
+   Still gets a subtle highlight on hover/tap (same convention this
+   app's own .ai-sidebar-toggle-btn already uses for its equivalent
+   control) so the tap target stays discoverable, just not permanently
+   boxed. This only ever overrides .ai-chat-header-btn's own boxed
+   default for THIS one button - every other header button (zoom, read-
+   aloud) keeps its normal box. */
+.ai-chat-header-menu-btn {
+    background: transparent;
+    border-color: transparent;
+}
+
+.ai-chat-header-menu-btn:hover {
+    background: var(--widget-bg);
+}
+
+/* Real +/- chat text zoom, matching a real browser's own Cmd+/Cmd- text
+   zoom - per explicit request, scales the actual message content (see
+   --ai-chat-text-scale on .ai-message-bubble above), not the whole app's
+   UI. One shared bordered pill for both buttons (same reasoning as
+   .ai-provider-pill-group above - two independently-bordered buttons
+   touching reads as two separate pieces, not one control) with a thin
+   internal divider instead of a second full border. */
+.ai-zoom-control-group {
+    display: flex;
+    align-items: stretch;
+    border-radius: 10px;
+    flex-shrink: 0;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+}
+
+.ai-zoom-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.ai-zoom-btn:first-child {
+    border-right: 1px solid var(--border-premium);
+}
+
+.ai-zoom-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+}
+
+.ai-zoom-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* Desktop keeps the sidebar's own hamburger (above its "+ New Chat") as
+   the real toggle - this one's only purpose there would be duplicating
+   it. Mobile keeps it: it's the only way to open a currently off-screen
+   drawer, so it can't live inside that same drawer. */
+@media (min-width: 769px) {
+    .ai-chat-header-menu-btn {
+        display: none;
+    }
+}
+
+/* Centered active-coach name on mobile, where the header is genuinely
+   symmetric (hamburger on the left, a matching-weight icon cluster on
+   the right). On desktop the sidebar owns its own hamburger now (see
+   .ai-chat-header-menu-btn below), so this header's left side is empty
+   there - left-aligning instead of forcing a center against a
+   lopsided icon cluster is what actually reads as "clean", matching
+   real Gemini/ChatGPT headers, which never center the title either. */
+.ai-chat-header-title-group {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+@media (min-width: 769px) {
+    .ai-chat-header-title-group {
+        align-items: flex-start;
+        text-align: left;
+    }
+}
+
+.ai-chat-header-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Mobile-only "Nexus AI" header label (see AIChatArea.jsx) - true
+   centering on .ai-chat-header's own real midpoint via absolute
+   positioning, deliberately NOT the flex:1 .ai-chat-header-title-group
+   above (that only centers within ITS OWN remaining space, which
+   visibly isn't the header's true center once its two neighbors - the
+   small hamburger button vs. the wider zoom-control pill - have
+   unequal widths). */
+.ai-chat-header-mobile-title {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+    white-space: nowrap;
+    pointer-events: none;
+    max-width: calc(100% - 140px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-chat-header-subtitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-chat-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* One real, single bordered/rounded card (background+border+radius all
+   live here, ONCE) containing both the pill button and, when present,
+   the model-picker chevron as plain, borderless, transparent buttons
+   inside it - not two independently-bordered elements pushed together.
+   Two adjacent bordered elements each draw their own edge, which is
+   exactly what read as "two cards stuck together" with a visible seam
+   down the middle in a real user report - a single shared border on the
+   outer group is the actual fix, not a tighter negative-margin/border-
+   radius alignment between two separate borders. */
+.ai-provider-pill-group {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    border-radius: 20px;
+    flex-shrink: 0;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    opacity: 0.55;
+}
+
+.ai-provider-pill-group.is-ready {
+    opacity: 1;
+}
+
+.ai-provider-pill-group.is-active {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: #10B981;
+}
+
+.ai-provider-pill-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    line-height: 1;
+    font-family: inherit;
+    cursor: inherit;
+}
+
+.ai-provider-pill-group:not(.is-ready) .ai-provider-pill-btn {
+    cursor: default;
+}
+
+.ai-provider-pill-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+/* Real model-picker chevron - matches Gemini's real "Flash-Lite" picker
+   being a small arrow inside the same pill as the model name, not a
+   second, separate control. Only ever rendered next to the currently-
+   active provider, and only when that provider actually has a real,
+   live-discovered model list to offer (see AIChatArea.jsx). No border/
+   background of its own - the shared .ai-provider-pill-group above
+   already provides the one real outline this whole control has. */
+.ai-model-picker-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 10px 5px 2px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.ai-model-picker-btn.is-open svg {
+    transform: rotate(180deg);
+}
+
+.ai-model-picker-btn svg {
+    transition: transform 0.15s ease;
+}
+
+.ai-model-picker-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 220px;
+    max-width: calc(100vw - 32px);
+    max-height: 50vh;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    padding: 6px;
+    z-index: 250;
+}
+
+.ai-model-picker-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 9px;
+    color: var(--text-primary);
+    font-size: 12.5px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    line-height: 1.3;
+    font-family: inherit;
+    transition: background 0.15s ease;
+}
+
+.ai-model-picker-item:hover {
+    background: var(--widget-bg);
+}
+
+.ai-model-picker-item.is-selected {
+    color: #10B981;
+}
+
+/* Live Context - folded into a small popover behind a header icon
+   instead of a persistent third column, to keep the default view
+   genuinely clean/distraction-free (matching the request's explicit
+   Gemini-minimalism goal) without dropping the real, live-computed
+   data feature itself. */
+.ai-context-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 18px;
+    width: 240px;
+    max-width: calc(100vw - 32px);
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 16px;
+    box-shadow: var(--premium-shadow);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 40;
+}
+
+.ai-context-popover-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.ai-context-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 9px 11px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 11px;
+    min-width: 0;
+}
+
+.ai-context-card-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-context-card-value {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---- Messages ---- */
+.ai-chat-messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 20px 18px;
+    box-sizing: border-box;
+}
+
+/* The real "centered, readable column" Gemini itself uses - constrains
+   line length regardless of how wide the actual viewport is, which is
+   what keeps long-form answers readable instead of stretching edge to
+   edge on a wide desktop window. */
+.ai-chat-messages-inner {
+    max-width: var(--ai-content-max-width);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    min-width: 0;
+}
+
+.ai-chat-empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    min-height: 100%;
+    max-width: var(--ai-content-max-width);
+    margin: 0 auto;
+    text-align: center;
+}
+
+.ai-empty-state-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.35);
+}
+
+.ai-empty-state-hint {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.ai-quick-prompts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    width: 100%;
+}
+
+.ai-quick-prompt-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 14px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.ai-quick-prompt-card:hover {
+    background: var(--surface-inset);
+    border-color: var(--primary);
+}
+
+.ai-quick-prompt-card:active { transform: scale(0.98); }
+
+.ai-quick-prompt-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+}
+
+/* No avatar icons on either side, per explicit request - matches real
+   ChatGPT/Gemini, where neither a bot nor a person glyph sits beside a
+   message; only the two message TYPES (a colored bubble for the user's
+   own text vs plain flowing text for the AI's) carry the visual
+   distinction now (see AIChatArea.jsx - MessageBubble no longer renders
+   an avatar element at all). */
+/* flex-direction: column (not the row default) - the message toolbar
+   (.ai-message-actions) added below is a real sibling of the bubble
+   inside this same row, meant to sit UNDER it, not beside it. Cross-axis
+   alignment (which side the bubble/toolbar sit on) is what align-items
+   controls once the main axis is vertical - justify-content would no
+   longer do that job here. */
+.ai-message-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.ai-message-row.is-user {
+    align-items: flex-end;
+}
+
+/* AI's own response: plain text on the transparent page background, no
+   card/border/padding of its own - real ChatGPT/Gemini behavior, per an
+   explicit side-by-side comparison against ChatGPT's own real UI. Only
+   the user's own message keeps a real bubble (.is-user below) - that
+   distinction is what a real chat UI actually uses to separate "you"
+   from "the model", not a card around every single message. */
+.ai-message-bubble {
+    max-width: 100%;
+    min-width: 0;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    line-height: 1.6;
+    /* --ai-chat-text-scale is set inline on .ai-chat-messages by
+       AIChatArea.jsx's own real +/- zoom control - 14px is this whole
+       subtree's base size (every child text element below is sized in
+       em against it), so this one line is genuinely what the zoom
+       control changes. Defaults to 1 (pixel-identical to the old fixed
+       14px) when the variable isn't set. */
+    font-size: calc(14px * var(--ai-chat-text-scale, 1));
+    overflow-wrap: break-word;
+    word-break: break-word;
+    background: transparent;
+    color: var(--text-primary);
+    border: none;
+}
+
+/* Real glassmorphism now, per explicit request - a flat, fully-opaque
+   --primary fill read as a "hard" solid card, out of step with every
+   other glass surface in this app. A translucent primary tint + real
+   backdrop-filter blur + a visible border is the actual glass look
+   (not just a lower-opacity flat color, which alone doesn't blur
+   whatever's behind it) - genuinely applied on every theme here, not
+   gated to Dynamic-only, since a frosted tinted-primary bubble reads
+   fine over any of this app's backgrounds. text-primary (not the fixed
+   white text-on-primary) since the surface is no longer a solid,
+   guaranteed-dark primary fill - text-primary is each theme's own
+   correct-contrast color for its own background, including Light
+   theme's dark text on a light backdrop. */
+/* Real, oval/"stadium" shape for short messages (radius close to half
+   the bubble's own single-line height), degrading to a normal rounded
+   rectangle for longer multi-line text - matches a direct, explicit
+   side-by-side comparison against ChatGPT's own user-bubble shape.
+   Pops in on mount with a slight spring overshoot, also per that same
+   comparison ("animated bana do... same to same"); the existing
+   nexus-motion-off/battery-saver rules elsewhere already force every
+   animation-duration to ~0 on top of this, so Reduce Motion/Battery
+   Saver correctly cancel it without any extra rule here. */
+@keyframes aiUserBubbleIn {
+    from { opacity: 0; transform: scale(0.92) translateY(4px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.ai-message-bubble.is-user {
+    max-width: 80%;
+    padding: 14px 18px;
+    border-radius: 24px;
+    box-shadow: var(--premium-shadow);
+    background: rgba(var(--primary-rgb), 0.16);
+    /* var(--glass-blur, ...) - not a hardcoded px value - matching every
+       other glass surface in the app (.widget, the AI header/sidebar
+       panels below). This bubble previously hardcoded blur(18px)
+       regardless of the user's own Blur Intensity slider - a real,
+       reported bug: even with Blur Intensity set all the way to 0
+       elsewhere, the AI chat's own message bubbles still rendered with
+       a fixed, heavy 18px blur, which reads as unwanted "blurriness"
+       specifically in the AI section once the wallpaper layer behind it
+       has a sharp-edged glow (see ParametricWallpaper.jsx/
+       AlternateBackgrounds.jsx's own filter:blur removal earlier) for
+       this exact blur to visibly smear. */
+    backdrop-filter: blur(var(--glass-blur, 12px)) saturate(150%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(150%);
+    border: 1px solid rgba(var(--primary-rgb), 0.35);
+    color: var(--text-primary);
+    animation: aiUserBubbleIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Still real, plain red text for an error - just no card around it,
+   matching every other AI response now. */
+.ai-message-bubble.is-error {
+    color: #EF4444;
+}
+
+/* Shown only across a real time gap between turns (see
+   shouldShowTimeDivider in AIChatArea.jsx) - matches a direct,
+   explicit comparison against ChatGPT/Gemini's own pattern, which
+   never stamps a timestamp on every single bubble, only as an
+   occasional centered divider when a conversation picks back up later. */
+.ai-time-divider {
+    align-self: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 4px 0;
+}
+
+/* The message toolbar - Copy/Like/Share/Retry/More - only ever under a
+   real, completed AI response (see MessageBubble's own showActions
+   check), left-aligned under the plain-text response exactly like
+   ChatGPT/Gemini's own equivalent row. Icon-only, no background/border
+   until hovered, so it stays quiet next to the response text rather
+   than reading as its own card. */
+.ai-message-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-top: 2px;
+    align-self: flex-start;
+}
+
+.ai-message-action-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+/* The "Try again" error-retry button (see MessageBubble's showErrorRetry)
+   carries a text label alongside its icon, so it needs real horizontal
+   padding and an auto width instead of the fixed 28px icon-only square
+   every other action button above uses. */
+.ai-message-action-btn:has(span) {
+    width: auto;
+    padding: 0 12px 0 10px;
+    color: #EF4444;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.ai-message-action-btn:has(span):hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #EF4444;
+}
+
+.ai-message-action-btn:hover {
+    background: var(--widget-bg);
+    color: var(--text-primary);
+}
+
+.ai-message-action-btn.is-active {
+    color: var(--accent);
+}
+
+/* A real, reported readability problem: at a low Glassmorphism Blur/
+   Opacity setting (var(--bg-surface) can be as low as ~3% alpha), this
+   popover's own text visually blended into the message text sitting
+   right behind it. Deliberately NOT var(--bg-surface) here - color-mix
+   with --bg-main (each theme's own solid, non-translucent base color,
+   never tied to the user's glass slider) gives a genuinely opaque,
+   theme-correct surface regardless of how low that slider is set
+   elsewhere, plus its own real, fixed backdrop blur (not var(--glass-
+   blur), same reasoning) - this one small floating menu needs to read
+   as a distinct surface every time, not fade into whatever content
+   happens to sit behind it. */
+.ai-message-menu-popover {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
+    min-width: 190px;
+    background: color-mix(in srgb, var(--bg-main) 92%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid var(--border-premium);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: var(--premium-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ai-message-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.ai-message-menu-item:hover {
+    background: var(--widget-bg);
+}
+
+.ai-source-modal-card {
+    max-width: 560px;
+    width: 90vw;
+}
+
+.ai-source-view {
+    max-height: 320px;
+    overflow: auto;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 12px;
+    font-family: 'SF Mono', Consolas, monospace;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.ai-typing-indicator {
+    display: flex;
+    align-items: center;
+}
+
+/* Same plain-text treatment as a real AI response above - no card, no
+   avatar, just the live status text + spinner. */
+.ai-typing-bubble {
+    color: var(--text-muted);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.ai-typing-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.ai-typing-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.4;
+    animation: ai-typing-bounce 1.1s ease-in-out infinite;
+}
+
+.ai-typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.ai-typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes ai-typing-bounce {
+    0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* ---- Markdown / code block chrome (message text itself) ---- */
+/* em, not px, on every real content element below - this is what makes
+   the header's real +/- zoom control (see AIChatArea.jsx's
+   chatTextScale) genuinely resize the WHOLE message at once. .ai-
+   message-bubble's own font-size is the one thing that control actually
+   changes (14px * scale); every child here is sized relative to it, so
+   headings/lists/paragraphs/code all scale together as one real unit
+   instead of only the outer bubble's own base text moving while
+   everything inside it stayed fixed. Values are each element's own
+   original px size divided by the 14px base, so this is a pure unit
+   conversion - default (scale=1) renders pixel-identical to before. */
+.ai-msg-heading { font-weight: 800; margin: 6px 0 2px; }
+.ai-msg-heading.h1 { font-size: 1.214em; }
+.ai-msg-heading.h2 { font-size: 1.071em; }
+.ai-msg-heading.h3 { font-size: 1em; }
+.ai-msg-list { margin: 4px 0; padding-left: 20px; }
+.ai-msg-list-item { font-size: 1em; line-height: 1.6; }
+.ai-msg-paragraph { font-size: 1em; line-height: 1.6; margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
+.ai-msg-inline-code {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.929em;
+    font-family: var(--font-mono, 'JetBrains Mono', 'SF Mono', monospace);
+}
+
+.ai-code-block {
+    background: #0D0D12;
+    border-radius: 10px;
+    margin: 8px 0;
+    border: 1px solid var(--border-premium);
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.ai-code-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid var(--border-premium);
+}
+
+.ai-code-lang {
+    font-size: 11px;
+    font-weight: 700;
+    color: #9CA3AF;
+    text-transform: uppercase;
+}
+
+.ai-code-copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 7px;
+    color: #9CA3AF;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+    font-family: inherit;
+    transition: color 0.15s ease;
+}
+
+.ai-code-copy-btn.is-copied { color: #86EFAC; }
+
+.ai-code-pre {
+    margin: 0;
+    padding: 12px;
+    font-size: 0.929em;
+    overflow-x: auto;
+    font-family: var(--font-mono, 'JetBrains Mono', 'SF Mono', monospace);
+    line-height: 1.5;
+}
+
+.ai-code-token-comment { color: #6B7280; font-style: italic; }
+.ai-code-token-string { color: #86EFAC; }
+.ai-code-token-number { color: #FCA5A5; }
+.ai-code-token-keyword { color: #93C5FD; font-weight: 700; }
+
+/* ---- Input, pinned to the bottom, per spec ---- */
+/* No border-top and no background of its own, by explicit request - the
+   input blends directly into the messages area above it rather than
+   being visually boxed off by a hard separator line. The rounded pill
+   below (.ai-chat-input-pill) is still its own clearly-defined surface,
+   so the input remains obviously interactive without needing a divider
+   above it to announce "a new section starts here". */
+.ai-chat-input-container {
+    flex-shrink: 0;
+    padding: 10px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Only ever mounts once a real conversation has actually started (see
+   AIChatArea.jsx - the empty state renders the same composer inline,
+   right under the greeting, instead of this bottom-pinned container) -
+   so this entrance plays exactly once, at the real moment "the chat
+   begins", matching ChatGPT/Gemini's own composer settling into its
+   docked position rather than a jarring instant swap between the two
+   layouts. */
+@keyframes aiComposerDock {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.ai-chat-input-container.is-docking {
+    animation: aiComposerDock 0.35s ease;
+}
+
+.ai-chat-input-inner {
+    max-width: var(--ai-content-max-width);
+    margin: 0 auto;
+}
+
+/* The empty-state's own composer slot - same width constraint as the
+   docked version (ai-chat-input-inner, reused as-is) plus width:100%
+   since it sits inside a centered flex column (ai-chat-empty-state uses
+   align-items:center, which shrink-wraps a block child to its content
+   width unless told otherwise). */
+.ai-empty-state-composer {
+    width: 100%;
+}
+
+.ai-chat-input-pill {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    padding: 8px 8px 8px 10px;
+    border-radius: 24px;
+    background: var(--surface-inset);
+    border: 1px solid var(--border-premium);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ai-chat-input-pill:focus-within {
+    border-color: var(--primary);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 0 3px rgba(var(--primary-rgb), 0.15);
+}
+
+/* Real auto-expanding textarea: height is driven by AIChatArea's own
+   JS (scrollHeight measurement), this just constrains it to a sane
+   range and removes every native textarea affordance (resize handle,
+   default border) that would clash with the pill it sits inside. */
+.ai-chat-input-textarea {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    border: none;
+    background: transparent;
+    color: #fff;
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 20px;
+    padding: 8px 4px;
+    outline: none;
+    font-family: inherit;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ai-chat-input-textarea::placeholder {
+    color: var(--text-muted);
+}
+
+.ai-input-icon-btn {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.ai-input-icon-btn:hover {
+    transform: scale(1.06);
+}
+
+.ai-input-icon-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+    transform: none;
+}
+
+.ai-input-icon-btn.is-active {
+    background: var(--primary);
+    color: var(--text-on-primary);
+}
+
+/* The "+" trigger rotates into a real "X" on open - a plain 45deg spin of
+   a Plus glyph reads as a close/dismiss icon, exactly like Gemini's own
+   attach-menu trigger does. Scoped to this one button (not every
+   .is-active icon button, several of which use is-active for unrelated
+   "currently active" meanings) via its own dedicated class. */
+.ai-attach-trigger-btn svg {
+    transition: transform 0.2s ease;
+}
+
+.ai-attach-trigger-btn.is-active svg {
+    transform: rotate(45deg);
+}
+
+.ai-input-icon-btn.is-listening {
+    background: #EF4444;
+    color: #fff;
+    border-color: #EF4444;
+    animation: ai-mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-mic-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+    50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+/* VoiceWaveform.jsx - each bar's own real height is set inline via a
+   live scaleY() transform driven by the microphone's actual current
+   amplitude (see the component's own rAF loop), not by anything in this
+   stylesheet - these rules only define each bar's shape/color/spacing
+   at rest. transform-origin: center keeps every bar growing evenly
+   up and down from its own vertical middle, the real, symmetric
+   waveform look (not growing only downward from a fixed baseline). */
+.ai-voice-waveform {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 6px;
+}
+
+.ai-voice-waveform-bar {
+    flex: 1;
+    max-width: 4px;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--primary);
+    transform-origin: center;
+    transform: scaleY(0.06);
+    /* No CSS transition here - the rAF loop already redraws every real
+       animation frame (~16ms), so a transition would only ever fight
+       the next already-in-flight frame instead of smoothing anything. */
+}
+
+/* Send button - subtle hover glow/scale, per spec. */
+.ai-send-btn {
+    background: var(--primary);
+    color: var(--text-on-primary);
+    border: none;
+    box-shadow: 0 0 0 rgba(var(--primary-rgb), 0);
+}
+
+.ai-send-btn:hover:not(:disabled) {
+    transform: scale(1.08);
+    box-shadow: 0 0 16px rgba(var(--primary-rgb), 0.55);
+}
+
+.ai-send-btn:disabled {
+    opacity: 0.5;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ---- Attachment / quick-actions popover ---- */
+/* position:absolute (anchored to its own relatively-positioned button
+   wrapper in AIChatArea.jsx), not fixed - a fixed element's percentage
+   offsets (the bottom:calc(100%...) placement below) resolve against the
+   viewport, not this popover's actual anchor, which pushed it off-screen
+   entirely when this was first built as position:fixed. */
+.ai-attach-menu-popover {
+    position: absolute;
+    width: 260px;
+    max-width: calc(100vw - 32px);
+    max-height: 50vh;
+    overflow-y: auto;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 16px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    padding: 8px;
+    z-index: 250;
+}
+
+.ai-attach-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    line-height: 1.4;
+    font-family: inherit;
+    transition: background 0.15s ease;
+}
+
+.ai-attach-menu-item:hover {
+    background: var(--widget-bg);
+}
+
+.ai-attach-menu-item:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.ai-attach-menu-item:disabled:hover {
+    background: transparent;
+}
+
+.ai-attach-menu-item-hint {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 1px;
+}
+
+.ai-attach-menu-label {
+    margin: 8px 10px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ---- Pending image attachment (staged in the composer before send) ---- */
+.ai-pending-image-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px 6px 6px;
+    margin: 0 0 8px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 12px;
+    max-width: 240px;
+}
+
+.ai-pending-image-chip img {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+/* PDF variant - no cheap thumbnail exists for a PDF the way an image's
+   own object URL gives one for free, so this is a plain icon tile
+   matching the thumbnail's own footprint instead. */
+.ai-pending-image-chip-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background: var(--primary-muted);
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ai-pending-image-chip-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ai-pending-image-chip-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.ai-pending-image-chip-remove:hover {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+}
+
+/* A real image the user attached, rendered inside their own message
+   bubble - so the sent attachment stays visible in history, not just
+   during composition. */
+.ai-message-image {
+    max-width: 220px;
+    max-height: 220px;
+    border-radius: 12px;
+    object-fit: cover;
+    display: block;
+    margin-bottom: 8px;
+}
+
+/* A real PDF the user attached - a generic file chip, not a broken
+   <img> (a PDF has no cheap-to-render thumbnail the way an image's own
+   object URL already gives one for free). */
+.ai-message-file-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    max-width: 220px;
+}
+
+.ai-message-file-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- Clear-chat confirmation modal ---- */
+.ai-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.ai-modal-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    padding: 26px;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: var(--premium-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-sizing: border-box;
+}
+
+.ai-modal-title {
+    text-align: center;
+}
+
+.ai-modal-title h3 {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0 0 4px;
+}
+
+.ai-modal-title span {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.ai-modal-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.ai-modal-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    border: 1px solid var(--border-premium);
+    background: var(--widget-bg);
+    color: var(--text-primary);
+}
+
+.ai-modal-btn.is-danger {
+    background: #EF4444;
+    color: #fff;
+    border: none;
+}
+
+/* ============================================================
+   MOBILE (<= 768px) - the sidebar becomes a fixed, off-canvas overlay
+   that slides in from the left, with a semi-transparent backdrop that
+   closes it on click, per spec.
+   ============================================================ */
+@media (max-width: 768px) {
+    .ai-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        /* Above MobileTabBar (z-index:150) - matches this app's own
+           equivalent drawer (MobileSidebarDrawer.jsx, 400/401), so this
+           sidebar behaves like every other real modal overlay here: it
+           covers the bottom tab bar while open instead of sitting under
+           it, rather than a lower, out-of-convention value that let the
+           tab bar's icons show through on top of it. */
+        z-index: 401;
+        width: min(300px, 82vw);
+        transform: translateX(-100%);
+        box-shadow: none;
+        border-right: 1px solid var(--border-premium);
+    }
+
+    .ai-sidebar.is-open {
+        transform: translateX(0);
+        box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35);
+    }
+
+    /* On mobile the collapsed/rail state is meaningless - the sidebar is
+       either fully open (overlay) or fully off-screen. */
+    .ai-sidebar.is-collapsed {
+        width: min(300px, 82vw);
+    }
+
+    .ai-sidebar.is-collapsed .ai-sidebar-inner {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .ai-sidebar.is-collapsed .ai-sidebar-rail {
+        display: none;
+    }
+
+    .ai-sidebar-inner {
+        padding-top: calc(14px + env(safe-area-inset-top, 0px));
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .ai-sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 400;
+        background: rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+
+    .ai-sidebar-backdrop.is-visible {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .ai-chat-header {
+        padding: 10px 12px;
+        padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    }
+
+    .ai-chat-messages {
+        padding: 14px 12px;
+    }
+
+    /* One line, not two - "What would you like to know?" was wrapping at
+       its desktop 28px size on a narrow phone width. Sized down just
+       enough to fit on one line at typical mobile widths (~360-390px). */
+    .ai-empty-state-hint {
+        font-size: 19px;
+        /* Real, confirmed regression from the composer's own margin-top:
+           auto below: that auto margin claims ALL free space in the
+           column for itself to push the composer to the bottom, leaving
+           none for this text to center within any more - it visibly
+           collapsed to the very top of the screen instead of staying
+           centered in the space above the composer, exactly as
+           reported against a live screenshot. Turning this text itself
+           into its own flex:1 centering box (rather than relying on the
+           auto margin trick for both this AND the composer) is what
+           lets it genuinely re-center within just its own share of the
+           screen, independent of wherever the composer ends up. */
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        min-height: 0;
+    }
+
+    /* DashboardLayout.jsx no longer reserves space for MobileTabBar
+       around this page (isAIFullBleed removes that outer padding
+       entirely for the AI tab) - real clearance for its fixed ~52px bar
+       has to be reserved here instead, or the input pill would render
+       underneath it, unreachable below the fold. */
+    .ai-chat-input-container {
+        padding: 10px 12px calc(64px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Fresh-chat composer sits low on the screen, matching a real,
+       confirmed comparison against ChatGPT/Gemini's own mobile app -
+       not stacked directly under the greeting the way this same empty
+       state's centered desktop layout deliberately keeps it (left
+       untouched - see .ai-chat-empty-state above). No margin-top:auto
+       here any more - the greeting's own flex:1 (see .ai-empty-state-
+       hint just above) already claims every bit of free space above
+       this, so this naturally lands at the bottom in plain flow with
+       no extra push needed, while STILL leaving the greeting genuinely
+       centered within its own share of the screen instead of both of
+       them fighting over the same one pool of auto-margin space (the
+       actual regression that pushed the greeting up to the very top).
+       Bottom clearance matches .ai-chat-input-container's own value
+       just above it - MobileTabBar's fixed ~52px bar needs the same
+       real space reserved here too. */
+    .ai-empty-state-composer {
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .ai-message-bubble.is-user {
+        max-width: 88%;
+    }
+
+    .ai-quick-prompts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ai-context-popover {
+        right: 12px;
+        left: 12px;
+        width: auto;
+    }
+
+    /* The provider pill (and this chevron beside it) now sits centered
+       in the mobile header, not pinned to the right edge the way it is
+       on desktop - right:0 anchoring here made the popover extend
+       leftward from wherever the centered pill happened to land,
+       genuinely running off the left edge of the screen for a real user
+       (the model list's own text visibly cut off). Centering under the
+       pill instead is correct regardless of exactly where that pill
+       sits. */
+    .ai-model-picker-popover {
+        right: auto;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ai-sidebar,
+    .ai-sidebar-inner,
+    .ai-sidebar-rail,
+    .ai-sidebar-backdrop,
+    .ai-new-chat-btn,
+    .ai-quick-prompt-card,
+    .ai-input-icon-btn,
+    .ai-send-btn,
+    .ai-typing-dots span {
+        transition: none !important;
+        animation: none !important;
+    }
+}

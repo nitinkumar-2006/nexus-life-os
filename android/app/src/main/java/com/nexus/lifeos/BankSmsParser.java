@@ -67,9 +67,21 @@ final class BankSmsParser {
     //   UPI alerts actually use (e.g. SBI's "Debited by 500.0") - the verb
     //   itself is already the anchor here, so there's no equivalent
     //   account-number collision risk.
+    // A third, narrow alternative specifically for "Payment of Rs.350 made
+    // to Big Bazaar" - a genuinely common real PhonePe/bank confirmation
+    // phrasing that neither of the two shapes above catches, since "made"
+    // isn't in TXN_VERBS at all. Deliberately NOT added as a bare word to
+    // TXN_VERBS (which would make the amount-search anchor to ANY "made"
+    // anywhere in the message, e.g. "a correction was made to your
+    // statement") - anchoring to the specific two-word "made to" phrase
+    // keeps this safe the same way DEBIT_KEYWORDS already prefers
+    // "purchase of" over bare "purchase" below. Currency is required here
+    // (matching the amount-BEFORE-keyword shape's own reasoning above) so
+    // this can't grab an unrelated number.
     private static final Pattern AMOUNT_NEAR_KEYWORD_PATTERN = Pattern.compile(
             "(?:Rs\\.?|INR|₹)\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s+(?:has\\s+been\\s+|is\\s+|was\\s+)?(?:" + TXN_VERBS + ")\\b"
-            + "|\\b(?:" + TXN_VERBS + ")\\b\\s*(?:by|with|for|of)?\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)",
+            + "|\\b(?:" + TXN_VERBS + ")\\b\\s*(?:by|with|for|of)?\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)"
+            + "|(?:Rs\\.?|INR|₹)\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\s+made\\s+to\\b",
             Pattern.CASE_INSENSITIVE);
 
     // Deliberately "debited" (the conjugated verb), never the bare noun
@@ -82,7 +94,7 @@ final class BankSmsParser {
     // boilerplate every time, making a huge fraction of genuine credits
     // look "ambiguous" and get dropped entirely.
     private static final Pattern DEBIT_KEYWORDS =
-            Pattern.compile("\\b(debited|spent|paid|withdrawn|purchase of|sent)\\b", Pattern.CASE_INSENSITIVE);
+            Pattern.compile("\\b(debited|spent|paid|withdrawn|purchase of|sent|made to)\\b", Pattern.CASE_INSENSITIVE);
     // Same reasoning in reverse: "credited" (the verb), never bare "credit"
     // - "Credit Card ending XXXX" boilerplate appears in plenty of real
     // DEBIT (purchase/spend) SMS too, and a bare \bcredit\b there caused
@@ -95,7 +107,9 @@ final class BankSmsParser {
     private static String extractAmountString(String body) {
         Matcher m = AMOUNT_NEAR_KEYWORD_PATTERN.matcher(body);
         if (!m.find()) return null;
-        return m.group(1) != null ? m.group(1) : m.group(2);
+        if (m.group(1) != null) return m.group(1);
+        if (m.group(2) != null) return m.group(2);
+        return m.group(3);
     }
 
     // Best-effort merchant/description extraction - tries a few common

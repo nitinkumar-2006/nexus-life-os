@@ -15,6 +15,7 @@
 //   sectioned, aligned, genuinely readable when opened directly, and
 //   also exactly what a person would paste into a PDF if they wanted
 //   one via their OS's own "Print to PDF".
+import { getLocalDateString } from './dateUtils.js';
 
 // Triggers a real, native browser file download via a Blob + a
 // synthetic, immediately-removed anchor click - the standard, dependency-
@@ -55,7 +56,7 @@ const monthLabel = (date = new Date()) => {
     const safeDate = date && !Number.isNaN(new Date(date).getTime()) ? new Date(date) : new Date();
     return safeDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
 };
-const todayStamp = (date = new Date()) => date.toISOString().split('T')[0];
+const todayStamp = (date = new Date()) => getLocalDateString(date);
 
 // ============================================================
 // FINANCE - fully supported by real, date-stamped transaction data,

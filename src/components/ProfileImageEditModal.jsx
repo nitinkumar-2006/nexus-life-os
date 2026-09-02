@@ -14,7 +14,7 @@ const ProfileImageEditModal = ({ type, currentUrl, onSelectPreset, onUploadChang
 
     return (
         <div
-            style={{ position: 'fixed', inset: 0, zIndex: 2900, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px', boxSizing: 'border-box' }}
+            style={{ position: 'fixed', inset: 0, zIndex: 2900, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', padding: '20px', boxSizing: 'border-box' }}
             onClick={onClose}
         >
             <div

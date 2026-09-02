@@ -11,7 +11,7 @@
 // and the actual bytes of locally-imported audio files, which live in
 // IndexedDB) is intentionally excluded from cloud sync.
 import { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config.js';
 import { useAuth } from './AuthContext.jsx';
 
@@ -59,6 +59,18 @@ export const SYNCED_KEYS = [
     'nexus_study_assignments',
     'nexus_study_flashcards',
     'nexus_study_notes',
+    // The real, live Syllabus data (subjects/units/topics + all real
+    // progress) - StudyPage/SyllabusPage both moved to this key long ago
+    // (see StudyPage.jsx's own comment on why nexus_study_subjects above
+    // is now dead), but this list was never updated to follow, so every
+    // subject/unit/topic a user has ever added silently never made it
+    // into cloud backup or cross-device restore until now.
+    'nexus_syllabus_subjects',
+    // GpaCalculator's own CGPA/Attendance data (Study Hub's "CGPA &
+    // Attendance" tab) - added after this list was last audited, so it
+    // was missing entirely; same silent no-backup gap as above.
+    'nexus_study_cgpa_subjects',
+    'nexus_study_attendance_subjects',
     'nexus_gym_profile',
     'nexus_gym_workouts',
     'nexus_gym_plans',
@@ -91,6 +103,8 @@ const CloudSyncContext = createContext({
     syncStatus: SYNC_STATUS.IDLE,
     syncError: null,
     lastSyncedAt: null,
+    syncPaused: false,
+    setSyncPaused: () => {},
     pushToCloud: async () => {},
     pullFromCloud: async () => {},
     checkSyncHealth: () => ({ healthy: false, reason: 'Not configured' }),
@@ -111,6 +125,14 @@ export const CloudSyncProvider = ({ children }) => {
     const [syncStatus, setSyncStatus] = useState(SYNC_STATUS.IDLE);
     const [syncError, setSyncError] = useState(null);
     const [lastSyncedAt, setLastSyncedAt] = useState(null);
+    // Real pause for the two AUTOMATIC background triggers only (the
+    // debounced push-on-local-change below, and the scheduled Daily/
+    // Weekly/Monthly backup) - a manual pushToCloud()/pullFromCloud()
+    // call (the System Diagnostics panel's own "Sync Now"/"Pull Latest"
+    // buttons, or anything else that calls these directly) still works
+    // while paused, since the whole point is "stop the automatic
+    // background activity for a bit", not "disable sync entirely".
+    const [syncPaused, setSyncPaused] = useState(false);
     const hasPulledForUser = useRef(null);
     // True only for the exact duration pullFromCloud is writing its
     // fetched data into localStorage - guards the auto-push listener
@@ -119,6 +141,21 @@ export const CloudSyncProvider = ({ children }) => {
     // cloud the data that was just pulled FROM the cloud.
     const isPullingRef = useRef(false);
     const pushDebounceRef = useRef(null);
+    // True from the moment a debounced local change starts its
+    // setDoc(...) round-trip until that call actually settles (success
+    // or failure). Combined with pushDebounceRef.current (truthy while
+    // a change is still WAITING to be pushed, before the debounce timer
+    // has even fired), this covers the whole window during which a
+    // local edit exists that the cloud does not have yet. See the guard
+    // in applyCloudData below - this is the real fix for a genuine race
+    // that had no guard at all before: a pull (the real-time onSnapshot
+    // listener especially) landing with the *previous* cloud value while
+    // this exact change is still in flight, unconditionally overwriting
+    // the fresh local edit with what it just replaced. That's what made
+    // a theme change (or any synced setting) intermittently "snap back"
+    // shortly after being changed - not on a fixed timer, but any time a
+    // pull happened to arrive during this window.
+    const pushInFlightRef = useRef(false);
 
     const snapshotLocalData = () => {
         const snapshot = {};
@@ -127,6 +164,43 @@ export const CloudSyncProvider = ({ children }) => {
             if (value !== null) snapshot[key] = value;
         });
         return snapshot;
+    };
+
+    // The one real place cloud data actually lands back in localStorage -
+    // shared by pullFromCloud's own explicit, one-shot pull below AND the
+    // live onSnapshot listener further down, so there's a single real
+    // implementation instead of two copies that could drift. isPullingRef
+    // is what stops the auto-push listener above from treating this
+    // inbound write as a new local change and immediately pushing it
+    // straight back to the cloud it just came from.
+    const applyCloudData = (cloudData) => {
+        // A local edit that hasn't reached the cloud yet (still sitting
+        // in the debounce, or the setDoc() call it triggered is still
+        // in flight) is by definition fresher than whatever this pull
+        // just fetched, which was necessarily read *before* that edit's
+        // own push completes. Applying it now would silently clobber
+        // the user's just-made change with the value it's about to
+        // replace - so skip this pull entirely and let the pending push
+        // win; the very next pull after it lands will correctly reflect
+        // what was just pushed.
+        if (pushDebounceRef.current || pushInFlightRef.current) return;
+        isPullingRef.current = true;
+        Object.entries(cloudData).forEach(([key, value]) => {
+            localStorage.setItem(key, value);
+        });
+        window.dispatchEvent(new Event('nexus_profile_updated'));
+        window.dispatchEvent(new Event('nexus_settings_updated'));
+        // header.jsx's own theme-cycle icon only re-syncs its local state
+        // on this specific event, not on 'nexus_settings_updated'/'storage'
+        // - without it, a theme value arriving from the cloud (sign-in
+        // pull, another device's change, or this device's own change
+        // echoing back) would correctly update data-theme on <html> via
+        // DashboardLayout's own listener (which does listen broadly) while
+        // leaving the header icon showing whatever theme was active before
+        // this pull, silently desynced from the theme actually applied.
+        window.dispatchEvent(new Event('nexus_theme_changed'));
+        window.dispatchEvent(new Event('storage'));
+        isPullingRef.current = false;
     };
 
     // Real pre-flight health check - verifies the two real, actual
@@ -163,6 +237,7 @@ export const CloudSyncProvider = ({ children }) => {
         }
         setSyncStatus(SYNC_STATUS.SYNCING);
         setSyncError(null);
+        pushInFlightRef.current = true;
         try {
             await withTimeout(
                 setDoc(doc(db, 'nexusUsers', user.uid), { data: snapshotLocalData(), updatedAt: serverTimestamp() }, { merge: true }),
@@ -178,6 +253,7 @@ export const CloudSyncProvider = ({ children }) => {
             setSyncStatus(SYNC_STATUS.ERROR);
             setSyncError(e && e.message ? e.message : 'Sync failed.');
         }
+        pushInFlightRef.current = false;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [checkSyncHealth, user]);
 
@@ -195,19 +271,7 @@ export const CloudSyncProvider = ({ children }) => {
         try {
             const snap = await withTimeout(getDoc(doc(db, 'nexusUsers', user.uid)), SYNC_TIMEOUT_MS);
             if (snap.exists()) {
-                const cloudData = snap.data().data || {};
-                isPullingRef.current = true;
-                Object.entries(cloudData).forEach(([key, value]) => {
-                    localStorage.setItem(key, value);
-                });
-                window.dispatchEvent(new Event('nexus_profile_updated'));
-                window.dispatchEvent(new Event('nexus_settings_updated'));
-                // Synchronous dispatch - every listener (including the
-                // auto-push one below) has already run by the time this
-                // call returns, so it's safe to drop the guard right
-                // after rather than needing a delay.
-                window.dispatchEvent(new Event('storage'));
-                isPullingRef.current = false;
+                applyCloudData(snap.data().data || {});
             }
             setLastSyncedAt(new Date());
             setSyncStatus(SYNC_STATUS.IDLE);
@@ -234,6 +298,74 @@ export const CloudSyncProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user, isConfigured]);
 
+    // REAL real-time, multi-device sync - the actual gap the one-shot pull
+    // above doesn't cover: that effect only ever pulls once, right after
+    // sign-in, so a change pushed from a second device while THIS one is
+    // already open and sitting idle previously never arrived until the
+    // user manually refreshed or signed out and back in. A genuine
+    // Firestore onSnapshot subscription stays open for as long as this
+    // provider is mounted and fires again the instant the server has a
+    // newer version of the document - from this device's own confirmed
+    // writes AND from every other signed-in device alike - which is what
+    // makes "add a task on your phone, watch it appear on your laptop
+    // within milliseconds" genuinely true instead of only working one
+    // direction (local -> cloud) the way the debounced auto-push alone
+    // did.
+    //
+    // snap.metadata.hasPendingWrites is Firestore's own real signal for
+    // "this snapshot reflects a write *this client* made that the server
+    // hasn't confirmed yet" (the local optimistic cache echoing itself
+    // back) - skipping those is what stops this listener from replaying
+    // this device's own in-flight local edits back onto itself a moment
+    // after they were already applied locally.
+    useEffect(() => {
+        if (!isConfigured || !user || !db) return undefined;
+
+        const unsubscribe = onSnapshot(
+            doc(db, 'nexusUsers', user.uid),
+            (snap) => {
+                if (snap.metadata.hasPendingWrites) return;
+                if (!snap.exists()) return;
+                applyCloudData(snap.data().data || {});
+                setLastSyncedAt(new Date());
+            },
+            (err) => {
+                // A live listener that fails (permissions, a dropped
+                // connection Firestore can't silently recover) shouldn't
+                // crash sync entirely - the debounced push/one-shot pull
+                // above still work independently of this listener, so
+                // this only ever degrades to "less instant", never to
+                // "broken".
+                setSyncStatus(SYNC_STATUS.ERROR);
+                setSyncError(err && err.message ? err.message : 'Live sync connection lost.');
+            }
+        );
+
+        return () => unsubscribe();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isConfigured, user]);
+
+    // Real "auto-flush on reconnect": the moment the browser's own
+    // connectivity signal flips back to online, immediately retry a push
+    // if the last attempt is sitting in an error state (most commonly
+    // because it was attempted while offline - see checkSyncHealth above).
+    // Firestore's own persistent local cache (see firebase/config.js)
+    // already queues writes made *through* the SDK while offline and
+    // flushes them on its own reconnect detection; this is the
+    // complementary piece for this app's specific pattern of skipping the
+    // Firestore call entirely while known-offline (avoiding a doomed
+    // round-trip and its timeout) - without this listener, that skipped
+    // push would otherwise only get retried by the next unrelated local
+    // edit or the coarse 5-minute scheduled backup below.
+    useEffect(() => {
+        if (!isConfigured || !user) return undefined;
+        const handleOnline = () => {
+            if (syncStatus === SYNC_STATUS.ERROR) pushToCloud();
+        };
+        window.addEventListener('online', handleOnline);
+        return () => window.removeEventListener('online', handleOnline);
+    }, [isConfigured, user, syncStatus, pushToCloud]);
+
     // The real "WhatsApp-style automatic backup" mechanism - every
     // localStorage write anywhere in this app already dispatches a
     // same-tab 'storage' event right after (the established convention
@@ -251,6 +383,7 @@ export const CloudSyncProvider = ({ children }) => {
 
         const handleLocalChange = () => {
             if (isPullingRef.current) return; // this change came FROM the cloud, don't push it right back
+            if (syncPaused) return; // user paused automatic background sync from the System Diagnostics panel
             if (pushDebounceRef.current) clearTimeout(pushDebounceRef.current);
             pushDebounceRef.current = setTimeout(() => {
                 pushDebounceRef.current = null;
@@ -280,7 +413,7 @@ export const CloudSyncProvider = ({ children }) => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             if (pushDebounceRef.current) clearTimeout(pushDebounceRef.current);
         };
-    }, [isConfigured, user, pushToCloud]);
+    }, [isConfigured, user, pushToCloud, syncPaused]);
 
     // Respects the Settings page's Auto-Backup Frequency dropdown: checks
     // every 5 minutes whether enough time has passed since the last backup
@@ -302,6 +435,7 @@ export const CloudSyncProvider = ({ children }) => {
         if (!isConfigured || !user) return undefined;
 
         const checkAndBackup = () => {
+            if (syncPaused) return; // user paused automatic background sync from the System Diagnostics panel
             let freq = 'Weekly';
             try {
                 const settings = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
@@ -321,7 +455,7 @@ export const CloudSyncProvider = ({ children }) => {
         const interval = setInterval(checkAndBackup, 5 * 60 * 1000);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user, isConfigured]);
+    }, [user, isConfigured, syncPaused]);
 
     // Memoized so consumers only genuinely re-render when a real value
     // here actually changed - not on every single render of this
@@ -333,10 +467,12 @@ export const CloudSyncProvider = ({ children }) => {
         syncStatus,
         syncError,
         lastSyncedAt,
+        syncPaused,
+        setSyncPaused,
         pushToCloud,
         pullFromCloud,
         checkSyncHealth,
-    }), [syncStatus, syncError, lastSyncedAt, pushToCloud, pullFromCloud, checkSyncHealth]);
+    }), [syncStatus, syncError, lastSyncedAt, syncPaused, pushToCloud, pullFromCloud, checkSyncHealth]);
 
     return (
         <CloudSyncContext.Provider value={value}>

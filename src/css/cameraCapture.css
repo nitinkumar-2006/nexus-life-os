@@ -1,0 +1,100 @@
+/* src/css/cameraCapture.css
+ *
+ * Styles for AttachmentMenu.jsx - the Camera/Photo/Files menu.
+ * CameraCapture.jsx renders no visible UI of its own (see that file's
+ * own comment - it hands off to the device's real native camera app via
+ * <input capture="environment">, matching a real, confirmed side-by-side
+ * comparison against ChatGPT's own mobile app), so there is nothing to
+ * style for it here.
+ *
+ * The menu's own shape is deliberately the SAME small, rounded-on-every-
+ * corner floating card ChatGPT's own "+" menu uses - anchored just above
+ * the button that opened it, not a heavy, edge-to-edge, dark-backdrop
+ * bottom sheet. It reuses this app's existing desktop attach-popover's
+ * exact positioning technique (position: absolute, anchored to a
+ * position: relative wrapper around the trigger button) rather than a
+ * second, different mobile-only mechanism - the same visual language,
+ * just sized for a touch target.
+ */
+
+.nexus-attach-menu {
+    position: absolute;
+    z-index: 2100;
+    width: 220px;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: nexusAttachMenuIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes nexusAttachMenuIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.nexus-attach-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 14px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    /* Real >=44px touch target, per this app's own established mobile
+       accessibility floor - the row's own padding brings it there
+       without needing to inflate the icon chip itself. */
+    min-height: 44px;
+    box-sizing: border-box;
+}
+
+.nexus-attach-menu-item:hover,
+.nexus-attach-menu-item:active {
+    background: var(--widget-bg);
+}
+
+.nexus-attach-menu-item:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.nexus-attach-menu-item:disabled:hover {
+    background: transparent;
+}
+
+/* Plain circular neutral chip, matching the reference exactly - not this
+   app's own accent-tinted icon treatment used elsewhere, deliberately,
+   since the whole point here is matching ChatGPT's own plain gray-circle
+   icon style rather than this app's usual branding. */
+.nexus-attach-menu-item-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--widget-bg);
+    color: var(--text-primary);
+}
+
+.nexus-attach-menu-item-hint {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 1px;
+}

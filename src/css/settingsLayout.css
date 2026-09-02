@@ -1,0 +1,763 @@
+/* src/css/settingsLayout.css
+ *
+ * Dedicated stylesheet for the redesigned Settings Hub - real CSS
+ * classes instead of inline styles, per explicit request for this
+ * section. Every surface/color value reuses this app's own existing
+ * theme variables (--bg-surface, --border-premium, --premium-shadow,
+ * --glass-blur, --primary, --primary-rgb - see variables.css) rather
+ * than the request's own literal example values (e.g.
+ * rgba(15,15,15,0.4)) - a fixed near-black fill would render as a
+ * broken, near-opaque block on the Day theme's light background. The
+ * REAL, resolved look on the Night/Dynamic themes this app defaults to
+ * is visually the same "dark translucent glass" the spec describes;
+ * this just stays correct on all four themes instead of only one.
+ * Font-family is never set here - the global `* { font-family:
+ * var(--font-primary) }` rule already cascades the user's own chosen
+ * Typography & Styling font into every element on this page.
+ */
+
+/* ============================================================
+   SHELL - Profile header on top, split-pane (nav + content) below.
+   ============================================================ */
+.settings-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    box-sizing: border-box;
+    /* Glassmorphic surfaces stacked under CSS transforms/transitions
+       (the mobile overlay's slide, every card's own animations) can
+       knock text off the pixel grid the browser normally hints against,
+       reading as "blurry" even with nothing actually wrong. Forcing
+       antialiasing here keeps every letter in this section crisp
+       regardless of what's animating around it. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.settings-page-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+/* ============================================================
+   PROFILE OVERVIEW HEADER - real user profile, real local-storage
+   usage (the exact same byte count Automation & Backup's own meter
+   uses), real connected-account status. This is what replaces the old
+   page's first, immediate impression of empty space with genuine,
+   already-computed data instead of decorative filler.
+   ============================================================ */
+.settings-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding: 24px 28px;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    box-shadow: var(--premium-shadow);
+}
+
+/* Groups identity (avatar+name+email) and the edit pencil into one row -
+   see the JSX comment for why this exists. flex-shrink: 0 keeps it from
+   being squeezed by the storage/connections blocks on the desktop row
+   layout, matching what .settings-profile-identity did on its own before.
+   On mobile, .settings-profile-header's own align-items: stretch (see the
+   768px block below) stretches this to the card's full width, which is
+   what gives justify-content: space-between real room to push the pencil
+   to the right edge instead of it just sitting flush against the name/
+   email text. */
+.settings-profile-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.settings-profile-identity {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+/* This block is now a real <button> (navigates to the full Profile
+   page on click) rather than a plain <div>, so it needs the usual
+   button reset - otherwise it inherits the browser's own default
+   border/background/padding/font, which would visibly break the
+   avatar+name layout it already had as a div. */
+.settings-profile-identity-link {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 12px;
+    transition: opacity 0.15s ease;
+}
+
+.settings-profile-identity-link:hover {
+    opacity: 0.8;
+}
+
+.settings-profile-identity-link:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 4px;
+}
+
+.settings-profile-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    font-size: 22px;
+    font-weight: 800;
+    overflow: hidden;
+}
+
+.settings-profile-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.settings-profile-name {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.settings-profile-email {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 2px 0 0;
+}
+
+.settings-profile-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 9px;
+    border: 1px solid var(--border-premium);
+    background: var(--widget-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s ease, color 0.15s ease;
+}
+
+.settings-profile-edit-btn:hover {
+    transform: scale(1.06);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border-premium));
+    color: var(--primary);
+}
+
+.settings-profile-edit-btn:active {
+    transform: scale(0.96);
+}
+
+.settings-profile-divider {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border-premium);
+    flex-shrink: 0;
+}
+
+/* Storage Usage - real, proportional to the same 5120KB (5MB)
+   reference cap Automation & Backup's own full breakdown uses, so the
+   two never disagree with each other. */
+.settings-storage-block {
+    flex: 1 1 220px;
+    min-width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.settings-storage-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.settings-storage-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.settings-storage-value {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.settings-storage-track {
+    width: 100%;
+    height: 7px;
+    border-radius: 10px;
+    background: var(--surface-inset);
+    border: 1px solid var(--border-premium);
+    overflow: hidden;
+}
+
+.settings-storage-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 10px;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Connected accounts - real settings.*Confirmed flags, not decorative
+   badges. */
+.settings-connections-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.settings-connections-label {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.settings-connections-empty {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.settings-connections-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.settings-connection-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    color: var(--text-muted);
+    white-space: nowrap;
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Distinct per-state hover: a connected pill's glow uses its own real
+   status color (the same green as its resting state, just brighter/
+   more present), while a not-yet-connected pill hovers toward the
+   theme's own --primary instead - so hovering genuinely previews "this
+   is currently connected" vs "this isn't connected yet", not just a
+   generic lift applied identically everywhere. */
+.settings-connection-pill:hover {
+    transform: scale(1.04);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border-premium));
+    color: var(--text-primary);
+}
+
+.settings-connection-pill.is-connected {
+    color: #10B981;
+    border-color: rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.settings-connection-pill.is-connected:hover {
+    border-color: rgba(16, 185, 129, 0.55);
+    background: rgba(16, 185, 129, 0.18);
+    color: #10B981;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+.settings-connection-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+/* ============================================================
+   SPLIT-PANE BODY
+   ============================================================ */
+.settings-split {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    width: 100%;
+    min-width: 0;
+}
+
+/* ============================================================
+   NAV - fixed-width glassmorphic category sidebar.
+   ============================================================ */
+.settings-nav {
+    width: 240px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    box-shadow: var(--premium-shadow);
+    box-sizing: border-box;
+}
+
+.settings-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+}
+
+/* Per spec: hover raises background opacity, brightens the border, and
+   applies a slight scale. The border brightening uses the theme's own
+   --primary rather than a fixed white value, so it reads as "brighter"
+   against a light theme's background too, not just dark ones. */
+.settings-nav-item:hover {
+    background: var(--widget-bg);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border-premium));
+    transform: scale(1.01);
+}
+
+.settings-nav-item.is-active {
+    background: color-mix(in srgb, var(--primary) 14%, var(--widget-bg));
+    border-color: var(--primary);
+    color: var(--text-primary);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.settings-nav-item-icon {
+    display: flex;
+    flex-shrink: 0;
+    color: inherit;
+}
+
+.settings-nav-item.is-active .settings-nav-item-icon {
+    color: var(--primary);
+}
+
+.settings-nav-item-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ============================================================
+   CONTENT - the dynamic right pane. Keyed by activeCategory at the
+   call site (see SettingsContent.jsx), which is what makes this
+   fade+slide keyframe genuinely replay on every category switch - a
+   plain CSS class toggle on an already-mounted node would not restart
+   an `animation` the same way a real remount does.
+   ============================================================ */
+.settings-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Desktop default: no back button (the split-pane already shows both
+   nav and content at once). Placed here, BEFORE the mobile media query
+   below, so its equal-specificity `display: flex` override there
+   correctly wins on narrow screens - a same-specificity rule declared
+   AFTER a media query in source order beats it regardless of nesting,
+   which is what silently kept this button at 0x0 when this rule used
+   to sit below the media query instead. */
+.settings-content-back-btn {
+    display: none;
+}
+
+.settings-content-page {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: settings-content-in 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes settings-content-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ============================================================
+   SETTING CARD - the accordion primitive replacing every category
+   page's old always-expanded-manually SettingsSection. Real
+   glassmorphism per spec, real hover feedback, and a real smooth
+   height animation via the grid-template-rows 0fr -> 1fr technique
+   (not a plain conditional {isOpen && <div>} snap).
+   ============================================================ */
+.setting-card {
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 20px;
+    box-shadow: var(--premium-shadow);
+    overflow: hidden;
+    transition: border-color 0.2s ease, transform 0.15s ease;
+}
+
+.setting-card:hover {
+    border-color: color-mix(in srgb, var(--primary) 25%, var(--border-premium));
+}
+
+.setting-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 20px 24px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: background 0.15s ease;
+}
+
+.setting-card-header:hover {
+    background: var(--widget-bg);
+}
+
+.setting-card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.setting-card-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    background: rgba(var(--primary-rgb), 0.1);
+    border: 1px solid rgba(var(--primary-rgb), 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.setting-card-title-group {
+    min-width: 0;
+}
+
+.setting-card-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.setting-card-subtitle {
+    font-size: 12px;
+    /* Per spec's own secondary-text color, expressed against this
+       theme's real muted-text variable rather than a fixed white-alpha
+       value that would vanish on the Day theme's light background. */
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.setting-card-chevron {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+}
+
+.setting-card-chevron.is-open {
+    transform: rotate(180deg);
+}
+
+/* The real grid-template-rows trick: 0fr collapses the row to zero
+   height while still letting it transition smoothly to 1fr (a plain
+   height:auto can't be transitioned at all; a hardcoded pixel max-height
+   either clips real content or leaves dead space). The inner wrapper's
+   own min-height:0 is what lets the OUTER grid row's 0fr genuinely
+   reach zero instead of being floored by the content's intrinsic size. */
+.setting-card-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.setting-card-body.is-open {
+    grid-template-rows: 1fr;
+}
+
+.setting-card-body-inner {
+    overflow: hidden;
+    min-height: 0;
+}
+
+.setting-card-body-content {
+    padding: 0 24px 24px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* ============================================================
+   CUSTOM TOGGLE SWITCH - pill-shaped, subtle glow while active.
+   Replaces ToggleSwitch's own previous fully-inline-style
+   implementation in SettingsPage.jsx with real classes; same props/
+   behavior (including the existing UI-click sound integration).
+   ============================================================ */
+.settings-toggle {
+    width: 44px;
+    height: 24px;
+    border-radius: 20px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+    background: var(--surface-inset);
+    border: 1px solid var(--border-premium);
+    transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.settings-toggle.is-compact {
+    width: 32px;
+    height: 18px;
+}
+
+.settings-toggle.is-checked {
+    background: var(--primary);
+    border-color: transparent;
+    /* The requested subtle glow - a real, soft box-shadow bloom in the
+       theme's own accent color, not just a flat color swap. */
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent), 0 0 12px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+.settings-toggle-knob {
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 3px;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+}
+
+.settings-toggle.is-compact .settings-toggle-knob {
+    width: 13px;
+    height: 13px;
+    top: 2px;
+    left: 2px;
+}
+
+.settings-toggle.is-checked .settings-toggle-knob {
+    left: 23px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25);
+}
+
+.settings-toggle.is-compact.is-checked .settings-toggle-knob {
+    left: 17px;
+}
+
+/* ============================================================
+   RESPONSIVE (<= 768px) - the split-pane collapses to a single
+   column: the nav becomes the only thing shown first, and selecting a
+   category slides the content in as a full-screen overlay with its
+   own back control, rather than trying to squeeze both panes into a
+   narrow viewport at once.
+   ============================================================ */
+@media (max-width: 768px) {
+    .settings-profile-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+        padding: 20px;
+    }
+
+    .settings-profile-divider {
+        display: none;
+    }
+
+    /* The real fix for the huge dead gap reported between the storage
+       meter and Connected Accounts: .settings-storage-block's own
+       `flex: 1 1 220px` is written for the DESKTOP row layout, where
+       220px is a sensible minimum WIDTH. In a column flex container
+       (flex-direction: column, set just above for mobile), flex-basis
+       applies to the main axis instead - which is now vertical - so
+       that same rule was being read as "220px minimum HEIGHT, and grow
+       to fill any extra vertical space", stretching this block's own
+       box far past its real content height and leaving the empty space
+       inside it, before Connected Accounts even starts. `flex: none`
+       here makes it size to its real content height instead. */
+    .settings-storage-block {
+        flex: none;
+        min-width: 0;
+        width: 100%;
+    }
+
+    .settings-split {
+        position: relative;
+        display: block;
+    }
+
+    .settings-nav {
+        position: static;
+        width: 100%;
+    }
+
+    .settings-content {
+        position: fixed;
+        inset: 0;
+        /* Deliberately LOWER than MobileTabBar's own z-index (150 - see
+           MobileTabBar.jsx). This used to be 1050, specifically to
+           outrank the real global header's z-index:1000 (sticky - see
+           header.jsx) - but that header now genuinely unmounts while
+           this overlay is open instead (see DashboardLayout.jsx's
+           isHeaderHiddenOnMobile), so nothing here needs to beat it any
+           more. That old 1050 was ALSO, as an unintended side effect,
+           outranking MobileTabBar - meaning this overlay's own low-alpha
+           card content (this app's user-configured 3% glass tint) could
+           scroll up and visually wash out the tab bar's own crisp,
+           opaque look, exactly where every other page's content simply
+           doesn't reach it. 100 sits above the base .nexus-app-shell
+           layer (z-index:10) - all this needs to look like a real
+           slide-over panel - while staying under the tab bar, so it
+           always renders as crisply here as it already does on Home/
+           Calendar/every other page. */
+        z-index: 100;
+        /* Deliberately NO background/backdrop-filter on this container.
+           Two earlier attempts lived here: first a translucent tint
+           (bled through legibly - a backdrop-filter blur softens a
+           letter's edge without erasing the luminance spike behind it,
+           so nav-list/header text still ghosted through at any alpha
+           below 1), then a forced fully-opaque flat fill (stopped the
+           ghosting, but also flattened the Dynamic theme's own animated
+           sky gradient into a single flat color behind every sub-page -
+           a real visual regression from how the rest of this app, and
+           this same page's own nav-list view, actually look).
+           The real fix needed unmounting what was bleeding through, not
+           painting over it - the nav column/profile header now unmount
+           with the parent SettingsNav (see SettingsLayout.jsx), and the
+           real global header now unmounts too (see DashboardLayout.jsx)
+           - so there is nothing left behind this layer except the same
+           live wallpaper every other page already shows through its own
+           gaps. Each setting-card underneath already carries its own
+           single layer of background/blur, exactly like this page's
+           desktop split-pane content column already does (compare: that
+           column has never had its own background either) - so mobile
+           now matches desktop's own, already-correct pattern instead of
+           stacking a second, redundant blur layer under a `transform`
+           slide, which is what actually mangled text rasterization on
+           some mobile GPUs. */
+        background: transparent;
+        /* Bottom clearance matches .glass-panel's own mobile padding
+           (see DashboardLayout.jsx) for the exact same reason: MobileTabBar
+           is a persistent fixed bar every other page already reserves
+           76px for. This overlay used to get away with just 14px because
+           its old opaque fill hid the tab bar entirely; now that it's
+           transparent (see the background comment above), the last card
+           needs real clearance instead of scrolling straight under it. */
+        padding: 14px 14px calc(76px + env(safe-area-inset-bottom, 0px));
+        padding-top: calc(14px + env(safe-area-inset-top, 0px));
+        overflow-y: auto;
+        /* Same rubber-band mitigation as .nexus-page-scroll (see
+           DashboardLayout.jsx's own comment) - this overlay has its own,
+           separate scroll container, so it needs the same guard against
+           an elastic overscroll bounce briefly exposing MobileTabBar
+           past this list's real last card. */
+        overscroll-behavior: contain;
+        box-sizing: border-box;
+        /* The trailing translateZ(0) forces this overlay onto its own
+           GPU compositor layer for the whole slide transition, instead
+           of the browser deciding mid-animation to promote/demote it -
+           that layer churn is what actually produces the "text glitches
+           blurry then sharp" artifact on some mobile GPUs, independent
+           of the bleed-through bug above (now fixed by unmounting the
+           parent nav/header entirely - see SettingsLayout.jsx). */
+        transform: translateX(100%) translateZ(0);
+        will-change: transform;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .settings-content.is-visible {
+        transform: translateX(0) translateZ(0);
+    }
+
+    .settings-content-back-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 6px;
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+        flex-shrink: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .settings-content-page,
+    .setting-card-body,
+    .settings-toggle,
+    .settings-toggle-knob,
+    .settings-nav-item,
+    .setting-card-chevron,
+    .settings-content {
+        transition: none !important;
+        animation: none !important;
+    }
+}

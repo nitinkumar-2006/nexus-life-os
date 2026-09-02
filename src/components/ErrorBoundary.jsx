@@ -59,7 +59,7 @@ class ErrorBoundary extends React.Component {
             const moduleLabel = this.props.moduleName || 'This module';
             return (
                 <div style={{
-                    background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)',
+                    background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
                     border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '24px',
                     padding: '48px 32px', display: 'flex', flexDirection: 'column',
                     alignItems: 'center', textAlign: 'center', gap: '16px',

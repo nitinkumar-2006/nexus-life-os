@@ -1,0 +1,82 @@
+/* src/css/audioHubOverlays.css
+ *
+ * Shared keyframes for the Audio Hub's redesigned overlay pieces
+ * (FloatingBottomPlayer's Volume popup, the Up Next queue drawer, the
+ * Lyrics overlay, and the 3-dot Track Options menu) - centralized here
+ * rather than duplicated as inline <style> blocks in each component,
+ * since all four genuinely share the same two motion patterns (a small
+ * anchored popover fading/scaling in, and a full-height panel sliding in
+ * from the right).
+ */
+
+@keyframes nexusAudioPopIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes nexusAudioDrawerSlideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+@keyframes nexusAudioBackdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes nexusAudioOverlayFadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* Shared hover treatment for FloatingBottomPlayer's small transport/utility
+   icon buttons (Shuffle, Prev, Next, Repeat, Lyrics, Queue, Volume, More) -
+   a subtle, rounded lighter background on hover so every clickable icon
+   reads as interactive, matching Apple Music's own hover affordance.
+   Skipped (via conditional className) on buttons currently showing an
+   active/toggled accent color, so hovering never fights their own fill. */
+.nexus-audio-icon-btn:hover {
+    background: var(--widget-bg);
+    color: var(--text-primary);
+}
+
+/* Prev/Next already sit on a permanent var(--widget-bg) circle at rest, so
+   the plain hover rule above would be invisible on them - they get their
+   own distinct hover instead (a visible border-color shift). */
+.nexus-audio-circle-btn:hover {
+    border-color: var(--primary) !important;
+}
+
+/* Generic drag-to-resize handle, shared by every resizable sidebar in this
+   app (AudioSidebar, and the main Nexus OS sidebar via DashboardLayout.jsx)
+   - same proven mechanism/visual language as the AI page's own
+   .ai-resizer (aiChat.css), kept under its own class name so the two stay
+   independently stylable. A wide 10px hit-area (mouse-friendly) with only
+   a thin 2px centered line actually visible, which lights up on
+   hover/drag. */
+.nexus-sidebar-resizer {
+    flex-shrink: 0;
+    width: 10px;
+    margin: 0 -5px;
+    height: 100%;
+    position: relative;
+    z-index: 5;
+    cursor: col-resize;
+    background: transparent;
+}
+.nexus-sidebar-resizer::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: transparent;
+    border-radius: 2px;
+    transition: background 0.15s ease;
+}
+.nexus-sidebar-resizer:hover::after,
+.nexus-sidebar-resizer.is-dragging::after {
+    background: var(--primary);
+}

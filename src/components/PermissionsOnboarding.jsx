@@ -86,7 +86,7 @@ const PermissionsOnboarding = ({ onComplete }) => {
             style={{
                 position: 'fixed', inset: 0, zIndex: 5000,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: 'rgba(10, 10, 15, 0.72)', backdropFilter: 'blur(12px)',
+                background: 'rgba(10, 10, 15, 0.72)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
                 padding: '20px', boxSizing: 'border-box',
                 paddingTop: 'calc(20px + env(safe-area-inset-top, 0px))',
                 paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',

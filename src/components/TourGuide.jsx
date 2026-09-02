@@ -90,8 +90,28 @@ const TourGuide = ({ tourId, steps, onFinish }) => {
     const spotCenterX = spot.left + spot.width / 2;
     const tooltipLeft = Math.max(16, Math.min(spotCenterX - tooltipWidth / 2, vw - tooltipWidth - 16));
     const placeBelow = spot.top < vh / 2;
-    const tooltipTop = placeBelow ? spot.top + spot.height + 16 : undefined;
-    const tooltipBottom = !placeBelow ? vh - spot.top + 16 : undefined;
+    // Horizontal placement above is clamped (Math.max/min against the
+    // viewport edges); vertical never was - a real, confirmed bug: a
+    // spotlighted element sitting near the very top or bottom edge of a
+    // SHORT viewport (a real case for this app specifically - the AI
+    // page's own full-bleed layout leaves less vertical chrome than
+    // other tabs the tour was first tuned against) pushed the card's
+    // opposite edge straight past the screen, uncapped. ESTIMATED_
+    // TOOLTIP_HEIGHT is a deliberately generous ceiling (this card's
+    // real content is a 2-line progress-dot row, a title, 1-3 lines of
+    // body text, and a button row - genuinely never taller than this in
+    // practice) used only to keep the anchor offset on-screen; the
+    // maxHeight/overflowY safety net below is the real guarantee for
+    // whatever content actually renders, not this estimate.
+    const ESTIMATED_TOOLTIP_HEIGHT = 240;
+    let tooltipTop = placeBelow ? spot.top + spot.height + 16 : undefined;
+    let tooltipBottom = !placeBelow ? vh - spot.top + 16 : undefined;
+    if (tooltipTop !== undefined) {
+        tooltipTop = Math.max(16, Math.min(tooltipTop, vh - ESTIMATED_TOOLTIP_HEIGHT - 16));
+    }
+    if (tooltipBottom !== undefined) {
+        tooltipBottom = Math.max(16, Math.min(tooltipBottom, vh - ESTIMATED_TOOLTIP_HEIGHT - 16));
+    }
 
     return (
         <div style={{ position: 'fixed', inset: 0, zIndex: 6000 }} role="dialog" aria-modal="true" aria-label={`${step.title} - tour step ${stepIndex + 1} of ${steps.length}`}>
@@ -117,6 +137,14 @@ const TourGuide = ({ tourId, steps, onFinish }) => {
                     background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px',
                     padding: '18px', boxShadow: '0 16px 40px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: '12px',
                     boxSizing: 'border-box',
+                    // The real guarantee (the clamp above is just a
+                    // reasonable estimate for the anchor math) - on a
+                    // genuinely very short viewport (landscape phone, a
+                    // keyboard eating half the screen), the card itself
+                    // scrolls internally rather than clipping past the
+                    // viewport edge no matter how tall its content ends
+                    // up actually being.
+                    maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
                 }}
                 onClick={(e) => e.stopPropagation()}
             >

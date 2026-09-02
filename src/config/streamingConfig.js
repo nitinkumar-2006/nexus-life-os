@@ -53,8 +53,27 @@
 //      they lapse.
 // ============================================================================
 
-export const SPOTIFY_CLIENT_ID_FALLBACK = 'YOUR_SPOTIFY_CLIENT_ID';
-export const SPOTIFY_REDIRECT_URI = `${window.location.origin}/spotify-callback`;
+// This Client ID was recreated (2026-09-02) under the user's OWN Spotify
+// account (the one they actually log in with, which has Premium) instead
+// of a different "Nitin Rajshankar" account the previous app happened to
+// be created under - confirmed as the real cause of a persistent 403 on
+// EVERY Web API call (even /v1/me, reproduced in Incognito with extensions
+// disabled, ruling out an extension as the cause): Development Mode apps
+// only grant real Web API access to the app's own owner account, and the
+// account actually completing OAuth login here was a different one.
+export const SPOTIFY_CLIENT_ID_FALLBACK = '2494684038a545168597c8ab6609ffad';
+// Spotify's dashboard no longer accepts the literal hostname "localhost" in
+// a Redirect URI at all (confirmed by the user directly - their dashboard
+// rejected it outright, requiring the loopback IP 127.0.0.1 instead). Vite's
+// dev server listens on both localhost and 127.0.0.1, and both resolve to
+// the exact same local machine - but Spotify treats them as two textually
+// different strings that must match EXACTLY, so normalizing here means this
+// works regardless of which one happens to be typed into the address bar
+// that day, instead of relying on remembering to always use 127.0.0.1.
+// Deployed origins (a real https:// domain) are untouched - this only ever
+// rewrites the literal word "localhost".
+const SPOTIFY_REDIRECT_ORIGIN = window.location.origin.replace('://localhost', '://127.0.0.1');
+export const SPOTIFY_REDIRECT_URI = `${SPOTIFY_REDIRECT_ORIGIN}/spotify-callback`;
 export const SPOTIFY_SCOPES = [
     'streaming',
     'user-read-email',
@@ -100,4 +119,72 @@ export const isSpotifyConfigured = () => {
 export const isAppleMusicConfigured = () => {
     const token = getAppleMusicToken();
     return typeof token === 'string' && !token.startsWith('YOUR_') && token.length > 0;
+};
+
+// --- YouTube ---
+// Reuses the SAME youtubeApiKey/youtubeApiKeyConfirmed fields the Syllabus
+// Hub's video-search cards already use (Settings > API Integrations) - one
+// key, validated once in Settings, works for both features. There is no
+// separate "connect" handshake the way Spotify/Apple need: a YouTube Data
+// API key authenticates the APP to Google, not a specific user, so a
+// confirmed key IS the connection.
+export const isYoutubeConfigured = () => {
+    try {
+        const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
+        return !!saved.youtubeApiKeyConfirmed && !!(saved.youtubeApiKey || '').trim();
+    } catch (e) {
+        return false;
+    }
+};
+
+export const getYoutubeApiKey = () => readSavedSetting('youtubeApiKey');
+
+// --- Saavn (unofficial JioSaavn API wrapper) ---
+// No credentials of any kind - every public mirror of this API is
+// unauthenticated. "Connected" here is purely a user preference toggle
+// (saavnEnabled), not a real auth state, and the base URL is a genuinely
+// separate Settings field (saavnApiBaseUrl) rather than a hardcoded
+// constant: unofficial API mirrors are frequently taken down/redeployed
+// at a new URL with no notice, so the working URL at any given moment
+// needs to be something the user can update without a code change,
+// exactly like Spotify/Apple's own Settings-first credential model above.
+//
+// This exact default was picked by live-testing real fetch() calls
+// (not just curl/HEAD checks) against ~10 candidate mirrors: most were
+// completely dead (DNS failure or 404 on every route), and the one
+// previously used here (jiosaavn-api-two.vercel.app) turned out to be
+// one of the dead ones - its /api/search/songs route 404s and the
+// response carries no CORS headers either, which is exactly what a
+// browser reports as "blocked by CORS policy" even though the real
+// problem is the route not existing. This mirror is the one candidate
+// found with BOTH a correctly-routed /api/search/songs endpoint AND
+// proper CORS headers - confirmed by getting a real, well-formed 400
+// validation error back (not a CORS block or blank 404) when the query
+// param was left off. It can still fail with a 500 sometimes (JioSaavn's
+// own real backend rejecting/rate-limiting the request that reaches it,
+// not something a mirror's own code can fix) - that's a live upstream
+// reliability issue with the unofficial API ecosystem itself, not a
+// wrong URL, and no public mirror is immune to it.
+export const SAAVN_API_BASE_URL_FALLBACK = 'https://jio-saavn-api.vercel.app/api';
+
+export const getSaavnApiBaseUrl = () => readSavedSetting('saavnApiBaseUrl') || SAAVN_API_BASE_URL_FALLBACK;
+
+// Requires BOTH the on/off preference AND a real, confirmed-working base
+// URL (see SettingsPage.jsx's saavnBaseUrlStatus check, which runs an
+// actual test search against it) - exactly the same "toggle alone isn't
+// enough, it has to have been verified and confirmed" bar every other
+// provider on this page is held to (Gemini/OpenAI/GitHub/Apple/Spotify/
+// YouTube all require their own Confirmed flag, not just a non-empty
+// field). Saavn needs no secret, but it still needs to be PROVEN
+// reachable before the rest of the app treats it as connected - flipping
+// the toggle alone used to be enough, which is exactly what made the
+// "Connected Saavn" badge show up without ever having confirmed the
+// mirror actually works.
+export const isSaavnConfigured = () => {
+    try {
+        const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
+        return !!saved.saavnEnabled && !!saved.saavnApiBaseUrlConfirmed;
+    } catch (e) {
+        return false;
+    }
 };

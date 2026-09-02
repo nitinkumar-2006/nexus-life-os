@@ -1,6 +1,6 @@
 // src/pages/CalendarPage.jsx
 import { useState, useEffect, useRef } from 'react';
-import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, ChevronRight, ChevronLeft, ChevronDown, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw, Smartphone, X, Droplet } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Plus, CheckCircle, Trash2, Pencil, ChevronRight, ChevronLeft, ChevronDown, Sparkles, Bell, Cpu, ShieldCheck, Upload, Download, RefreshCw, Smartphone, X, Droplet } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
@@ -9,6 +9,7 @@ import { isDeviceCalendarBridgeAvailable, importDeviceCalendarEvents } from '../
 import TourGuide from '../components/TourGuide.jsx';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
 import { TOUR_STEPS } from '../constants/tourSteps.js';
+import { getLocalDateString } from '../utils/dateUtils.js';
 
 const CalendarPage = () => {
     const isMobile = useIsMobile();
@@ -72,11 +73,16 @@ const CalendarPage = () => {
     const [newEvent, setNewEvent] = useState({
         title: '',
         category: 'Study',
-        date: selectedDate.toISOString().split('T')[0],
+        date: getLocalDateString(selectedDate),
         time: '10:00 AM',
         priority: 'Medium',
         location: ''
     });
+    // null while adding a fresh event; the event's own id while editing an
+    // existing one - the single flag the shared modal below branches on for
+    // its title/submit label and for whether handleAddEvent appends a new
+    // event or updates one in place.
+    const [editingEventId, setEditingEventId] = useState(null);
 
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -245,27 +251,80 @@ const CalendarPage = () => {
         e.preventDefault();
         if (!newEvent.title.trim()) return;
 
-        const eventItem = {
-            id: Date.now().toString(),
-            title: toTitleCase(newEvent.title.trim()),
-            category: toTitleCase(newEvent.category),
-            date: newEvent.date,
-            time: newEvent.time,
-            priority: newEvent.priority,
-            location: newEvent.location.trim() || 'Nexus Space',
-            completed: false
-        };
+        if (editingEventId !== null) {
+            // Editing an existing event in place - keeps its own `completed`
+            // flag (and any sync-origin tags like importedFromIcs) untouched,
+            // only the fields the form actually exposes are overwritten.
+            setEvents(events.map(ev => ev.id === editingEventId ? {
+                ...ev,
+                title: toTitleCase(newEvent.title.trim()),
+                category: toTitleCase(newEvent.category),
+                date: newEvent.date,
+                time: newEvent.time,
+                priority: newEvent.priority,
+                location: newEvent.location.trim() || 'Nexus Space',
+            } : ev));
+        } else {
+            const eventItem = {
+                id: Date.now().toString(),
+                title: toTitleCase(newEvent.title.trim()),
+                category: toTitleCase(newEvent.category),
+                date: newEvent.date,
+                time: newEvent.time,
+                priority: newEvent.priority,
+                location: newEvent.location.trim() || 'Nexus Space',
+                completed: false
+            };
+            setEvents([eventItem, ...events]);
+        }
 
-        setEvents([eventItem, ...events]);
         setIsAddModalOpen(false);
+        setEditingEventId(null);
         setNewEvent({
             title: '',
             category: 'Study',
-            date: selectedDate.toISOString().split('T')[0],
+            date: getLocalDateString(selectedDate),
             time: '10:00 AM',
             priority: 'Medium',
             location: ''
         });
+    };
+
+    // Opens the shared Add/Edit modal fresh for a brand-new event - resets
+    // every field to its default so a previous Add or a cancelled Edit
+    // never leaves stale values behind for the next "Add Event" click.
+    const openAddModal = () => {
+        setEditingEventId(null);
+        setNewEvent({
+            title: '',
+            category: 'Study',
+            date: selectedDateStr,
+            time: '10:00 AM',
+            priority: 'Medium',
+            location: ''
+        });
+        setIsAddModalOpen(true);
+    };
+
+    // Opens the same modal pre-filled with an existing event's own real
+    // stored values, so editing round-trips exactly rather than resetting
+    // to defaults.
+    const openEditModal = (event) => {
+        setNewEvent({
+            title: event.title || '',
+            category: event.category || 'Study',
+            date: event.date || selectedDateStr,
+            time: event.time || '10:00 AM',
+            priority: event.priority || 'Medium',
+            location: event.location || ''
+        });
+        setEditingEventId(event.id);
+        setIsAddModalOpen(true);
+    };
+
+    const closeAddModal = () => {
+        setIsAddModalOpen(false);
+        setEditingEventId(null);
     };
 
     const toggleEventCompletion = (id) => {
@@ -577,6 +636,19 @@ const CalendarPage = () => {
             background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.18), rgba(var(--primary-rgb), 0.05))',
             border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: isMobile ? '14px' : '16px',
             padding: isMobile ? '10px 14px' : '14px 20px', boxSizing: 'border-box',
+            // Both mobile call sites of this banner are direct children of
+            // the outer two-column wrapper (the one with its own explicit
+            // align-items: 'flex-start', needed so the desktop row layout's
+            // two columns don't stretch to match each other's height) - on
+            // mobile that same flex-start also stops any child from
+            // stretching to the container's width by default, which is
+            // exactly why this banner rendered narrower than its own
+            // siblings (the calendar card, search bar, RIGHT COLUMN) until
+            // now: every one of THEM already sets width: '100%' explicitly
+            // for this same reason, this was just missing it. Harmless on
+            // desktop, where this banner instead sits inside its own
+            // dedicated full-width wrapper (see the two render call sites).
+            width: '100%',
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                 <div style={{ width: isMobile ? '30px' : '36px', height: isMobile ? '30px' : '36px', borderRadius: '50%', background: 'var(--primary)', color: 'var(--text-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -697,10 +769,7 @@ const CalendarPage = () => {
                         </button>
                     )}
                     <button
-                        onClick={() => {
-                            setNewEvent(prev => ({...prev, date: selectedDateStr}));
-                            setIsAddModalOpen(true);
-                        }}
+                        onClick={openAddModal}
                         data-tour-id="calendar-add-event"
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: isMobile ? '0 16px' : '10px 20px', height: isMobile ? '40px' : 'auto', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     >
@@ -723,7 +792,7 @@ const CalendarPage = () => {
                 no space-crunch reason left to hide this on the Agenda tab
                 specifically. */}
             {isMobile ? (
-                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '10px 8px', flexShrink: 0 }}>
+                <div className="calendar-glass-card" style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '10px 8px', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
                         <span style={{ color: 'var(--primary)', display: 'flex', flexShrink: 0 }}><CalendarIcon size={14} /></span>
                         <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{totalCount}</span>
@@ -743,21 +812,21 @@ const CalendarPage = () => {
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', flexShrink: 0 }}>
-                    <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                    <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                         <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><CalendarIcon size={24} /></div>
                         <div style={{ minWidth: 0 }}>
                             <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Total Events</span>
                             <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{totalCount} Scheduled</h2>
                         </div>
                     </div>
-                    <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                    <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                         <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><CheckCircle size={24} /></div>
                         <div style={{ minWidth: 0 }}>
                             <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>Completion Rate</span>
                             <h2 style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{completionRate}%</h2>
                         </div>
                     </div>
-                    <div style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
+                    <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px', minWidth: 0 }}>
                         <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '12px', color: '#3B82F6', flexShrink: 0, display: 'flex' }}><Sparkles size={24} /></div>
                         <div style={{ minWidth: 0 }}>
                             <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>AI Assistant</span>
@@ -792,22 +861,35 @@ const CalendarPage = () => {
 
                     {/* LEFT COLUMN: Compact Calendar Widget + Sync card */}
                     <div style={{ flex: '1 1 320px', width: '100%', maxWidth: isMobile ? '100%' : '380px', display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '20px', boxSizing: 'border-box' }}>
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '20px' : '20px', padding: isMobile ? '14px' : '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', boxSizing: 'border-box' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '20px' : '20px', padding: isMobile ? '14px' : '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px', boxSizing: 'border-box' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                                <h3 style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: '800', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: '1 1 auto', overflow: 'hidden' }}>
                                     <span style={{ width: isMobile ? '26px' : '28px', height: isMobile ? '26px' : '28px', borderRadius: '8px', background: 'rgba(var(--primary-rgb), 0.14)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                         <CalendarIcon size={isMobile ? 14 : 15} />
                                     </span>
-                                    {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                                    {/* Truncates with an ellipsis instead of
+                                        wrapping to a second line - confirmed
+                                        live at a 320px viewport that without
+                                        this, "August 2026" and the "Today"
+                                        button below it would both break onto
+                                        two lines fighting the nav buttons for
+                                        space, which read as a genuinely
+                                        broken/squished header. */}
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+                                        {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                                    </span>
                                 </h3>
                                 {/* Nav buttons: min 40px hit area on mobile (up
                                     from the previous 6px-padding icons, well
                                     under any real tap-target guideline) while
                                     staying visually compact via the icon size
-                                    alone. Desktop untouched. */}
-                                <div style={{ display: 'flex', gap: '4px' }}>
+                                    alone. Desktop untouched. flexShrink: 0 (new)
+                                    keeps this cluster - and "Today"'s own label -
+                                    from ever being squeezed into wrapping, now
+                                    that the title above truncates instead. */}
+                                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                     <button onClick={() => changeMonth(-1)} aria-label="Previous month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronLeft size={16} /></button>
-                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: isMobile ? '0 12px' : '6px 10px', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(var(--primary-rgb), 0.14)', color: 'var(--primary)', border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '11px', boxSizing: 'border-box' }}>Today</button>
+                                    <button onClick={() => {setCurrentDate(new Date()); setSelectedDate(new Date());}} style={{ padding: isMobile ? '0 12px' : '6px 10px', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(var(--primary-rgb), 0.14)', color: 'var(--primary)', border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', fontSize: '11px', whiteSpace: 'nowrap', boxSizing: 'border-box' }}>Today</button>
                                     <button onClick={() => changeMonth(1)} aria-label="Next month" style={{ padding: isMobile ? '0' : '6px', minWidth: isMobile ? '40px' : 'auto', minHeight: isMobile ? '40px' : 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', cursor: 'pointer', boxSizing: 'border-box' }}><ChevronRight size={16} /></button>
                                 </div>
                             </div>
@@ -836,7 +918,7 @@ const CalendarPage = () => {
                             icon button + modal below instead, so this card
                             doesn't sit permanently in the mobile scroll. */}
                         {!isMobile && (
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
+                        <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px', boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <RefreshCw size={15} color="var(--accent)" />
                                 <h3 style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Calendar Sync</h3>
@@ -887,7 +969,7 @@ const CalendarPage = () => {
                             desktop. Natural height on both - the page
                             itself scrolls once this card's content runs
                             past the viewport, no inner scroll box. */}
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
+                        <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '20px', padding: '16px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', boxSizing: 'border-box' }}>
                             <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: isMobile ? '10px' : '0', flexShrink: 0 }}>
                                 <div
                                     role={isMobile ? 'button' : undefined}
@@ -913,7 +995,7 @@ const CalendarPage = () => {
                                     same pre-filled-date modal the header's
                                     own "+ Add" button opens. */}
                                 <button
-                                    onClick={() => { setNewEvent(prev => ({...prev, date: selectedDateStr})); setIsAddModalOpen(true); }}
+                                    onClick={openAddModal}
                                     style={{ padding: isMobile ? '9px 14px' : '9px 16px', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', flexShrink: 0, whiteSpace: 'nowrap' }}
                                 >
                                     <Plus size={14} /> {isMobile ? 'Add' : 'Add Here'}
@@ -939,7 +1021,7 @@ const CalendarPage = () => {
                                                 <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>Plan something for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}.</p>
                                             </div>
                                             <button
-                                                onClick={() => { setNewEvent(prev => ({...prev, date: selectedDateStr})); setIsAddModalOpen(true); }}
+                                                onClick={openAddModal}
                                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
                                             >
                                                 <Plus size={14} /> Add Event
@@ -972,7 +1054,10 @@ const CalendarPage = () => {
                                                         {ev.priority}
                                                     </span>
                                                     {!ev.fromTimetable && (
-                                                        <button onClick={() => deleteEvent(ev.id)} aria-label={`Delete ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Trash2 size={15} /></button>
+                                                        <>
+                                                            <button onClick={() => openEditModal(ev)} aria-label={`Edit ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Pencil size={15} /></button>
+                                                            <button onClick={() => deleteEvent(ev.id)} aria-label={`Delete ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Trash2 size={15} /></button>
+                                                        </>
                                                     )}
                                                 </div>
                                                 {(ev.location || ev.fromTimetable || ev.importedFromIcs || ev.importedFromDevice) && (
@@ -1014,7 +1099,10 @@ const CalendarPage = () => {
                                                     {ev.priority}
                                                 </span>
                                                 {!ev.fromTimetable && (
-                                                    <button onClick={() => deleteEvent(ev.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                                    <>
+                                                        <button onClick={() => openEditModal(ev)} title="Edit Event" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Pencil size={16} /></button>
+                                                        <button onClick={() => deleteEvent(ev.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                                    </>
                                                 )}
                                             </div>
                                         </div>
@@ -1033,7 +1121,7 @@ const CalendarPage = () => {
                 every viewport, same as the Agenda tab above. */}
             {activeTab === 'AIAssistant' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '24px' }}>
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
+                    <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--primary)' }}>
                             <Sparkles size={isMobile ? 18 : 22} />
                             <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Schedule Briefing & Optimization</h3>
@@ -1048,7 +1136,7 @@ const CalendarPage = () => {
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: isMobile ? '10px' : '20px' }}>
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                        <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
                                 <ShieldCheck size={isMobile ? 15 : 18} color={scheduleConflicts.length > 0 ? '#EF4444' : '#10B981'} /> {isMobile ? 'Conflicts' : 'Schedule Conflict Status'}
                             </div>
@@ -1062,7 +1150,7 @@ const CalendarPage = () => {
                             )}
                         </div>
 
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                        <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
                                 <Bell size={isMobile ? 15 : 18} color="var(--primary)" /> High-Priority
                             </div>
@@ -1072,7 +1160,7 @@ const CalendarPage = () => {
                             )}
                         </div>
 
-                        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
+                        <div className="calendar-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: isMobile ? '14px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '8px' : '12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
                                 <Droplet size={isMobile ? 15 : 18} color="#38BDF8" /> Hydration Gap
                             </div>
@@ -1091,11 +1179,11 @@ const CalendarPage = () => {
                 </div>
             )}
 
-            {/* Schedule New Event Modal */}
+            {/* Schedule New Event / Edit Event Modal */}
             {isAddModalOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%', boxShadow: 'var(--premium-shadow)' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Schedule New Event</h2>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={closeAddModal}>
+                    <div className="calendar-glass-card" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%', boxShadow: 'var(--premium-shadow)' }}>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingEventId !== null ? 'Edit Event' : 'Schedule New Event'}</h2>
                         
                         <form onSubmit={handleAddEvent} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
@@ -1131,8 +1219,8 @@ const CalendarPage = () => {
                                 <input id="eventLocation" type="text" value={newEvent.location} onChange={(e) => setNewEvent({...newEvent, location: e.target.value})} placeholder="e.g. College Lab 2" style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
-                                <button type="button" onClick={() => setIsAddModalOpen(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save Event</button>
+                                <button type="button" onClick={closeAddModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>{editingEventId !== null ? 'Save Changes' : 'Save Event'}</button>
                             </div>
                         </form>
                     </div>
@@ -1143,8 +1231,9 @@ const CalendarPage = () => {
                 desktop inline card renders, reached from the compact
                 header icon button instead of sitting in the scroll. */}
             {isMobile && isSyncModalOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setIsSyncModalOpen(false)}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setIsSyncModalOpen(false)}>
                     <div
+                        className="calendar-glass-card"
                         style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderTopLeftRadius: '20px', borderTopRightRadius: '20px', padding: '20px', width: '100%', maxHeight: '85vh', overflowY: 'auto', boxSizing: 'border-box', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '12px' }}
                         onClick={(e) => e.stopPropagation()}
                     >

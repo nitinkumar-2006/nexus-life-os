@@ -29,6 +29,24 @@ html.no-initial-transition .sidebar {
     transition: none !important;
 }
 
+/* Real background-scroll lock for a full-screen mobile overlay (see
+   useBodyScrollLock.js) - toggled via a class on <html> rather than
+   direct DOM style mutation, specifically because .nexus-page-scroll
+   is React-controlled (DashboardLayout re-renders it with its own
+   inline style on any unrelated re-render, which would silently
+   revert a directly-mutated style property the next time it did).
+   !important is required here since it has to outrank that same real
+   inline style (overflowY: 'auto') while the lock is active - a plain
+   external-stylesheet rule alone can't win against an inline style on
+   specificity. body is locked too as a defensive second layer for any
+   future page that genuinely scrolls at the body level instead. */
+html.nexus-scroll-locked body,
+html.nexus-scroll-locked .nexus-page-scroll {
+    overflow: hidden !important;
+    touch-action: none !important;
+    overscroll-behavior: contain;
+}
+
 :root {
     --card-bg: rgba(25, 25, 32, 0.4);
     --card-border: rgba(255, 255, 255, 0.05);
@@ -48,13 +66,23 @@ html.no-initial-transition .sidebar {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    font-family: 'Inter', sans-serif;
+    /* Live, user-selectable typography (Settings > Typography & Styling) -
+       --font-primary defaults to the same Inter stack this always used
+       (see variables.css), so nothing changes for anyone who hasn't
+       touched the new setting. */
+    font-family: var(--font-primary);
     /* Improves sub-pixel antialiasing crispness on WebKit/macOS browsers
        and Firefox on macOS - a real, standard rendering improvement, safe
        to apply globally since it only affects HOW text is rendered at the
        pixel level, not its own color or layout. */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Favors legibility (real kerning/ligature-aware layout) over raw
+       render speed - genuinely meaningful on the serif/editorial fonts in
+       the new font library (Playfair Display, Cormorant Garamond, etc.),
+       where default "auto" text-rendering visibly under-kerns at display
+       sizes; imperceptible cost on the sans/mono faces already in use. */
+    text-rendering: optimizeLegibility;
     /* This app builds virtually every element with an inline style object,
        almost none of which set their own line-height - verified live
        (15 of 16 sampled text nodes on a single page) that they were all
@@ -94,6 +122,35 @@ button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
     touch-action: manipulation;
 }
 
+/* TYPOGRAPHY UTILITY CLASSES - two independent, composable sets:
+   1. .font-* - pins an element to one category's representative stack
+      (see the --font-sans/serif/mono/display/handwriting variables in
+      variables.css), regardless of the user's own app-wide --font-primary
+      choice in Settings. Useful for a component that specifically wants
+      "a monospace number" or "a handwritten signature" no matter what
+      font the rest of the app is currently rendering in.
+   2. .text-fluid-* - a real, CSS-native fluid type scale (clamp(min,
+      viewport-based-preferred, max)), not a fixed size swapped at a
+      breakpoint. Font size interpolates smoothly across the full
+      320px-1440px viewport range instead of jumping at a handful of
+      media-query steps, so it "scales perfectly" (matches the actual
+      Typography & Styling request) on every real device width in
+      between, not just the handful a breakpoint system happens to name. */
+.font-sans { font-family: var(--font-sans); }
+.font-serif { font-family: var(--font-serif); }
+.font-mono { font-family: var(--font-mono); }
+.font-display { font-family: var(--font-display); }
+.font-handwriting { font-family: var(--font-handwriting); }
+
+.text-fluid-xs { font-size: clamp(0.7rem, 0.65rem + 0.22vw, 0.75rem); }
+.text-fluid-sm { font-size: clamp(0.8rem, 0.75rem + 0.28vw, 0.875rem); }
+.text-fluid-base { font-size: clamp(0.9rem, 0.83rem + 0.35vw, 1rem); }
+.text-fluid-lg { font-size: clamp(1rem, 0.9rem + 0.45vw, 1.125rem); }
+.text-fluid-xl { font-size: clamp(1.125rem, 1rem + 0.6vw, 1.375rem); }
+.text-fluid-2xl { font-size: clamp(1.3rem, 1.1rem + 0.9vw, 1.75rem); }
+.text-fluid-3xl { font-size: clamp(1.6rem, 1.25rem + 1.5vw, 2.25rem); }
+.text-fluid-4xl { font-size: clamp(1.9rem, 1.35rem + 2.5vw, 3rem); }
+
 /* DYNAMIC THEME TEXT CONTRAST DEFENSE - deliberately scoped to ONLY the
    Dynamic theme, not applied universally. A universal, hardcoded
    `color: #fff` rule (as a literal reading of "text must never get lost
@@ -110,31 +167,21 @@ button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
    of that already-correct system, not a replacement for it, guarding
    against a stray bright cloud or dark storm patch landing directly
    behind a given piece of text at any given moment. */
-:root[data-theme="dynamic"][data-sky-phase="dusk"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li),
-:root[data-theme="dynamic"][data-sky-phase="night"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li) {
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-}
-:root[data-theme="dynamic"][data-sky-phase="dawn"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li),
-:root[data-theme="dynamic"][data-sky-phase="day"] :is(h1, h2, h3, h4, h5, h6, p, span, strong, label, a, li) {
-    text-shadow: 0 1px 3px rgba(255, 255, 255, 0.5);
-}
-
-/* Real, distinct contrast fix for the request's own "countdowns, times,
-   and active statuses" - --accent/--success are fixed, light-ish colors
-   that never switch to dark per sky phase (unlike --text-primary,
-   which the rule above was actually built for). A white shadow behind
-   an already-light accent color on a bright day sky provides zero real
-   contrast boost; a dark shadow creates a genuine, visible edge
-   regardless of what's directly behind the text. Matches via the real,
-   rendered style attribute (the same technique already proven for the
-   sidebar's own backdrop-filter fix), since these colors are set
-   inline (style={{ color: 'var(--accent)' }}), not via a CSS class. */
-:root[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--accent)"],
-:root[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--accent)"],
-:root[data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--success)"],
-:root[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--success)"] {
-    text-shadow: 0 1px 4px rgba(15, 23, 42, 0.55);
-}
+/* REMOVED (explicit later correction): this used to apply a soft
+   text-shadow (dark on bright dawn/day, light on dusk/night) to every
+   heading/paragraph/span under the Dynamic theme, as a defensive
+   contrast layer on TOP of the color-switching system above. Real,
+   direct feedback: stacked with the card-background text-shadow rule
+   further below (both applied to the same text at once whenever it sat
+   inside a glass card), this read as a genuine color-bleeding/hazy
+   blur - most visible on text like "Good Afternoon"/the clock, sitting
+   right next to un-shadowed text like a header avatar's name and
+   looking noticeably softer by direct comparison. The primary
+   legibility mechanism (dark text on bright sky phases, light text on
+   dark ones, set unconditionally by this theme's own CSS - see the
+   comment above) is untouched and still does the real contrast work;
+   this was only ever a secondary, defensive layer on top of it, so
+   removing it doesn't remove the actual protection, just the haze. */
 
 /* CUSTOM WALLPAPER TEXT-COLOR FIX - the actual root cause, found after
    the card-floor fix below (which predates this rule and was already
@@ -213,16 +260,24 @@ button, a, [role="button"], input[type="checkbox"], input[type="radio"] {
        typically busier/higher-contrast imagery than the animated sky. */
     --bg-surface: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
     --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.35));
-    /* Same floor, extended to the two system-chrome bars (bottom nav +
-       top header) - both were left out of the fix above and are still
-       measurably ~3% opacity against a custom wallpaper, confirmed live
-       via getComputedStyle (rgba(255,255,255,0.03) even with 16px blur),
-       which is what actually reads as "content bleeding through the nav
-       bar" on a busy wallpaper image rather than a smooth sky gradient.
-       Same 0.4 floor as --bg-surface so the bars read as consistently
-       solid as the cards, not more see-through than them. */
-    --sidebar-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
-    --header-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.4));
+    /* Sidebar/Header deliberately do NOT get this same floor (a previous
+       pass here did extend it to them - see below) - a real, repeatedly
+       reported "hard border line on the sidebar/header on any custom
+       wallpaper" complaint traced directly to this: --bg-main (the raw,
+       fully open content area, never covered by a card) stays whatever
+       the user's own Transparency slider says, completely untouched by
+       this floor - so flooring ONLY --sidebar-bg/--header-bg to 40%
+       opacity, while the open area right next to them can genuinely be
+       2%, is exactly what created a sharp, forced contrast jump at their
+       edge that no amount of blur/box-shadow/backdrop-filter tuning (see
+       this file's earlier Sidebar/Header-specific rules above) could
+       ever fix - the root cause was this opacity floor itself. Cards
+       keep it (they're genuinely a text-readability fix for busy
+       wallpapers, matching the comment above); Sidebar/Header instead
+       fall back to their own real, unfloored value from variables.css's
+       per-sky-phase blocks (rgba(15,23,42, var(--nexus-user-glass-alpha,
+       0.03))), which matches --bg-main's own transparency exactly on
+       any wallpaper, closing the gap instead of trying to soften it. */
 }
 
 /* GLOBAL HEADER WIDTH CONSTRAINT - defensive, explicit reinforcement on
@@ -327,42 +382,46 @@ body {
    and is what made zero-opacity panels still read as solid blue blocks. */
 [data-theme="dynamic"] [style*="var(--bg-surface)"],
 [data-theme="dynamic"] [style*="var(--bg-surface-hover)"],
-[data-theme="dynamic"] [style*="var(--widget-bg)"],
-[data-theme="dynamic"] [style*="var(--sidebar-bg)"],
-[data-theme="dynamic"] [style*="var(--header-bg"] {
+[data-theme="dynamic"] [style*="var(--widget-bg)"] {
     backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%) brightness(1.02);
     -webkit-backdrop-filter: blur(var(--glass-blur, 20px)) saturate(105%) brightness(1.02);
     transition: box-shadow 2.5s ease, backdrop-filter 2.5s ease;
 }
 
-/* A real, confirmed bug from a real device video: at near-zero
-   background fill (the comment above), a glass card's own raw
-   background image shows through nearly unchanged in brightness -
-   this is the whole point of true frosted glass, but it also means
-   the text colors above (designed against a typically-dark backdrop)
-   can genuinely lose their contrast the moment a bright, independently
-   -chosen wallpaper (Animated Sky, Prism Glass, Cyberpunk) sits behind
-   them. Rather than hand-tuning text color per wallpaper - a real,
-   endless whack-a-mole against every possible background/text
-   combination - a consistent, subtle text-shadow on every glass
-   card's own text content guarantees real legibility regardless of
-   what's actually behind it. text-shadow only ever affects real text
-   glyphs (not icons, borders, or backgrounds), so applying this
-   broadly to every descendant of a glass card is safe - an <svg> icon
-   or a button's own background is completely unaffected by its
-   parent (or itself) carrying this property. */
-[data-theme="dynamic"] [style*="var(--bg-surface)"],
-[data-theme="dynamic"] [style*="var(--bg-surface)"] *,
-[data-theme="dynamic"] [style*="var(--bg-surface-hover)"],
-[data-theme="dynamic"] [style*="var(--bg-surface-hover)"] *,
-[data-theme="dynamic"] [style*="var(--widget-bg)"],
-[data-theme="dynamic"] [style*="var(--widget-bg)"] *,
+/* Sidebar/Header get ONLY the blur, no saturate/brightness boost - a
+   real, reported "hard line at the sidebar's edge" complaint, live-
+   verified: with Blur Intensity at 0px, saturate(105%)/brightness(1.02)
+   still apply on their own (blur(0px) is still a real, active filter
+   function) and visibly alter the wallpaper color exactly inside the
+   sidebar's box versus the raw wallpaper immediately outside it - a
+   sharp color-shift edge with nothing (zero blur) to diffuse it,
+   independent of any box-shadow or background-tint difference (both
+   already ruled out/fixed separately). Confirmed empirically: swapping
+   this element's own backdrop-filter down to plain blur(0px) alone (no
+   saturate/brightness) made the edge disappear completely against a
+   real high-saturation wallpaper (Hyper Neon Wave). Cards keep the full
+   effect above; only Sidebar/Header drop the color-shifting part of it,
+   at any blur value the user picks. */
 [data-theme="dynamic"] [style*="var(--sidebar-bg)"],
-[data-theme="dynamic"] [style*="var(--sidebar-bg)"] *,
-[data-theme="dynamic"] [style*="var(--header-bg"],
-[data-theme="dynamic"] [style*="var(--header-bg"] * {
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+[data-theme="dynamic"] [style*="var(--header-bg"] {
+    backdrop-filter: blur(var(--glass-blur, 20px));
+    -webkit-backdrop-filter: blur(var(--glass-blur, 20px));
+    transition: box-shadow 2.5s ease, backdrop-filter 2.5s ease;
 }
+
+/* REMOVED (explicit later correction): this used to apply a soft,
+   consistent text-shadow to every glass card's own text content, as a
+   defensive floor against low-contrast text on a near-transparent
+   card. Real, direct feedback: combined with the sky-phase text-shadow
+   rule that used to live above, this was a real contributor to a
+   "blurry/color-bleeding" look on card text (e.g. "Good Afternoon",
+   the clock) versus un-shadowed text elsewhere - explicitly asked to
+   be removed, with crisp text forced via -webkit-font-smoothing
+   instead (see the global rule near the top of this file). The DAWN-
+   ONLY CONTRAST FLOOR in variables.css (raising --bg-surface/
+   --widget-bg's own opacity specifically where dawn's own dark navy
+   sky-top made near-transparent cards genuinely hard to read) is a
+   separate, still-active mechanism and doesn't depend on this. */
 
 /* GUARANTEED light-on-glass signature, one per sky phase, applied to EVERY
    glass surface including the Sidebar and Header - this does NOT depend on
@@ -379,28 +438,50 @@ body {
 [data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--bg-surface)"],
 [data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--bg-surface-hover)"],
 [data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--widget-bg)"],
-[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--widget-bg)"] {
+    box-shadow: inset 0 1px 0 rgba(253, 186, 116, 0.4), inset 0 0 40px rgba(253, 186, 116, 0.06), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+}
+
+/* Sidebar and Header specifically get NO box-shadow at all here - not
+   just the inset 0 1px 0 top-edge line, but also the soft inner glow AND
+   the outer elevation shadow every other glass surface gets above. A
+   first pass here only dropped the 1px line and kept the outer
+   var(--premium-shadow,...) drop-shadow - a real, reported follow-up
+   showed that shadow's own soft edge still read as a hard line once
+   Blur Intensity is turned down toward 0 (no backdrop blur left to
+   diffuse the transition) against a high-contrast animated wallpaper.
+   Removing the box-shadow entirely here is what actually makes this
+   "completely smooth and borderless" regardless of blur/wallpaper - the
+   Sidebar in every theme, the Header specifically here in Dynamic (this
+   box-shadow only ever applied in Dynamic theme to begin with, so
+   removing it here is the complete fix for Header too). */
 [data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--sidebar-bg)"],
 [data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--sidebar-bg)"],
 [data-theme="dynamic"][data-sky-phase="dawn"] [style*="var(--header-bg"],
 [data-theme="dynamic"][data-sky-phase="dusk"] [style*="var(--header-bg"] {
-    box-shadow: inset 0 1px 0 rgba(253, 186, 116, 0.4), inset 0 0 40px rgba(253, 186, 116, 0.06), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+    box-shadow: none;
 }
 
 [data-theme="dynamic"][data-sky-phase="day"] [style*="var(--bg-surface)"],
 [data-theme="dynamic"][data-sky-phase="day"] [style*="var(--bg-surface-hover)"],
-[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="day"] [style*="var(--widget-bg)"] {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 0 40px rgba(255, 255, 255, 0.05), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+}
+
 [data-theme="dynamic"][data-sky-phase="day"] [style*="var(--sidebar-bg)"],
 [data-theme="dynamic"][data-sky-phase="day"] [style*="var(--header-bg"] {
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 0 40px rgba(255, 255, 255, 0.05), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+    box-shadow: none;
 }
 
 [data-theme="dynamic"][data-sky-phase="night"] [style*="var(--bg-surface)"],
 [data-theme="dynamic"][data-sky-phase="night"] [style*="var(--bg-surface-hover)"],
-[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--widget-bg)"],
+[data-theme="dynamic"][data-sky-phase="night"] [style*="var(--widget-bg)"] {
+    box-shadow: inset 0 1px 0 rgba(226, 232, 240, 0.18), inset 0 0 30px rgba(148, 163, 184, 0.05), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+}
+
 [data-theme="dynamic"][data-sky-phase="night"] [style*="var(--sidebar-bg)"],
 [data-theme="dynamic"][data-sky-phase="night"] [style*="var(--header-bg"] {
-    box-shadow: inset 0 1px 0 rgba(226, 232, 240, 0.18), inset 0 0 30px rgba(148, 163, 184, 0.05), var(--premium-shadow, 0 10px 30px rgba(0,0,0,0.2));
+    box-shadow: none;
 }
 
 /* GLASS ACCENT/TINT GLOW - a real, visible glow on Dynamic-theme glass
@@ -450,6 +531,28 @@ html.nexus-battery-saver [data-diag="sky-root"] * {
     transition-duration: 0.001ms !important;
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
+}
+
+/* BRIGHTNESS ADJUSTMENT (Settings > Appearance) - reuses this exact
+   [data-diag="sky-root"] anchor for the same reason Battery Saver does
+   above: it's the one shared attribute every wallpaper variant already
+   carries (DynamicBackground.jsx's own root IS this element;
+   AlternateBackgrounds.jsx wraps whichever of its 25+ variants is active
+   in a display:contents div carrying it instead, so the ` > *` half of
+   this selector is what actually reaches THAT wallpaper's real box - a
+   display:contents element has no box of its own for filter to apply
+   to, so targeting it directly would be a silent no-op for every
+   AlternateBackgrounds wallpaper). Deliberately NOT applied to
+   .nexus-app-shell (the alternative the design allowed): that shell is
+   an ancestor of the fixed-position Sidebar/mobile nav, and filter -
+   like backdrop-filter/transform - creates a new containing block for
+   position:fixed descendants, which would silently detach them from the
+   real viewport (the exact class of bug already hit once this session
+   with EditProfileModal and a backdrop-filter ancestor). --os-brightness
+   is set by SettingsPage.jsx's own Brightness Adjustment slider. */
+[data-diag="sky-root"],
+[data-diag="sky-root"] > * {
+    filter: brightness(var(--os-brightness, 1));
 }
 
 /* SCROLLBAR HIDING */
@@ -575,6 +678,24 @@ html.nexus-battery-saver [data-diag="sky-root"] * {
     }
 }
 
+/* Global, generic keyframes referenced by inline `animation` styles
+   scattered across several components (header.jsx's status dots, its own
+   System Diagnostics panel's spinning refresh icon while syncing, etc.) -
+   a real, confirmed gap: `pulse` was already referenced by an existing
+   inline style before this was added, so that dot has been silently
+   NOT pulsing (an undefined animation name is just ignored, not an
+   error) until now. Global rather than component-scoped since "a soft
+   pulse" and "a spin" are generic enough to be reused by any future
+   component the same way, not tied to one file's own CSS. */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 /* Bottom-sheet entrance for the mobile "More" panel (MobileTabBar.jsx) -
    a plain mount-triggered CSS animation rather than extra React state,
    since it only ever needs to play once per open, and the sheet's own
@@ -582,4 +703,182 @@ html.nexus-battery-saver [data-diag="sky-root"] * {
 @keyframes nexusSheetSlideUp {
     from { transform: translateY(100%); }
     to { transform: translateY(0); }
+}
+
+/* SidebarToggleIcon.jsx - the one shared "toggle a sidebar" icon used
+   everywhere this app has a collapsible side panel (main desktop
+   sidebar, the AI section's own rail/toggle/voice-view menu buttons).
+   Global, not scoped to any one page's stylesheet, since it's used from
+   both style.css-driven components and aiChat.css-driven ones. A plain
+   two-panel rectangle at rest; hovering the ANCESTOR BUTTON reveals a
+   small directional arrow inside it instead - matches a real, explicit
+   comparison against a more polished reference (Gemini's own sidebar
+   toggle) rather than every spot rendering a plain, static Menu glyph.
+   Pure CSS cross-fade, no per-instance hover state needed in React. */
+.nexus-sidebar-toggle-icon {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.nexus-sidebar-toggle-icon-base,
+.nexus-sidebar-toggle-icon-hover {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transition: opacity 0.15s ease;
+}
+
+.nexus-sidebar-toggle-icon-hover {
+    opacity: 0;
+}
+
+button:hover .nexus-sidebar-toggle-icon-base {
+    opacity: 0;
+}
+
+button:hover .nexus-sidebar-toggle-icon-hover {
+    opacity: 1;
+}
+
+/* sidebar.jsx's own collapsed-state logo/toggle - the logo itself IS the
+   expand button here (no separate icon beside it), matching a direct,
+   explicit reference to Gemini's own sidebar: at rest it's just the
+   app's logo; hovering cross-fades it into a chevron, the same
+   opacity-swap technique .nexus-sidebar-toggle-icon above already uses,
+   just with a real <img> as the "base" layer instead of a second icon. */
+.sidebar-logo-toggle {
+    /* 32px/9px-radius - matches the expanded state's own "Close sidebar"
+       button (sidebar.jsx's inline width:32px/height:32px/borderRadius:9px
+       SidebarToggleIcon button) exactly, size for size. A real, reported
+       complaint: this collapsed toggle used to be a much larger 52px
+       button and visibly read as oversized next to that small, "perfect"
+       expanded-state toggle - this is a pure size match, not a redesign.
+       The app's actual logo mark itself is untouched by this - see the
+       comment on .sidebar-logo-toggle-visual below for why shrinking this
+       button doesn't shrink the logo used anywhere else in the app. */
+    width: 32px;
+    height: 32px;
+    /* No margin here any more - sidebar.jsx's own 84px logo band now owns
+       both the vertical centering (flex align-items:center against the
+       header's real height) and the horizontal centering (flex
+       justify-content:center on that same band when collapsed), so a
+       second, independent centering mechanism here would just be a
+       redundant, easier-to-drift second source of truth. */
+    border-radius: 9px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+}
+
+.sidebar-logo-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* 38px - the REST-state logo shown here must read as the same size as
+   the expanded state's own logo (sidebar.jsx's expanded-header <img>,
+   38px), not shrunk down - a real, reported regression from an earlier
+   pass here that sized this whole box (and therefore the logo inside it)
+   down to 17px to match the HOVER-state arrow icon. The arrow icon and
+   the logo are given independent sizes below specifically because they
+   don't want to match each other: the arrow icon should stay the small
+   17px size that already matches the expanded state's own "Close
+   sidebar" icon (confirmed correct, left alone), while the logo inside
+   this same button needs to stay full-size. This container is sized for
+   the logo (the larger of the two); the .sidebar-logo-toggle button
+   around it deliberately stays a smaller 32px hover-highlight box (also
+   confirmed correct) - the logo is allowed to extend slightly past that
+   highlight's edges on all sides rather than being clipped or forced to
+   shrink to fit it, since the button has no overflow:hidden. */
+.sidebar-logo-toggle-visual {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    /* Without this, the parent button's flexbox (display:flex, 32px wide)
+       shrinks this 38px box down to fit its own narrower width by default
+       (flex-shrink:1 is the browser default on any flex child) - a real,
+       measured bug caught live: the box reported 32px wide instead of the
+       38px just set above, silently squashing the logo back down even
+       though nothing here looked wrong on paper. */
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The collapsed <button> and expanded <div> in sidebar.jsx's own header
+   are two genuinely different DOM nodes (a real, reported "click ->
+   content just POPS in/out instead of transitioning" issue) - React
+   swaps between them instantly on toggle, with zero animation of its
+   own, which read as a jarring jump even after the two states were
+   already made to occupy the exact same total height. A quick fade-in
+   on whichever one just mounted (see the animation applied to both in
+   sidebar.jsx) softens that swap into something that reads as part of
+   the sidebar's own smooth width transition instead of an abrupt cut. */
+@keyframes nexusSidebarSwapFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* A real, confirmed bug: position:absolute + inset:0 only stretches an
+   element to fill its container when the element has no competing
+   intrinsic size of its own - lucide's PanelLeftOpen renders as a real
+   <svg width="20" height="20"> (from the old size={20} prop), and that
+   attribute-based intrinsic size won the layout instead of the intended
+   inset:0 stretch, so the icon just pinned its own top-left corner to
+   the container's top-left instead of filling (and thus centering
+   within) it - exactly the "stuck to the top-left" bug reported live.
+   width/height: 100% here is real CSS, which overrides an SVG's own
+   presentation attributes, and is what actually fixes this - the size
+   prop in the JSX no longer matters once these are set. This one still
+   fills its container (inset:0/100%) because the container
+   (.sidebar-logo-toggle-visual) is now sized FOR this logo (38px) - see
+   its own comment above. */
+.sidebar-logo-toggle-logo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.15s ease;
+    object-fit: contain;
+    /* No border-radius here - the SVG mark already bakes in its own
+       rounded-square tile, so an outer CSS radius would just be a second,
+       redundant (and very slightly mismatched) clip on top of it. */
+}
+
+/* Deliberately NOT inset:0/100% like the logo above - that would scale
+   this icon up to the container's full 38px (the logo's size), when the
+   hover-state icon itself needs to stay the smaller, already-confirmed-
+   correct 17px (matching the expanded state's own "Close sidebar" icon).
+   Fixed 17px + centering via transform (not flex-centering on the
+   parent, since the parent's own centering is already spoken for by the
+   logo filling it) keeps this icon's size fully independent of the
+   logo's, so future changes to one can't silently drag the other along
+   the way a single shared box did before. */
+.sidebar-logo-toggle-arrow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 17px;
+    height: 17px;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.15s ease;
+    opacity: 0;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sidebar-logo-toggle:hover .sidebar-logo-toggle-logo {
+    opacity: 0;
+}
+
+.sidebar-logo-toggle:hover .sidebar-logo-toggle-arrow {
+    opacity: 1;
 }

@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Adaptive-icon background layer: full-bleed, no rounded corners of its
+       own - the OS applies its own mask shape (circle/squircle/rounded
+       square) on top of this at runtime, so a self-rounded edge here would
+       just create an inconsistent double-edge under some launcher masks. -->
+  <defs>
+    <radialGradient id="tileGrad" cx="32%" cy="24%" r="85%">
+      <stop offset="0%" stop-color="#1B1B29"/>
+      <stop offset="55%" stop-color="#131320"/>
+      <stop offset="100%" stop-color="#0D0D14"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" fill="url(#tileGrad)"/>
+</svg>

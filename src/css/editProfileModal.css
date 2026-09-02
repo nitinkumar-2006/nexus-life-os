@@ -1,0 +1,333 @@
+/* src/css/editProfileModal.css
+ *
+ * The "Edit Profile" overlay triggered from Settings' own profile
+ * header card - a real floating modal (not the full ProfilePage's own
+ * in-place full-bleed form) so this stays a fast, focused edit for
+ * just Name/Avatar without leaving Settings. Reuses this app's own
+ * established glass idiom (--bg-surface/--glass-blur/--border-premium)
+ * rather than fixed literal colors, for the same reason every other
+ * surface in this app does: a hardcoded dark fill reads as a broken,
+ * near-opaque block on the Day theme's light background.
+ */
+
+@keyframes edit-profile-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes edit-profile-card-motion-in {
+    from { transform: translateY(18px) scale(0.97); }
+    to { transform: translateY(0) scale(1); }
+}
+
+.edit-profile-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: edit-profile-backdrop-in 0.2s ease;
+    /* Font-smoothing applied here (not inherited from .settings-shell)
+       since this backdrop is a fixed overlay sibling, not necessarily
+       painted within that container's own DOM subtree. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.edit-profile-backdrop.is-closing {
+    animation: edit-profile-backdrop-in 0.18s ease reverse forwards;
+}
+
+/* Split from .edit-profile-card on purpose: this wrapper owns the
+   transform-based entrance/exit motion, and nothing else - no
+   backdrop-filter of its own. The actual glass card (below) owns
+   backdrop-filter and never animates its own transform. Confirmed
+   live (real screen recording): a single element carrying BOTH an
+   animated `transform` AND `backdrop-filter` renders with visibly
+   soft/blurry text even once fully settled, not just mid-animation -
+   Chrome/Blink doesn't always cleanly re-flatten a backdrop-filter
+   layer after a transform animation completes on the same element.
+   Keeping the two concerns on separate elements sidesteps this
+   entirely: the motion element has nothing to blur, and the glass
+   element never moves. */
+.edit-profile-card-motion {
+    width: 100%;
+    max-width: 440px;
+    animation: edit-profile-card-motion-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.edit-profile-backdrop.is-closing .edit-profile-card-motion {
+    animation: edit-profile-card-motion-in 0.18s cubic-bezier(0.4, 0, 1, 1) reverse forwards;
+}
+
+.edit-profile-card {
+    width: 100%;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 24px;
+    box-shadow: var(--premium-shadow);
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.edit-profile-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.edit-profile-title {
+    font-size: 19px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.edit-profile-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+}
+
+.edit-profile-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    border: 1px solid var(--border-premium);
+    background: var(--widget-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.edit-profile-close-btn:hover {
+    transform: scale(1.06);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border-premium));
+    color: var(--text-primary);
+}
+
+/* Avatar editor - a click target on the avatar itself (matching the
+   existing camera-badge pattern already established in ProfilePage.jsx),
+   not a separate "Upload" button floating elsewhere. */
+.edit-profile-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.edit-profile-avatar-btn {
+    position: relative;
+    width: 76px;
+    height: 76px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    background: var(--primary);
+    color: var(--text-on-primary);
+    font-size: 28px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    font-family: inherit;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.edit-profile-avatar-btn:hover {
+    transform: scale(1.04);
+}
+
+.edit-profile-avatar-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.edit-profile-avatar-badge {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 3px solid var(--bg-surface);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
+
+.edit-profile-avatar-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.edit-profile-avatar-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.edit-profile-remove-avatar {
+    align-self: flex-start;
+    background: transparent;
+    border: none;
+    color: var(--danger, #F87171);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+}
+
+/* Fields */
+.edit-profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.edit-profile-label {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.edit-profile-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border-premium);
+    background: var(--surface-inset);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.edit-profile-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.edit-profile-input::placeholder {
+    color: var(--text-muted);
+}
+
+/* Identity (email/phone/local-only) is shown, never editable here - it's
+   the real sign-in identity (Firebase auth email, or a synthetic phone
+   placeholder), not a cosmetic profile field. Changing it for real needs
+   its own dedicated, verified account flow - not a generic text input in
+   a profile-details modal. */
+.edit-profile-static-value {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border-premium);
+    background: var(--widget-bg);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.edit-profile-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.edit-profile-btn {
+    flex: 1;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s ease, background 0.15s ease;
+}
+
+.edit-profile-btn:hover {
+    transform: scale(1.02);
+}
+
+.edit-profile-btn:active {
+    transform: scale(0.98);
+}
+
+.edit-profile-btn-cancel {
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    color: var(--text-secondary);
+}
+
+.edit-profile-btn-save {
+    background: var(--primary);
+    border: 1px solid var(--border-premium);
+    color: var(--text-on-primary);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.edit-profile-btn-save:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+@media (max-width: 480px) {
+    .edit-profile-card {
+        padding: 22px;
+        border-radius: 20px;
+        gap: 18px;
+    }
+
+    .edit-profile-avatar-btn {
+        width: 64px;
+        height: 64px;
+        font-size: 24px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .edit-profile-backdrop,
+    .edit-profile-card-motion,
+    .edit-profile-btn,
+    .edit-profile-avatar-btn,
+    .edit-profile-close-btn {
+        animation: none !important;
+        transition: none !important;
+    }
+}

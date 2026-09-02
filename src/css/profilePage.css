@@ -1,0 +1,278 @@
+/* src/css/profilePage.css
+ *
+ * Visual polish pass for the full gamified Profile page
+ * (src/pages/ProfilePage.jsx) - the page's own ~1000 lines of state/
+ * logic/data-wiring are untouched; this only adds classNames the JSX
+ * now carries alongside its existing inline styles, for the one thing
+ * inline styles genuinely can't do: :hover, :focus, and interruptible
+ * keyframe animations. Where a card's existing inline background/
+ * border/padding/radius still applies to it, keeping it there rather
+ * than duplicating it in CSS was deliberate - only what needs a
+ * pseudo-class or an animation moved.
+ */
+
+.profile-page-root {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================
+   GLASS CARD HOVER - added as a className alongside each card's
+   existing inline background/border/padding/radius (left untouched -
+   only transform/box-shadow are new here, and neither was set inline
+   anywhere on these cards, so there's no inline-vs-external precedence
+   fight to work around). Covers: stat cards, the completion card,
+   badge cards, every tab's own info cards, and activity feed rows.
+   ============================================================ */
+.profile-glass-card {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+}
+
+/* !important on the shadow only, matching .nexus-glass-modal's own
+   existing precedent in style.css: the Dynamic theme's sky-phase
+   "light-on-glass signature" rule applies its own decorative box-shadow
+   to any [style*="var(--widget-bg)"] element via a 3-attribute selector
+   (specificity (0,3,0)), which otherwise silently outranks a plain
+   .profile-glass-card:hover class+pseudo-class rule (0,2,0) - confirmed
+   live via getComputedStyle: transform applied correctly, box-shadow
+   didn't, until this. */
+.profile-glass-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px color-mix(in srgb, var(--primary) 30%, transparent) !important;
+}
+
+@media (hover: none) {
+    /* Touch devices have no real hover - skip the lift so a tap doesn't
+       leave a card visually "stuck" raised until the next tap elsewhere. */
+    .profile-glass-card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+}
+
+/* ============================================================
+   EDIT-MODE INPUTS - a real, clearly-bounded glass box per field, per
+   explicit follow-up feedback: an earlier transparent/bottom-border-
+   only pass made it genuinely hard to tell where a field started or
+   stopped ("kahan pe likhna hai, kahan pe nahi, pata nahi chal raha").
+   Full border + a tinted, blurred fill on every field now, still real
+   glassmorphism (background/backdrop-filter explicitly set here, not
+   left to the app-wide [style*="var(--widget-bg)"] rule - that only
+   matches elements carrying the literal string in an inline style
+   attribute, which a CSS class never does), with the focus glow kept
+   from the previous pass.
+   ============================================================ */
+.profile-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 13px 16px;
+    border: 1px solid var(--border-premium);
+    border-radius: 12px;
+    background: var(--widget-bg);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+select.profile-input {
+    cursor: pointer;
+}
+
+.profile-input:hover {
+    border-color: color-mix(in srgb, var(--primary) 30%, var(--border-premium));
+}
+
+.profile-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.profile-input::placeholder {
+    color: var(--text-muted);
+}
+
+/* ============================================================
+   EDIT PROFILE FORM - entrance motion (transform) and the glass card
+   itself (background/backdrop-filter, via the app-wide
+   [style*="var(--bg-surface)"] rule matching this form's own inline
+   background) are deliberately split across two nested elements, not
+   combined on one. Confirmed live on the smaller Edit Profile modal
+   in Settings that a single element carrying both an animated
+   `transform` and `backdrop-filter` can render its own text visibly
+   soft/blurry even once fully settled, not just mid-transition -
+   Chrome/Blink doesn't always cleanly re-flatten a backdrop-filter
+   layer after a transform animation completes on the same element.
+   The outer wrapper here owns the slide-up transform and the page's
+   own negative-margin full-bleed positioning; the inner <form> owns
+   the glass look and fades in via opacity only (which doesn't trigger
+   the same issue - it's specifically the transform/layer-repositioning
+   side of things that does).
+   ============================================================ */
+@keyframes profile-edit-motion-in {
+    from { transform: translateY(24px); }
+    to { transform: translateY(0); }
+}
+
+@keyframes profile-edit-form-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.profile-edit-motion {
+    animation: profile-edit-motion-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.profile-edit-form {
+    animation: profile-edit-form-fade-in 0.35s ease;
+}
+
+/* Back-out button, sat above the "Profile Hub" heading in what was
+   previously just empty space at the top of the form. */
+.profile-edit-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-premium);
+    background: var(--widget-bg);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.15s ease, color 0.15s ease;
+}
+
+.profile-edit-back-btn:hover {
+    transform: scale(1.02);
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border-premium));
+    color: var(--text-primary);
+}
+
+.profile-edit-back-btn:active {
+    transform: scale(0.98);
+}
+
+/* ============================================================
+   AVATAR - a small always-on premium ring glow (not a hover effect,
+   so it's applied directly in the JSX's own existing boxShadow value
+   rather than here - inline styles win over external CSS for the same
+   property regardless of specificity, so a className-based box-shadow
+   here would have been silently overridden by the element's own
+   existing inline boxShadow, not layered with it). This block only
+   covers what genuinely needs a real stylesheet: the cover banner's
+   own subtle zoom-on-hover, purely decorative and never present inline.
+   ============================================================ */
+.profile-cover-banner {
+    transition: filter 0.3s ease;
+}
+
+.profile-cover-banner:hover {
+    filter: brightness(1.05);
+}
+
+/* ============================================================
+   TABS - active-state glow lives inline (see ProfilePage.jsx, same
+   reasoning as the avatar above: these buttons already branch
+   background/color/border per-tab via inline ternaries, and adding a
+   matching inline boxShadow keeps all of one button's state logic in
+   one place rather than splitting it across inline + external rules).
+   This class only adds the horizontal swipe row's own scroll-bounce
+   guard for mobile.
+   ============================================================ */
+.profile-tabs-row {
+    overscroll-behavior-x: contain;
+}
+
+/* ============================================================
+   HEATMAP - a real orientation change on mobile, not just smaller
+   cells. Desktop keeps GitHub's own layout: weeks as columns, 7-day
+   columns flowing left to right, scrolling horizontally - genuinely
+   fine there, there's real width to spare. That same shape squeezed
+   onto a 375px phone (a ~795px-wide grid at 12px cells) read as
+   broken/cut off regardless of cell size, since nothing on screen
+   hinted more existed off to the side. Below 768px this flips to days
+   as columns (7, matching a week) and weeks as rows, flowing top to
+   bottom - it scrolls vertically with the rest of the page instead,
+   which is the natural direction a phone already scrolls in, so nothing
+   extra (no inner scroll container, no scroll hint) is needed for it
+   to read as complete. Data itself is unchanged either way - this is
+   presentation only.
+   ============================================================ */
+.profile-heatmap-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+}
+
+.profile-heatmap-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, 12px);
+    grid-auto-columns: 12px;
+    gap: 3px;
+    width: fit-content;
+}
+
+.profile-heatmap-cell {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+}
+
+.profile-heatmap-legend-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+}
+
+@media (max-width: 768px) {
+    .profile-heatmap-scroll {
+        overflow-x: visible;
+    }
+
+    .profile-heatmap-grid {
+        grid-auto-flow: row;
+        grid-template-rows: none;
+        grid-template-columns: repeat(7, 18px);
+        grid-auto-columns: unset;
+        grid-auto-rows: 18px;
+        gap: 3px;
+        width: fit-content;
+        margin: 0 auto;
+    }
+
+    .profile-heatmap-cell {
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+    }
+
+    .profile-heatmap-legend-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .profile-glass-card,
+    .profile-input,
+    .profile-cover-banner,
+    .profile-edit-motion,
+    .profile-edit-form {
+        animation: none !important;
+        transition: none !important;
+    }
+
+    .profile-glass-card:hover {
+        transform: none;
+    }
+}

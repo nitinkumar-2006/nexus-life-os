@@ -1,0 +1,19 @@
+/* src/css/calendarHub.css
+ *
+ * Calendar Hub (src/pages/CalendarPage.jsx) only - real glassmorphism for
+ * its cards on every theme, not just Dynamic. CalendarPage's cards already
+ * carry background: var(--bg-surface)/var(--widget-bg) inline, which only
+ * ever picks up backdrop-filter via style.css's [data-theme="dynamic"]
+ * [style*="var(--bg-surface)"] rule - confirmed live via getComputedStyle
+ * that on Night (the default theme), these same cards render with
+ * backdropFilter: "none", a flat solid fill with no actual glass. This
+ * class gives every real Calendar Hub card its own explicit, theme-
+ * independent blur, matching the pattern already used for ProfilePage/
+ * SettingsProfileHeader's own cards this same pass. var(--glass-blur)
+ * (user-configurable in Settings) is honored via its own fallback, not a
+ * hardcoded blur radius.
+ */
+.calendar-glass-card {
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+}

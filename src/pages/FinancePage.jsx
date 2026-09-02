@@ -1,6 +1,6 @@
 // src/pages/FinancePage.jsx
 import { useState, useEffect } from 'react';
-import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Download, FileText, Upload, Smartphone, RefreshCw, Tag, Utensils, ShoppingBag, Receipt, Plane, Clapperboard, HeartPulse } from 'lucide-react';
+import { Wallet, DollarSign, TrendingUp, User, Target, Plus, Calendar, ArrowUpRight, ArrowDownLeft, Landmark, Search, CheckCircle, Clock, Sparkles, Cpu, ShieldCheck, Trash2, Pencil, Download, FileText, Upload, Smartphone, RefreshCw, Tag, Utensils, ShoppingBag, Receipt, Plane, Clapperboard, HeartPulse } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { exportFinanceReportCsv, exportFinanceReportText } from '../utils/reportExport.js';
 import StatementImportModal from '../components/StatementImportModal.jsx';
@@ -11,6 +11,7 @@ import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumber
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useSwipeToDismiss } from '../hooks/useSwipeToDismiss.js';
+import { getLocalDateString } from '../utils/dateUtils.js';
 import TourGuide from '../components/TourGuide.jsx';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
 import { TOUR_STEPS } from '../constants/tourSteps.js';
@@ -89,7 +90,7 @@ const FinancePage = () => {
     // swipe here genuinely, unambiguously reads as "dismiss" rather than
     // conflicting with a different gesture already living on the same
     // surface.
-    const { swipeHandlers: addTxSwipeHandlers, translateY: addTxTranslateY, isDragging: addTxIsDragging } = useSwipeToDismiss(() => setIsAddTxModal(false));
+    const { swipeHandlers: addTxSwipeHandlers, translateY: addTxTranslateY, isDragging: addTxIsDragging } = useSwipeToDismiss(() => { setIsAddTxModal(false); setEditingTxId(null); });
 
     // Modals & Forms State
     const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -99,15 +100,23 @@ const FinancePage = () => {
     
     const [isAddAccountModal, setIsAddAccountModal] = useState(false);
     const [newAccount, setNewAccount] = useState({ name: '', type: 'Savings Account', balance: '', institution: '' });
-    
+    // null while adding a fresh account; the account's own id while editing
+    // an existing one - same single-flag convention TimetablePage's
+    // editingIndex established, branching handleAddAccount and this
+    // modal's own title/submit label.
+    const [editingAccountId, setEditingAccountId] = useState(null);
+
     const [isAddTxModal, setIsAddTxModal] = useState(false);
     const [newTx, setNewTx] = useState({ title: '', type: 'Expense', amount: '', category: 'Food', account: '' });
-    
+    const [editingTxId, setEditingTxId] = useState(null);
+
     const [isAddGoalModal, setIsAddGoalModal] = useState(false);
-    const [newGoal, setNewGoal] = useState({ title: '', target: '', current: '', deadline: new Date().toISOString().split('T')[0] });
-    
+    const [newGoal, setNewGoal] = useState({ title: '', target: '', current: '', deadline: getLocalDateString() });
+    const [editingGoalId, setEditingGoalId] = useState(null);
+
     const [isAddBillModal, setIsAddBillModal] = useState(false);
-    const [newBill, setNewBill] = useState({ title: '', amount: '', dueDate: new Date().toISOString().split('T')[0] });
+    const [newBill, setNewBill] = useState({ title: '', amount: '', dueDate: getLocalDateString() });
+    const [editingBillId, setEditingBillId] = useState(null);
     
     const [searchQuery, setSearchQuery] = useState('');
     const [financeToast, setFinanceToast] = useState('');
@@ -166,15 +175,48 @@ const FinancePage = () => {
     const handleAddAccount = (e) => {
         e.preventDefault();
         if (!newAccount.name.trim()) return;
-        const item = {
-            id: Date.now().toString(),
+        const accountFields = {
             name: newAccount.name.trim(), type: newAccount.type,
             balance: parseFloat(newAccount.balance) || 0,
             institution: newAccount.institution.trim() || 'Bank'
         };
-        setAccounts([item, ...accounts]);
+        if (editingAccountId !== null) {
+            const oldAccount = accounts.find(a => a.id === editingAccountId);
+            setAccounts(accounts.map(a => a.id === editingAccountId ? { ...a, ...accountFields } : a));
+            // Transactions link to their account by NAME, not id (see
+            // handleAddTransaction/deleteTransaction above) - renaming an
+            // account here without cascading the new name onto its existing
+            // transactions would silently break that link: every one of
+            // those transactions would stop matching any real account, so a
+            // later edit or delete of one could no longer find it to reverse
+            // its balance effect, corrupting the balance instead.
+            if (oldAccount && oldAccount.name !== accountFields.name) {
+                setTransactions(transactions.map(t => t.account === oldAccount.name ? { ...t, account: accountFields.name } : t));
+                setSmsTargetAccount((prev) => (prev === oldAccount.name ? accountFields.name : prev));
+            }
+        } else {
+            setAccounts([{ id: Date.now().toString(), ...accountFields }, ...accounts]);
+        }
         setIsAddAccountModal(false);
+        setEditingAccountId(null);
         setNewAccount({ name: '', type: 'Savings Account', balance: '', institution: '' });
+    };
+
+    const openAddAccountModal = () => {
+        setEditingAccountId(null);
+        setNewAccount({ name: '', type: 'Savings Account', balance: '', institution: '' });
+        setIsAddAccountModal(true);
+    };
+
+    const openEditAccountModal = (acc) => {
+        setEditingAccountId(acc.id);
+        setNewAccount({ name: acc.name || '', type: acc.type || 'Savings Account', balance: acc.balance ?? '', institution: acc.institution || '' });
+        setIsAddAccountModal(true);
+    };
+
+    const closeAccountModal = () => {
+        setIsAddAccountModal(false);
+        setEditingAccountId(null);
     };
 
     const handleAddTransaction = (e) => {
@@ -183,26 +225,50 @@ const FinancePage = () => {
             setFinanceToast('Please fill title, amount, and select an account.');
             return;
         }
-        
+
         const amountVal = parseFloat(newTx.amount) || 0;
-        const txItem = {
-            id: Date.now().toString(),
+        // date is deliberately excluded here - the form has no date field,
+        // so an edit must preserve the transaction's own original date
+        // rather than overwriting it with today's.
+        const txFields = {
             title: toTitleCase(newTx.title.trim()), type: newTx.type, amount: amountVal,
             category: toTitleCase(newTx.category), account: newTx.account,
-            date: new Date().toISOString().split('T')[0]
         };
 
-        // Update Account Balance
-        setAccounts(accounts.map(acc => {
-            if (acc.name === newTx.account) {
-                const updatedBalance = newTx.type === 'Income' ? acc.balance + amountVal : acc.balance - amountVal;
-                return { ...acc, balance: updatedBalance };
-            }
-            return acc;
-        }));
+        if (editingTxId !== null) {
+            const oldTx = transactions.find(t => t.id === editingTxId);
+            // Reverses the OLD amount's effect on its own old account, then
+            // applies the NEW amount's effect on the (possibly different)
+            // newly-selected account - both adjustments run over accounts
+            // in a single pass so editing a transaction that keeps the same
+            // account nets out correctly instead of double-counting, and
+            // moving a transaction to a different account correctly debits
+            // one and credits the other.
+            setAccounts(accounts.map(acc => {
+                let updatedBalance = acc.balance;
+                if (oldTx && acc.name === oldTx.account) {
+                    updatedBalance = oldTx.type === 'Income' ? updatedBalance - oldTx.amount : updatedBalance + oldTx.amount;
+                }
+                if (acc.name === txFields.account) {
+                    updatedBalance = txFields.type === 'Income' ? updatedBalance + amountVal : updatedBalance - amountVal;
+                }
+                return updatedBalance === acc.balance ? acc : { ...acc, balance: updatedBalance };
+            }));
+            setTransactions(transactions.map(t => t.id === editingTxId ? { ...t, ...txFields } : t));
+        } else {
+            const txItem = { id: Date.now().toString(), ...txFields, date: getLocalDateString() };
+            setAccounts(accounts.map(acc => {
+                if (acc.name === txFields.account) {
+                    const updatedBalance = txFields.type === 'Income' ? acc.balance + amountVal : acc.balance - amountVal;
+                    return { ...acc, balance: updatedBalance };
+                }
+                return acc;
+            }));
+            setTransactions([txItem, ...transactions]);
+        }
 
-        setTransactions([txItem, ...transactions]);
         setIsAddTxModal(false);
+        setEditingTxId(null);
         setNewTx({ title: '', type: 'Expense', amount: '', category: 'Food', account: accounts.length > 0 ? accounts[0].name : '' });
     };
 
@@ -216,8 +282,23 @@ const FinancePage = () => {
             setFinanceToast('Please create an Account/Wallet first before adding transactions.');
             return;
         }
-        setNewTx(prev => ({ ...prev, account: accounts[0].name }));
+        setEditingTxId(null);
+        setNewTx({ title: '', type: 'Expense', amount: '', category: 'Food', account: accounts[0].name });
         setIsAddTxModal(true);
+    };
+
+    const openEditTxModal = (tx) => {
+        setEditingTxId(tx.id);
+        setNewTx({
+            title: tx.title || '', type: tx.type || 'Expense', amount: tx.amount ?? '',
+            category: tx.category || 'Food', account: tx.account || (accounts.length > 0 ? accounts[0].name : ''),
+        });
+        setIsAddTxModal(true);
+    };
+
+    const closeTxModal = () => {
+        setIsAddTxModal(false);
+        setEditingTxId(null);
     };
 
     // Real handler for StatementImportModal's onImport - commits every
@@ -341,29 +422,71 @@ const FinancePage = () => {
     const handleAddGoal = (e) => {
         e.preventDefault();
         if (!newGoal.title.trim() || !newGoal.target) return;
-        const goalItem = {
-            id: Date.now().toString(),
+        const goalFields = {
             title: toTitleCase(newGoal.title.trim()),
             target: parseFloat(newGoal.target) || 0,
             current: parseFloat(newGoal.current) || 0,
             deadline: newGoal.deadline
         };
-        setSavingsGoals([goalItem, ...savingsGoals]);
+        if (editingGoalId !== null) {
+            setSavingsGoals(savingsGoals.map(g => g.id === editingGoalId ? { ...g, ...goalFields } : g));
+        } else {
+            setSavingsGoals([{ id: Date.now().toString(), ...goalFields }, ...savingsGoals]);
+        }
         setIsAddGoalModal(false);
-        setNewGoal({ title: '', target: '', current: '', deadline: new Date().toISOString().split('T')[0] });
+        setEditingGoalId(null);
+        setNewGoal({ title: '', target: '', current: '', deadline: getLocalDateString() });
+    };
+
+    const openAddGoalModal = () => {
+        setEditingGoalId(null);
+        setNewGoal({ title: '', target: '', current: '', deadline: getLocalDateString() });
+        setIsAddGoalModal(true);
+    };
+
+    const openEditGoalModal = (goal) => {
+        setEditingGoalId(goal.id);
+        setNewGoal({ title: goal.title || '', target: goal.target ?? '', current: goal.current ?? '', deadline: goal.deadline || getLocalDateString() });
+        setIsAddGoalModal(true);
+    };
+
+    const closeGoalModal = () => {
+        setIsAddGoalModal(false);
+        setEditingGoalId(null);
     };
 
     const handleAddBill = (e) => {
         e.preventDefault();
         if (!newBill.title.trim() || !newBill.amount) return;
-        const billItem = {
-            id: Date.now().toString(),
+        const billFields = {
             title: toTitleCase(newBill.title.trim()), amount: parseFloat(newBill.amount) || 0,
-            dueDate: newBill.dueDate, paid: false
+            dueDate: newBill.dueDate,
         };
-        setBills([billItem, ...bills]);
+        if (editingBillId !== null) {
+            setBills(bills.map(b => b.id === editingBillId ? { ...b, ...billFields } : b));
+        } else {
+            setBills([{ id: Date.now().toString(), ...billFields, paid: false }, ...bills]);
+        }
         setIsAddBillModal(false);
-        setNewBill({ title: '', amount: '', dueDate: new Date().toISOString().split('T')[0] });
+        setEditingBillId(null);
+        setNewBill({ title: '', amount: '', dueDate: getLocalDateString() });
+    };
+
+    const openAddBillModal = () => {
+        setEditingBillId(null);
+        setNewBill({ title: '', amount: '', dueDate: getLocalDateString() });
+        setIsAddBillModal(true);
+    };
+
+    const openEditBillModal = (bill) => {
+        setEditingBillId(bill.id);
+        setNewBill({ title: bill.title || '', amount: bill.amount ?? '', dueDate: bill.dueDate || getLocalDateString() });
+        setIsAddBillModal(true);
+    };
+
+    const closeBillModal = () => {
+        setIsAddBillModal(false);
+        setEditingBillId(null);
     };
 
     const toggleBillPaid = (id) => {
@@ -432,9 +555,18 @@ const FinancePage = () => {
     // each empty-state call-to-action below - one real definition instead
     // of hand-copying the same style object at each of the several call
     // sites that need it.
-    const quickActionButtonStyle = { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', padding: '12px 8px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', cursor: 'pointer', fontFamily: 'inherit', boxShadow: 'var(--premium-shadow)' };
-    const quickActionIconWrapStyle = (color) => ({ width: '40px', height: '40px', borderRadius: '50%', background: `${color}1F`, color, display: 'flex', alignItems: 'center', justifyContent: 'center' });
-    const quickActionLabelStyle = { fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)' };
+    // Sized to match the visual weight of the real Income/Expense/Budget
+    // stat row directly above (12px/10px padding, ~16px icon in an 8px-
+    // padded wrap) - previously these were noticeably chunkier (40px
+    // circular icon wrap, 20px icons) than the actual financial data
+    // they sit under, making three decorative action buttons visually
+    // heavier than the real balance figures. Still three separate,
+    // clearly-tappable buttons (the actual fix for the earlier
+    // "overcrowded button stack" complaint, preserved) - just no longer
+    // oversized relative to their neighbors.
+    const quickActionButtonStyle = { width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', padding: '10px 8px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', cursor: 'pointer', fontFamily: 'inherit', boxShadow: 'var(--premium-shadow)' };
+    const quickActionIconWrapStyle = (color) => ({ width: '30px', height: '30px', borderRadius: '50%', background: `${color}1F`, color, display: 'flex', alignItems: 'center', justifyContent: 'center' });
+    const quickActionLabelStyle = { fontSize: '11px', fontWeight: '700', color: 'var(--text-primary)' };
     const emptyStateCtaStyle = { display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' };
 
     const totalSavingsSaved = (savingsGoals || []).reduce((acc, curr) => acc + (curr.current || 0), 0);
@@ -453,6 +585,16 @@ const FinancePage = () => {
         ? savingsGoals.reduce((acc, g) => acc + (g.target > 0 ? Math.min(100, (g.current / g.target) * 100) : 0), 0) / savingsGoals.length
         : 50;
     const financialHealthScore = Math.round((budgetDisciplineScore * 0.5) + (emergencyFundScore * 0.25) + (avgGoalProgress * 0.25));
+    // True only once at least one real input exists for the formula
+    // above. With neither a budget cap nor a savings goal set up, every
+    // factor falls back to its own neutral 50 default, so the score is
+    // ALWAYS exactly 50 regardless of the account's real activity - which
+    // reads to a fresh user as a static, hardcoded number rather than a
+    // real calculation (confirmed live: a brand-new profile shows "50 /
+    // 100" no matter what). The card renders an honest "not enough data"
+    // state instead of that number in exactly this one case; once either
+    // input is real, the number itself is a genuine calculation again.
+    const hasHealthScoreData = (settings.monthlyBudgetCap || 0) > 0 || savingsGoals.length > 0;
 
     const filteredTransactions = transactions.filter(t => 
         t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -553,12 +695,22 @@ const FinancePage = () => {
                 every viewport (desktop used to keep "Financial Command
                 Center" + a subtitle here; now unified with every other
                 Hub page's identical clean header treatment). */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Finance Hub</h1>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: isMobile ? '8px' : '16px' }}>
+                <div style={{ minWidth: 0, flexShrink: 1 }}>
+                    <h1 style={{ fontSize: isMobile ? '19px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>Finance Hub</h1>
                 </div>
 
-                <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: '8px' }}>
+                {/* On mobile, every button here drops to icon-only (see
+                    each button's own {!isMobile && '...'} label below) so
+                    this whole row - title included - genuinely stays on
+                    one line instead of the title and buttons wrapping
+                    onto separate rows the way they used to (a real,
+                    reported problem: on mobile this used to leave the
+                    page's own vertical rhythm broken, with the Total
+                    Balance card pushed an extra row down for no reason).
+                    A title="..." on each still carries the real label for
+                    accessibility/long-press tooltips even icon-only. */}
+                <div style={{ display: 'flex', flexWrap: 'nowrap', gap: isMobile ? '6px' : '8px', flexShrink: 0 }}>
                     {/* Add Transaction / Import Statement - desktop only here.
                         Mobile gets these same two actions (plus Export) from
                         the single, always-visible Quick Action Bar below the
@@ -583,17 +735,17 @@ const FinancePage = () => {
                     )}
                     {activeTab === 'GoalsBills' && (
                         <>
-                            <button onClick={() => setIsAddBillModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
-                                <Plus size={16} /> Add Bill
+                            <button title="Add Bill" onClick={openAddBillModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: isMobile ? '9px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', flexShrink: 0 }}>
+                                <Plus size={16} /> {!isMobile && 'Add Bill'}
                             </button>
-                            <button onClick={() => setIsAddGoalModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
-                                <Plus size={16} /> {isMobile ? 'Add Goal' : 'Add Savings Goal'}
+                            <button title="Add Savings Goal" onClick={openAddGoalModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: isMobile ? '9px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', flexShrink: 0 }}>
+                                <Plus size={16} /> {!isMobile && 'Add Savings Goal'}
                             </button>
                         </>
                     )}
                     {activeTab === 'Dashboard' && (
-                        <button data-tour-id="finance-add-account" onClick={() => setIsAddAccountModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
-                            <Plus size={16} /> Add Account
+                        <button title="Add Account" data-tour-id="finance-add-account" onClick={openAddAccountModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: isMobile ? '9px' : '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', flexShrink: 0 }}>
+                            <Plus size={16} /> {!isMobile && 'Add Account'}
                         </button>
                     )}
                     {!isMobile && (
@@ -629,8 +781,8 @@ const FinancePage = () => {
                             )}
                         </div>
                     )}
-                    <button onClick={() => { setTempProfile(profile); setTempMonthlyBudget(settings.monthlyBudgetCap || 0); setTempCurrencySymbol(settings.currencySymbol || '₹'); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: isMobile ? '9px 14px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '12px' : '14px', cursor: 'pointer' }}>
-                        <User size={16} /> Profile
+                    <button title="Profile" onClick={() => { setTempProfile(profile); setTempMonthlyBudget(settings.monthlyBudgetCap || 0); setTempCurrencySymbol(settings.currencySymbol || '₹'); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: isMobile ? '9px' : '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', flexShrink: 0 }}>
+                        <User size={16} /> {!isMobile && 'Profile'}
                     </button>
                 </div>
             </div>
@@ -648,7 +800,7 @@ const FinancePage = () => {
                 expenses" genuinely needed that number to exist first).
                 Budget Left stays a real but secondary, derived metric. */}
             <div data-tour-id="finance-stats" style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '10px' : '14px' }}>
-                <div style={{
+                <div className="finance-glass-card" style={{
                     background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.16), rgba(var(--primary-rgb), 0.04))',
                     border: '1px solid rgba(var(--primary-rgb), 0.3)', borderRadius: isMobile ? '16px' : '20px',
                     padding: isMobile ? '16px' : '24px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px',
@@ -665,28 +817,38 @@ const FinancePage = () => {
                     )}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(3, 1fr)', gap: isMobile ? '8px' : '14px' }}>
-                    <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '14px' }}>
-                        <div style={{ padding: isMobile ? '8px' : '11px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: isMobile ? '10px' : '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><ArrowUpRight size={isMobile ? 16 : 22} /></div>
-                        <div style={{ minWidth: 0 }}>
-                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block' }}>Income</span>
-                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: '#10B981', overflowWrap: 'break-word' }}>{settings.currencySymbol} {totalIncome.toLocaleString()}</h2>
+                {/* Income/Expense/Budget Left cards: row layout (icon
+                    beside the label+amount, not above it) on EVERY
+                    viewport now - confirmed live at 375px that the old
+                    mobile-only flexDirection: 'column' put the icon badge
+                    alone in its own row, with the label+amount stacked
+                    below it, leaving the rest of that first row's width
+                    (each card is only ~110px wide in this 3-up grid) empty
+                    next to the icon. Mobile stays visually compact through
+                    smaller padding/icon/font sizes instead, not through a
+                    different flex direction. */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: isMobile ? '8px' : '14px' }}>
+                    <div className="finance-glass-card" style={{ background: 'var(--bg-surface)', padding: isMobile ? '10px 8px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? '7px' : '14px', minWidth: 0 }}>
+                        <div style={{ padding: isMobile ? '6px' : '11px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: isMobile ? '8px' : '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><ArrowUpRight size={isMobile ? 14 : 22} /></div>
+                        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+                            <span style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Income</span>
+                            <h2 style={{ fontSize: isMobile ? '13px' : '19px', fontWeight: '800', color: '#10B981', overflowWrap: 'break-word', lineHeight: 1.25 }}>{settings.currencySymbol} {totalIncome.toLocaleString()}</h2>
                         </div>
                     </div>
 
-                    <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '14px' }}>
-                        <div style={{ padding: isMobile ? '8px' : '11px', background: 'rgba(239, 68, 68, 0.12)', borderRadius: isMobile ? '10px' : '12px', color: '#EF4444', flexShrink: 0, display: 'flex' }}><ArrowDownLeft size={isMobile ? 16 : 22} /></div>
-                        <div style={{ minWidth: 0 }}>
-                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block' }}>Expense</span>
-                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: '#EF4444', overflowWrap: 'break-word' }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
+                    <div className="finance-glass-card" style={{ background: 'var(--bg-surface)', padding: isMobile ? '10px 8px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? '7px' : '14px', minWidth: 0 }}>
+                        <div style={{ padding: isMobile ? '6px' : '11px', background: 'rgba(239, 68, 68, 0.12)', borderRadius: isMobile ? '8px' : '12px', color: '#EF4444', flexShrink: 0, display: 'flex' }}><ArrowDownLeft size={isMobile ? 14 : 22} /></div>
+                        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+                            <span style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Expense</span>
+                            <h2 style={{ fontSize: isMobile ? '13px' : '19px', fontWeight: '800', color: '#EF4444', overflowWrap: 'break-word', lineHeight: 1.25 }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
                         </div>
                     </div>
 
-                    <div style={{ background: 'var(--bg-surface)', padding: isMobile ? '12px 10px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '14px' }}>
-                        <div style={{ padding: isMobile ? '8px' : '11px', background: 'var(--widget-bg)', borderRadius: isMobile ? '10px' : '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><Target size={isMobile ? 16 : 22} /></div>
-                        <div style={{ minWidth: 0 }}>
-                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block' }}>Budget Left</span>
-                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word' }}>
+                    <div className="finance-glass-card" style={{ background: 'var(--bg-surface)', padding: isMobile ? '10px 8px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? '7px' : '14px', minWidth: 0 }}>
+                        <div style={{ padding: isMobile ? '6px' : '11px', background: 'var(--widget-bg)', borderRadius: isMobile ? '8px' : '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><Target size={isMobile ? 14 : 22} /></div>
+                        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+                            <span style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Budget Left</span>
+                            <h2 style={{ fontSize: isMobile ? '13px' : '19px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word', lineHeight: 1.25 }}>
                                 {settings.currencySymbol} {budgetRemaining.toLocaleString()}
                                 {!isMobile && <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}> / {settings.currencySymbol}{(settings.monthlyBudgetCap || 0).toLocaleString()}</span>}
                             </h2>
@@ -708,16 +870,16 @@ const FinancePage = () => {
             {isMobile && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
                     <button type="button" onClick={openAddTransactionModal} style={quickActionButtonStyle}>
-                        <div style={quickActionIconWrapStyle('var(--primary)')}><Plus size={20} /></div>
+                        <div style={quickActionIconWrapStyle('var(--primary)')}><Plus size={16} /></div>
                         <span style={quickActionLabelStyle}>Add</span>
                     </button>
                     <button type="button" onClick={() => setIsStatementImportOpen(true)} style={quickActionButtonStyle}>
-                        <div style={quickActionIconWrapStyle('#3B82F6')}><Upload size={20} /></div>
+                        <div style={quickActionIconWrapStyle('#3B82F6')}><Upload size={16} /></div>
                         <span style={quickActionLabelStyle}>Import</span>
                     </button>
                     <div style={{ position: 'relative' }}>
                         <button type="button" onClick={() => setIsExportMenuOpen((v) => !v)} style={quickActionButtonStyle}>
-                            <div style={quickActionIconWrapStyle('#8B5CF6')}><Download size={20} /></div>
+                            <div style={quickActionIconWrapStyle('#8B5CF6')}><Download size={16} /></div>
                             <span style={quickActionLabelStyle}>Export</span>
                         </button>
                         {isExportMenuOpen && (
@@ -896,17 +1058,34 @@ const FinancePage = () => {
                         <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: isMobile ? '10px' : '16px' }}>Accounts & Wallets</h3>
                         {accounts.length > 0 ? (
                             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: isMobile ? '12px' : '16px' }}>
-                                {accounts.map(acc => (
-                                    <div key={acc.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '16px' : '20px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '14px', boxShadow: 'var(--premium-shadow)' }}>
+                                {accounts.map(acc => {
+                                    // Real, not decorative: true only for the
+                                    // one account SMS Auto-Tracking is
+                                    // actually routing parsed transactions
+                                    // into (smsTargetAccount) while that
+                                    // permission is genuinely granted - see
+                                    // renderSmsTrackingCard above, which
+                                    // drives the exact same state.
+                                    const isAutoSynced = smsPermission === 'granted' && acc.name === smsTargetAccount;
+                                    return (
+                                    <div key={acc.id} className="finance-glass-card" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '16px' : '20px', display: 'flex', flexDirection: 'column', gap: isMobile ? '12px' : '14px', boxShadow: 'var(--premium-shadow)' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
                                             <div style={{ minWidth: 0 }}>
-                                                <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', background: 'var(--widget-bg)', color: 'var(--primary)', borderRadius: '6px', border: '1px solid var(--border-premium)' }}>
-                                                    {acc.type}
-                                                </span>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                    <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', background: 'var(--widget-bg)', color: 'var(--primary)', borderRadius: '6px', border: '1px solid var(--border-premium)' }}>
+                                                        {acc.type}
+                                                    </span>
+                                                    {isAutoSynced && (
+                                                        <span title="Balance updates automatically from parsed SMS" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px', fontWeight: '700', padding: '4px 8px', background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                                                            <RefreshCw size={10} /> Auto-synced
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginTop: '8px', overflowWrap: 'break-word' }}>{acc.name}</h4>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                                                <button onClick={() => deleteAccount(acc.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '6px' }}><Trash2 size={16} /></button>
+                                                <button onClick={() => openEditAccountModal(acc)} title="Edit Account" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '6px', display: 'flex' }}><Pencil size={16} /></button>
+                                                <button onClick={() => deleteAccount(acc.id)} title="Delete Account" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '6px' }}><Trash2 size={16} /></button>
                                                 <div style={{ padding: '8px', background: 'var(--widget-bg)', borderRadius: '12px', color: 'var(--primary)' }}><Landmark size={16} /></div>
                                             </div>
                                         </div>
@@ -915,7 +1094,8 @@ const FinancePage = () => {
                                             <span style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', flexShrink: 0 }}>{settings.currencySymbol} {(acc.balance || 0).toLocaleString()}</span>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div style={{ padding: isMobile ? '28px 20px' : '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px dashed var(--border-premium)' }}>
@@ -971,7 +1151,10 @@ const FinancePage = () => {
                                     <span style={{ fontSize: '16px', fontWeight: '800', color: tx.type === 'Income' ? '#10B981' : '#EF4444', whiteSpace: 'nowrap' }}>
                                         {tx.type === 'Income' ? '+' : '-'}{settings.currencySymbol} {(tx.amount || 0).toLocaleString()}
                                     </span>
-                                    <button onClick={() => deleteTransaction(tx.id)} aria-label={`Delete ${tx.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex' }}><Trash2 size={15} /></button>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                        <button onClick={() => openEditTxModal(tx)} aria-label={`Edit ${tx.title}`} title="Edit Transaction" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}><Pencil size={15} /></button>
+                                        <button onClick={() => deleteTransaction(tx.id)} aria-label={`Delete ${tx.title}`} title="Delete Transaction" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}><Trash2 size={15} /></button>
+                                    </div>
                                 </div>
                             </div>
                             );
@@ -1021,7 +1204,8 @@ const FinancePage = () => {
                                                 <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', minWidth: 0, overflowWrap: 'break-word' }}>{goal.title}</h4>
                                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
                                                     <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--primary)' }}>{progress}%</span>
-                                                    <button onClick={() => deleteGoal(goal.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}><Trash2 size={14} /></button>
+                                                    <button onClick={() => openEditGoalModal(goal)} title="Edit Goal" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex' }}><Pencil size={14} /></button>
+                                                    <button onClick={() => deleteGoal(goal.id)} title="Delete Goal" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}><Trash2 size={14} /></button>
                                                 </div>
                                             </div>
                                             <div style={{ width: '100%', height: '8px', background: 'var(--surface-inset)', borderRadius: '4px', overflow: 'hidden' }}>
@@ -1058,7 +1242,10 @@ const FinancePage = () => {
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '16px' }}>
                                         <span style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>{settings.currencySymbol} {(bill.amount || 0).toLocaleString()}</span>
-                                        <button onClick={() => deleteBill(bill.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                            <button onClick={() => openEditBillModal(bill)} title="Edit Bill" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}><Pencil size={16} /></button>
+                                            <button onClick={() => deleteBill(bill.id)} title="Delete Bill" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex' }}><Trash2 size={16} /></button>
+                                        </div>
                                     </div>
                                 </div>
                             )) : <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No upcoming bills.</div>}
@@ -1093,8 +1280,17 @@ const FinancePage = () => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', fontWeight: '700', fontSize: isMobile ? '12px' : '14px' }}>
                                 <ShieldCheck size={16} color="#10B981" /> {isMobile ? 'Health Score' : 'Financial Health Score'}
                             </div>
-                            <h2 style={{ fontSize: isMobile ? '18px' : '28px', fontWeight: '800', color: '#10B981' }}>{financialHealthScore} / 100</h2>
-                            {!isMobile && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Status: {financialHealthScore >= 70 ? 'Excellent savings & budget discipline.' : financialHealthScore >= 40 ? 'Fair - room to build savings or reduce spending.' : 'High spending alert.'}</span>}
+                            {hasHealthScoreData ? (
+                                <>
+                                    <h2 style={{ fontSize: isMobile ? '18px' : '28px', fontWeight: '800', color: '#10B981' }}>{financialHealthScore} / 100</h2>
+                                    {!isMobile && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Status: {financialHealthScore >= 70 ? 'Excellent savings & budget discipline.' : financialHealthScore >= 40 ? 'Fair - room to build savings or reduce spending.' : 'High spending alert.'}</span>}
+                                </>
+                            ) : (
+                                <>
+                                    <h2 style={{ fontSize: isMobile ? '15px' : '20px', fontWeight: '700', color: 'var(--text-muted)' }}>Not enough data</h2>
+                                    <span style={{ fontSize: isMobile ? '11px' : '12px', color: 'var(--text-muted)' }}>Set a monthly budget or add a savings goal to calculate this.</span>
+                                </>
+                            )}
                         </div>
                     </div>
                     {/* AI coaching is paused on mobile for this pass - desktop is unaffected. */}
@@ -1112,7 +1308,7 @@ const FinancePage = () => {
             
             {/* Edit Profile Modal */}
             {isEditingProfile && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Edit Financial Profile</h2>
                         <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1151,9 +1347,9 @@ const FinancePage = () => {
 
             {/* Add Account Modal */}
             {isAddAccountModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Account or Wallet</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingAccountId !== null ? 'Edit Account or Wallet' : 'Add Account or Wallet'}</h2>
                         <form onSubmit={handleAddAccount} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input type="text" required placeholder="Account Name (e.g. ICICI)" aria-label="Account name" value={newAccount.name} onChange={(e) => setNewAccount({...newAccount, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <select aria-label="Account type" value={newAccount.type} onChange={(e) => setNewAccount({...newAccount, type: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }}>
@@ -1165,8 +1361,8 @@ const FinancePage = () => {
                             </select>
                             <input type="number" required placeholder="Initial Balance" aria-label="Initial balance" value={newAccount.balance} onChange={(e) => setNewAccount({...newAccount, balance: sanitizeNumberInput(e.target.value, newAccount.balance)})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button type="button" onClick={() => setIsAddAccountModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>Save Account</button>
+                                <button type="button" onClick={closeAccountModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>{editingAccountId !== null ? 'Save Changes' : 'Save Account'}</button>
                             </div>
                         </form>
                     </div>
@@ -1184,14 +1380,14 @@ const FinancePage = () => {
 
             {/* Add Transaction Modal */}
             {isAddTxModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{
                         background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%',
                         transform: `translateY(${addTxTranslateY}px)`, transition: addTxIsDragging ? 'none' : 'transform 0.25s ease',
                     }}>
                         <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: 'var(--border-premium)', margin: '-16px auto 12px' }} />
                         <div {...addTxSwipeHandlers} style={{ cursor: 'grab', touchAction: 'none' }}>
-                            <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Transaction</h2>
+                            <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingTxId !== null ? 'Edit Transaction' : 'Add Transaction'}</h2>
                         </div>
                         <form onSubmit={handleAddTransaction} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input type="text" required placeholder="Title (e.g. Groceries)" aria-label="Transaction title" value={newTx.title} onChange={(e) => setNewTx({...newTx, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
@@ -1210,8 +1406,8 @@ const FinancePage = () => {
                                 </select>
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button type="button" onClick={() => setIsAddTxModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>Save</button>
+                                <button type="button" onClick={closeTxModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>{editingTxId !== null ? 'Save Changes' : 'Save'}</button>
                             </div>
                         </form>
                     </div>
@@ -1220,9 +1416,9 @@ const FinancePage = () => {
 
             {/* Add Goal Modal */}
             {isAddGoalModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Savings Goal</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingGoalId !== null ? 'Edit Savings Goal' : 'Add Savings Goal'}</h2>
                         <form onSubmit={handleAddGoal} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input type="text" required placeholder="Goal Title" aria-label="Goal title" value={newGoal.title} onChange={(e) => setNewGoal({...newGoal, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '12px' }}>
@@ -1234,8 +1430,8 @@ const FinancePage = () => {
                                 <input id="financeGoalDeadline" name="goalDeadline" type="date" required value={newGoal.deadline} onChange={(e) => setNewGoal({...newGoal, deadline: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button type="button" onClick={() => setIsAddGoalModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>Save Goal</button>
+                                <button type="button" onClick={closeGoalModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>{editingGoalId !== null ? 'Save Changes' : 'Save Goal'}</button>
                             </div>
                         </form>
                     </div>
@@ -1244,9 +1440,9 @@ const FinancePage = () => {
 
             {/* Add Bill Modal */}
             {isAddBillModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Bill / Subscription</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingBillId !== null ? 'Edit Bill / Subscription' : 'Add Bill / Subscription'}</h2>
                         <form onSubmit={handleAddBill} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input type="text" required placeholder="Bill Title" aria-label="Bill title" value={newBill.title} onChange={(e) => setNewBill({...newBill, title: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <input type="number" required placeholder="Amount" aria-label="Bill amount" value={newBill.amount} onChange={(e) => setNewBill({...newBill, amount: sanitizeNumberInput(e.target.value, newBill.amount)})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
@@ -1255,8 +1451,8 @@ const FinancePage = () => {
                                 <input id="financeBillDueDate" name="billDueDate" type="date" required value={newBill.dueDate} onChange={(e) => setNewBill({...newBill, dueDate: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button type="button" onClick={() => setIsAddBillModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>Save Bill</button>
+                                <button type="button" onClick={closeBillModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold' }}>{editingBillId !== null ? 'Save Changes' : 'Save Bill'}</button>
                             </div>
                         </form>
                     </div>

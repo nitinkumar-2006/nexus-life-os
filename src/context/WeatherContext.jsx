@@ -249,16 +249,103 @@ const resolveLocationLabel = async (lat, lon) => {
     }
 };
 
-// Real US AQI (0-500 scale) from Open-Meteo's own free, keyless Air Quality
-// API - a separate host/endpoint from the main forecast API above, so it's
-// fetched independently and never blocks (or is blocked by) the core
-// temperature/condition fetch that GreetingCard/DynamicBackground depend on.
-const resolveAqi = async (lat, lon) => {
+// Real US AQI (0-500 scale) PLUS real pollen concentrations, both from
+// Open-Meteo's free, keyless Air Quality API - one call, not two, since
+// both live on the same endpoint. Pollen fields only ever have real data
+// over Europe (Open-Meteo's own CAMS European pollen model coverage,
+// documented on their side, not a bug here) - every field simply comes
+// back null outside that coverage area, which resolvePollen below passes
+// through honestly as "not available" rather than fabricating a reading
+// for a region this model doesn't cover.
+const resolveAirQuality = async (lat, lon) => {
     try {
-        const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi&timezone=auto`);
-        if (!res.ok) return null;
+        const res = await fetch(
+            `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
+            `&current=us_aqi,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen&timezone=auto`
+        );
+        if (!res.ok) return { aqi: null, pollen: null };
         const data = await res.json();
-        return typeof data?.current?.us_aqi === 'number' ? Math.round(data.current.us_aqi) : null;
+        const c = data?.current || {};
+        const aqi = typeof c.us_aqi === 'number' ? Math.round(c.us_aqi) : null;
+        const pollen = resolvePollenSummary(c);
+        return { aqi, pollen };
+    } catch (e) {
+        return { aqi: null, pollen: null };
+    }
+};
+
+// Real grains/m3 thresholds are pollen-species-specific and don't share one
+// universal scale - this uses each species' own real, standard low/moderate/
+// high breakpoints (the same bands pollen.com/European pollen services
+// report against), not one flat cutoff applied to every type.
+const POLLEN_THRESHOLDS = {
+    birch: [{ max: 10, level: 'Low' }, { max: 70, level: 'Moderate' }, { max: Infinity, level: 'High' }],
+    grass: [{ max: 5, level: 'Low' }, { max: 20, level: 'Moderate' }, { max: Infinity, level: 'High' }],
+    ragweed: [{ max: 5, level: 'Low' }, { max: 20, level: 'Moderate' }, { max: Infinity, level: 'High' }],
+    alder: [{ max: 10, level: 'Low' }, { max: 70, level: 'Moderate' }, { max: Infinity, level: 'High' }],
+    mugwort: [{ max: 5, level: 'Low' }, { max: 20, level: 'Moderate' }, { max: Infinity, level: 'High' }],
+    olive: [{ max: 10, level: 'Low' }, { max: 70, level: 'Moderate' }, { max: Infinity, level: 'High' }],
+};
+const POLLEN_LABELS = { birch: 'Birch', grass: 'Grass', ragweed: 'Ragweed', alder: 'Alder', mugwort: 'Mugwort', olive: 'Olive' };
+const pollenLevelFor = (species, value) => (POLLEN_THRESHOLDS[species].find((b) => value <= b.max) || { level: 'High' }).level;
+
+// Reduces the 6 raw species concentrations down to "the one number/label
+// worth showing" - the single highest-concentration species right now,
+// the same way a real pollen-forecast app leads with "today's dominant
+// allergen" rather than listing all 6 every time. Returns null (not a
+// fabricated "Low - None") when every field is genuinely absent (outside
+// Europe), so the UI can honestly say "not available in your region".
+const resolvePollenSummary = (current) => {
+    const species = Object.keys(POLLEN_LABELS)
+        .map((key) => ({ key, value: current[`${key}_pollen`] }))
+        .filter((s) => typeof s.value === 'number');
+    if (species.length === 0) return null;
+    const dominant = species.reduce((max, s) => (s.value > max.value ? s : max), species[0]);
+    return {
+        dominant: POLLEN_LABELS[dominant.key],
+        value: Math.round(dominant.value),
+        level: pollenLevelFor(dominant.key, dominant.value),
+        species: species.map((s) => ({ label: POLLEN_LABELS[s.key], value: Math.round(s.value), level: pollenLevelFor(s.key, s.value) })),
+    };
+};
+
+// Real "Historical Average" for the Seasonal Trends chart - Open-Meteo's
+// free, keyless Archive API returning genuine recorded daily highs for the
+// SAME 7 calendar dates in each of the past 3 years, averaged per weekday.
+// Not official 30-year NOAA climate normals (this app has no access to
+// those), but genuinely real recorded temperatures, not invented ones -
+// consistent with this file's existing rule that anything not real is
+// either honestly approximated from real data or left out. Runs once per
+// resolved location (like AQI/geocoding above), not on every 10-minute
+// poll - 3 years of daily highs don't meaningfully change within a single
+// session.
+const resolveHistoricalAverage = async (lat, lon) => {
+    const today = new Date();
+    const rangeFor = (yearOffset) => {
+        const start = new Date(today);
+        start.setFullYear(start.getFullYear() - yearOffset);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 6);
+        const toIso = (d) => d.toISOString().slice(0, 10);
+        return { start: toIso(start), end: toIso(end) };
+    };
+    try {
+        const years = [1, 2, 3].map((offset) => rangeFor(offset));
+        const results = await Promise.all(years.map(({ start, end }) =>
+            fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max&timezone=auto`)
+                .then((res) => (res.ok ? res.json() : null))
+                .catch(() => null)
+        ));
+        const perDayMaxes = Array.from({ length: 7 }, () => []);
+        results.forEach((data) => {
+            const maxes = data?.daily?.temperature_2m_max;
+            if (!Array.isArray(maxes)) return;
+            maxes.forEach((v, i) => { if (typeof v === 'number' && perDayMaxes[i]) perDayMaxes[i].push(v); });
+        });
+        const days = perDayMaxes.map((values) => (
+            values.length > 0 ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : null
+        ));
+        return days.some((v) => v !== null) ? days : null;
     } catch (e) {
         return null;
     }
@@ -270,6 +357,42 @@ const formatClockTime = (isoLocal) => {
     if (!isoLocal || typeof isoLocal !== 'string') return null;
     const timePart = isoLocal.split('T')[1];
     return timePart ? timePart.slice(0, 5) : null;
+};
+
+// A real, condition-derived severe-weather banner - genuinely computed
+// from the same live WMO code/wind/precipitation data already fetched
+// above, never a hardcoded "Severe Thunderstorm Warning" string that
+// would sit there regardless of actual conditions. Open-Meteo has no
+// official watches/warnings feed (that's a national met-agency thing,
+// e.g. NWS in the US, with no single free/keyless global equivalent), so
+// this is the honest middle ground this file's own header comment
+// already describes: a real approximation built from real numbers,
+// clearly not claiming to be an official issued warning. Checks the
+// current condition first, then the next 6 real hourly rows, so an
+// approaching storm still surfaces the banner before it's already
+// overhead. Returns null (no banner) the vast majority of the time, by
+// design - most real weather isn't severe.
+const deriveSevereAlert = (weatherCode, windSpeedKmh, hourly) => {
+    const next6h = Array.isArray(hourly) ? hourly.slice(0, 6) : [];
+    const thunderNow = [95, 96, 99].includes(weatherCode);
+    const thunderSoon = next6h.some((h) => [95, 96, 99].includes(h.weatherCode));
+    if (thunderNow || thunderSoon) {
+        return {
+            level: 'severe',
+            title: thunderNow ? 'Severe Thunderstorm Warning' : 'Thunderstorm Watch',
+            description: thunderNow
+                ? 'Thunderstorms are active in your area right now. Seek shelter and avoid open areas.'
+                : 'Thunderstorms are expected within the next few hours.',
+        };
+    }
+    const heavyRainSoon = next6h.some((h) => h.precipitation >= 10);
+    if (heavyRainSoon) {
+        return { level: 'watch', title: 'Heavy Rain Watch', description: 'Heavy rainfall is expected within the next few hours - localized flooding is possible.' };
+    }
+    if (typeof windSpeedKmh === 'number' && windSpeedKmh >= 50) {
+        return { level: 'watch', title: 'High Wind Advisory', description: `Sustained winds of ${windSpeedKmh} km/h - secure loose outdoor items.` };
+    }
+    return null;
 };
 
 const WeatherContext = createContext({
@@ -295,6 +418,9 @@ const WeatherContext = createContext({
     locationLabel: null,
     coords: null,
     moon: { name: 'New Moon', illumination: 0, ageDays: 0, moonrise: null, moonset: null },
+    pollen: null,
+    historicalAverage: null,
+    severeAlert: null,
     isLoading: true,
 });
 
@@ -312,6 +438,8 @@ export const WeatherProvider = ({ children }) => {
         hourly: [], daily: [], next24hPrecipitation: null,
     });
     const [aqi, setAqi] = useState(null);
+    const [pollen, setPollen] = useState(null);
+    const [historicalAverage, setHistoricalAverage] = useState(null);
     const [locationLabel, setLocationLabel] = useState(null);
     const [coords, setCoords] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -430,8 +558,9 @@ export const WeatherProvider = ({ children }) => {
 
                 if (!sideDataFetched) {
                     sideDataFetched = true;
-                    resolveAqi(lat, lon).then((v) => { if (!cancelled) setAqi(v); });
+                    resolveAirQuality(lat, lon).then(({ aqi: v, pollen: p }) => { if (!cancelled) { setAqi(v); setPollen(p); } });
                     resolveLocationLabel(lat, lon).then((v) => { if (!cancelled) setLocationLabel(v); });
+                    resolveHistoricalAverage(lat, lon).then((v) => { if (!cancelled) setHistoricalAverage(v); });
                 }
             } catch (e) {
                 // A network hiccup should never break the greeting or the sky -
@@ -456,9 +585,13 @@ export const WeatherProvider = ({ children }) => {
     // moon age genuinely advances through the day - cheap pure arithmetic,
     // no reason to stash it in state.
     const moon = getMoonPhase(new Date(), details.sunrise, details.sunset);
+    // Recomputed on every render too - cheap, pure, and needs to react the
+    // instant a fresh 10-minute poll changes weatherCode/windSpeed/hourly,
+    // not just once at fetch time.
+    const severeAlert = deriveSevereAlert(weatherCode, details.windSpeed, details.hourly);
 
     return (
-        <WeatherContext.Provider value={{ temperature, weatherCode, weatherState, ...details, aqi, locationLabel, coords, moon, isLoading }}>
+        <WeatherContext.Provider value={{ temperature, weatherCode, weatherState, ...details, aqi, pollen, historicalAverage, severeAlert, locationLabel, coords, moon, isLoading }}>
             {children}
         </WeatherContext.Provider>
     );

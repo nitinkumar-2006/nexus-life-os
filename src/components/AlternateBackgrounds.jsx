@@ -1,22 +1,73 @@
 // src/components/AlternateBackgrounds.jsx
 //
-// The 23 non-default wallpaper options for Custom Background / Wallpaper
-// Selector (Cyberpunk Neon, Deep Space, Minimalist Aurora, Matrix Grid,
-// Quantum Void, Solar Flare, Obsidian Glass, Neon Sunset, Electric Indigo,
-// Cyber Matrix, Supernova Red, Eclipse Shadow, Astral Purple, Cyber Grid,
-// Neon Genesis, Void Blue, Crimson Flux, Emerald Matrix, Solar Horizon,
-// Frost Amber, Stellar Nebula, Abyssal Dark, Prism Glass). "Animated Sky"
-// (the default/24th option) is DynamicBackground.jsx itself, unrelated to
-// this file - this component only ever renders when the user has
-// explicitly picked one of these 23.
+// Every non-default wallpaper option for the Custom Background / Wallpaper
+// Selector: the original 23 hand-written components below (Cyberpunk Neon,
+// Deep Space, Minimalist Aurora, Matrix Grid, Quantum Void, Solar Flare,
+// Obsidian Glass, Neon Sunset, Electric Indigo, Cyber Matrix, Supernova
+// Red, Eclipse Shadow, Astral Purple, Cyber Grid, Neon Genesis, Void Blue,
+// Crimson Flux, Emerald Matrix, Solar Horizon, Frost Amber, Stellar
+// Nebula, Abyssal Dark, Prism Glass), plus 130+ further expansion themes
+// (see wallpaperThemeConfigs.js) rendered generically via
+// ParametricWallpaper.jsx. "Animated Sky" (the true default) is
+// DynamicBackground.jsx itself, unrelated to this file - this component
+// only ever renders when the user has explicitly picked a custom
+// wallpaper.
 //
 // Rendered as a fixed, full-viewport, pointer-events:none layer - the
 // exact same structural pattern DynamicBackground.jsx uses (a sibling of
 // .nexus-app-shell, not a descendant), so the existing motion-off/
 // battery-saver CSS scoping around that structural fact stays correct
 // without any special-casing for this new component.
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { WALLPAPER_OPTIONS } from '../constants/wallpaperOptions.js';
+import { PARAMETRIC_THEME_CONFIGS } from '../constants/wallpaperThemeConfigs.js';
+import ParametricWallpaper from './ParametricWallpaper.jsx';
+
+// A user-uploaded photo, deliberately NOT listed in wallpaperOptions.js's
+// picker grid - it's set via its own dedicated "Your Own Wallpaper"
+// section in Settings > Glassmorphism instead, so 'custom-image' is a
+// second special id handled directly here, the same way 'sky' is
+// special-cased one level up in DashboardLayout.jsx. The actual image
+// data lives in its own localStorage key (nexus_custom_wallpaper_image),
+// never inside nexus_global_settings - see SettingsPage.jsx's upload
+// handler for why. A dedicated 'nexus_custom_wallpaper_updated' event
+// (not the general nexus_settings_updated one) is what refreshes this
+// specifically when the photo itself is replaced while the wallpaper id
+// stays 'custom-image' the whole time - DashboardLayout's own settings
+// listener deliberately skips re-rendering when the id doesn't change,
+// so that path alone would never pick up a same-id photo swap.
+const CustomImageWallpaper = () => {
+    const [imageData, setImageData] = useState(() => {
+        try { return localStorage.getItem('nexus_custom_wallpaper_image') || ''; } catch (e) { return ''; }
+    });
+    useEffect(() => {
+        const handleUpdate = () => {
+            try { setImageData(localStorage.getItem('nexus_custom_wallpaper_image') || ''); } catch (e) { /* keep last-known image */ }
+        };
+        window.addEventListener('nexus_custom_wallpaper_updated', handleUpdate);
+        window.addEventListener('storage', handleUpdate);
+        return () => {
+            window.removeEventListener('nexus_custom_wallpaper_updated', handleUpdate);
+            window.removeEventListener('storage', handleUpdate);
+        };
+    }, []);
+
+    if (!imageData) return null;
+    return (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+            <div style={{
+                position: 'absolute', inset: 0,
+                backgroundImage: `url(${imageData})`,
+                backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
+            }} />
+            {/* A quiet dark wash, not a blur - keeps a bright photo from
+                blowing out behind translucent glass cards at low
+                Transparency/Opacity settings, using the same gradient-only
+                technique (no filter:blur) as every other wallpaper here. */}
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.12) 40%, rgba(0,0,0,0.32) 100%)' }} />
+        </div>
+    );
+};
 
 const STAR_COUNT = 90;
 const MATRIX_COLUMN_COUNT = 34;
@@ -38,8 +89,8 @@ const CyberpunkNeon = () => (
             WebkitMaskImage: 'radial-gradient(ellipse 80% 60% at 50% 100%, black 40%, transparent 90%)',
         }} />
         {/* Two large, soft neon glows */}
-        <div style={{ position: 'absolute', top: '10%', left: '15%', width: '420px', height: '420px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,0,200,0.5) 0%, transparent 70%)', filter: 'blur(40px)', animation: 'nexusNeonPulse 5s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '5%', right: '10%', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,234,255,0.45) 0%, transparent 70%)', filter: 'blur(44px)', animation: 'nexusNeonPulse 6.5s ease-in-out infinite 1.2s' }} />
+        <div style={{ position: 'absolute', top: '10%', left: '15%', width: '420px', height: '420px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,0,200,0.5) 0%, rgba(255,0,200,0.3) 25%, rgba(255,0,200,0.16) 45%, rgba(255,0,200,0.07) 65%, rgba(255,0,200,0.02) 85%, transparent 100%)', animation: 'nexusNeonPulse 5s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '5%', right: '10%', width: '460px', height: '460px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,234,255,0.45) 0%, rgba(0,234,255,0.27) 25%, rgba(0,234,255,0.14) 45%, rgba(0,234,255,0.06) 65%, rgba(0,234,255,0.02) 85%, transparent 100%)', animation: 'nexusNeonPulse 6.5s ease-in-out infinite 1.2s' }} />
     </div>
 );
 
@@ -60,8 +111,8 @@ const DeepSpace = () => {
                 @keyframes nexusNebulaDrift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(30px, -20px) scale(1.08); } }
             `}</style>
             <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 50% 30%, #0B1026 0%, #030308 75%)' }} />
-            <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '60%', height: '60%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.14) 0%, transparent 70%)', filter: 'blur(60px)', animation: 'nexusNebulaDrift 40s ease-in-out infinite alternate' }} />
-            <div style={{ position: 'absolute', bottom: '-15%', right: '-5%', width: '55%', height: '55%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.12) 0%, transparent 70%)', filter: 'blur(60px)', animation: 'nexusNebulaDrift 50s ease-in-out infinite alternate-reverse' }} />
+            <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '60%', height: '60%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.14) 0%, rgba(99,102,241,0.08) 25%, rgba(99,102,241,0.04) 45%, rgba(99,102,241,0.02) 65%, transparent 85%)', animation: 'nexusNebulaDrift 40s ease-in-out infinite alternate' }} />
+            <div style={{ position: 'absolute', bottom: '-15%', right: '-5%', width: '55%', height: '55%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.12) 0%, rgba(56,189,248,0.07) 25%, rgba(56,189,248,0.04) 45%, rgba(56,189,248,0.02) 65%, transparent 85%)', animation: 'nexusNebulaDrift 50s ease-in-out infinite alternate-reverse' }} />
             {stars.map((s, i) => (
                 <div key={i} style={{
                     position: 'absolute', left: s.left, top: s.top, width: `${s.size}px`, height: `${s.size}px`,
@@ -80,9 +131,9 @@ const MinimalistAurora = () => (
             @keyframes nexusAuroraFlow2 { 0%, 100% { transform: translate(5%, 8%) rotate(0deg); } 50% { transform: translate(-8%, -3%) rotate(-6deg); } }
         `}</style>
         <div style={{ position: 'absolute', inset: 0, background: '#0F1115' }} />
-        <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: '80%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(167,139,250,0.20) 0%, transparent 65%)', filter: 'blur(70px)', animation: 'nexusAuroraFlow1 22s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '-15%', right: '-10%', width: '75%', height: '65%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(52,211,153,0.16) 0%, transparent 65%)', filter: 'blur(70px)', animation: 'nexusAuroraFlow2 26s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', top: '30%', right: '15%', width: '55%', height: '50%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(56,189,248,0.14) 0%, transparent 65%)', filter: 'blur(70px)', animation: 'nexusAuroraFlow1 30s ease-in-out infinite reverse' }} />
+        <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: '80%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(167,139,250,0.20) 0%, rgba(167,139,250,0.12) 25%, rgba(167,139,250,0.06) 45%, rgba(167,139,250,0.03) 65%, transparent 85%)', animation: 'nexusAuroraFlow1 22s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '-15%', right: '-10%', width: '75%', height: '65%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(52,211,153,0.16) 0%, rgba(52,211,153,0.1) 25%, rgba(52,211,153,0.05) 45%, rgba(52,211,153,0.02) 65%, transparent 85%)', animation: 'nexusAuroraFlow2 26s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', top: '30%', right: '15%', width: '55%', height: '50%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(56,189,248,0.14) 0%, rgba(56,189,248,0.08) 25%, rgba(56,189,248,0.04) 45%, rgba(56,189,248,0.02) 65%, transparent 85%)', animation: 'nexusAuroraFlow1 30s ease-in-out infinite reverse' }} />
     </div>
 );
 
@@ -122,7 +173,7 @@ const QuantumVoid = () => (
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 50%, #1A0B2E 0%, #06010F 80%)' }} />
         <div style={{ position: 'absolute', top: '50%', left: '50%', width: '520px', height: '520px', marginTop: '-260px', marginLeft: '-260px', borderRadius: '50%', border: '1px solid rgba(167,139,250,0.25)', animation: 'nexusVoidOrbit 50s linear infinite' }} />
         <div style={{ position: 'absolute', top: '50%', left: '50%', width: '360px', height: '360px', marginTop: '-180px', marginLeft: '-180px', borderRadius: '50%', border: '1px solid rgba(129,140,248,0.3)', animation: 'nexusVoidOrbit 34s linear infinite reverse' }} />
-        <div style={{ position: 'absolute', top: '50%', left: '50%', width: '180px', height: '180px', marginTop: '-90px', marginLeft: '-90px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(167,139,250,0.5) 0%, transparent 70%)', filter: 'blur(30px)', animation: 'nexusVoidPulse 6s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', top: '50%', left: '50%', width: '180px', height: '180px', marginTop: '-90px', marginLeft: '-90px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(167,139,250,0.5) 0%, rgba(167,139,250,0.3) 25%, rgba(167,139,250,0.16) 45%, rgba(167,139,250,0.07) 65%, rgba(167,139,250,0.02) 85%, transparent 100%)', animation: 'nexusVoidPulse 6s ease-in-out infinite' }} />
     </div>
 );
 
@@ -133,8 +184,8 @@ const SolarFlare = () => (
             @keyframes nexusFlareShimmer { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.55; } }
         `}</style>
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 50% 60%, #2B0A00 0%, #140300 80%)' }} />
-        <div style={{ position: 'absolute', top: '55%', left: '50%', width: '420px', height: '420px', marginTop: '-210px', marginLeft: '-210px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,0,0.55) 0%, transparent 65%)', filter: 'blur(50px)', animation: 'nexusFlareRadiate 5s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', top: '55%', left: '50%', width: '220px', height: '220px', marginTop: '-110px', marginLeft: '-110px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,213,0,0.6) 0%, transparent 60%)', filter: 'blur(30px)', animation: 'nexusFlareRadiate 5s ease-in-out infinite 0.6s' }} />
+        <div style={{ position: 'absolute', top: '55%', left: '50%', width: '420px', height: '420px', marginTop: '-210px', marginLeft: '-210px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,107,0,0.55) 0%, rgba(255,107,0,0.33) 25%, rgba(255,107,0,0.18) 45%, rgba(255,107,0,0.08) 65%, rgba(255,107,0,0.02) 85%, transparent 100%)', animation: 'nexusFlareRadiate 5s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', top: '55%', left: '50%', width: '220px', height: '220px', marginTop: '-110px', marginLeft: '-110px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,213,0,0.6) 0%, rgba(255,213,0,0.36) 22%, rgba(255,213,0,0.19) 40%, rgba(255,213,0,0.08) 55%, rgba(255,213,0,0.02) 75%, transparent 90%)', animation: 'nexusFlareRadiate 5s ease-in-out infinite 0.6s' }} />
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 50% 60%, rgba(255,150,0,0.12) 0%, transparent 60%)', animation: 'nexusFlareShimmer 3.5s ease-in-out infinite' }} />
     </div>
 );
@@ -161,11 +212,11 @@ const NeonSunset = () => (
         `}</style>
         <div style={{
             position: 'absolute', inset: 0,
-            background: 'linear-gradient(120deg, #1A0429, #FF2E92, #FF7A00, #1A0429)',
+            backgroundImage: 'linear-gradient(120deg, #1A0429, #FF2E92, #FF7A00, #1A0429)',
             backgroundSize: '300% 300%',
             animation: 'nexusSunsetShift 18s ease-in-out infinite',
         }} />
-        <div style={{ position: 'absolute', bottom: '-10%', left: '50%', width: '70%', height: '50%', marginLeft: '-35%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(255,122,0,0.5) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'nexusSunsetGlow 5s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '-10%', left: '50%', width: '70%', height: '50%', marginLeft: '-35%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(255,122,0,0.5) 0%, rgba(255,122,0,0.3) 25%, rgba(255,122,0,0.16) 45%, rgba(255,122,0,0.07) 65%, rgba(255,122,0,0.02) 85%, transparent 100%)', animation: 'nexusSunsetGlow 5s ease-in-out infinite' }} />
     </div>
 );
 
@@ -212,7 +263,7 @@ const SupernovaRed = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusSupernovaPulse { 0%, 100% { transform: scale(1); opacity: 0.55; } 50% { transform: scale(1.25); opacity: 0.85; } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: '#180000' }} />
-        <div style={{ position: 'absolute', top: '50%', left: '50%', width: '520px', height: '520px', marginLeft: '-260px', marginTop: '-260px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(252,165,165,0.9) 0%, rgba(185,28,28,0.55) 35%, transparent 70%)', filter: 'blur(30px)', animation: 'nexusSupernovaPulse 6s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', top: '50%', left: '50%', width: '520px', height: '520px', marginLeft: '-260px', marginTop: '-260px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(252,165,165,0.9) 0%, rgba(185,28,28,0.55) 35%, rgba(185,28,28,0.24) 55%, rgba(185,28,28,0.08) 75%, transparent 92%)', animation: 'nexusSupernovaPulse 6s ease-in-out infinite' }} />
     </div>
 );
 
@@ -250,8 +301,8 @@ const NeonGenesis = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusGenesisFlow { 0%, 100% { transform: translateX(-6%) rotate(0deg); } 50% { transform: translateX(6%) rotate(6deg); } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: '#052E16' }} />
-        <div style={{ position: 'absolute', top: '-15%', left: '-10%', width: '70%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(126,34,206,0.4) 0%, transparent 65%)', filter: 'blur(60px)', animation: 'nexusGenesisFlow 18s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '-15%', right: '-10%', width: '70%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(236,72,153,0.4) 0%, transparent 65%)', filter: 'blur(60px)', animation: 'nexusGenesisFlow 22s ease-in-out infinite reverse' }} />
+        <div style={{ position: 'absolute', top: '-15%', left: '-10%', width: '70%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(126,34,206,0.4) 0%, rgba(126,34,206,0.24) 25%, rgba(126,34,206,0.13) 45%, rgba(126,34,206,0.06) 65%, transparent 85%)', animation: 'nexusGenesisFlow 18s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '-15%', right: '-10%', width: '70%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(236,72,153,0.4) 0%, rgba(236,72,153,0.24) 25%, rgba(236,72,153,0.13) 45%, rgba(236,72,153,0.06) 65%, transparent 85%)', animation: 'nexusGenesisFlow 22s ease-in-out infinite reverse' }} />
     </div>
 );
 
@@ -259,7 +310,7 @@ const VoidBlue = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusVoidPulse { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.1); } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: '#020617' }} />
-        <div style={{ position: 'absolute', top: '50%', left: '50%', width: '380px', height: '380px', marginLeft: '-190px', marginTop: '-190px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,130,246,0.35) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'nexusVoidPulse 8s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', top: '50%', left: '50%', width: '380px', height: '380px', marginLeft: '-190px', marginTop: '-190px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,130,246,0.35) 0%, rgba(59,130,246,0.21) 25%, rgba(59,130,246,0.11) 45%, rgba(59,130,246,0.05) 65%, transparent 85%)', animation: 'nexusVoidPulse 8s ease-in-out infinite' }} />
     </div>
 );
 
@@ -267,8 +318,8 @@ const CrimsonFlux = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusFluxWave { 0%, 100% { transform: translate(-4%, -4%); } 50% { transform: translate(4%, 4%); } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: '#1A0000' }} />
-        <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: '90%', height: '80%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(220,38,38,0.35) 0%, transparent 65%)', filter: 'blur(70px)', animation: 'nexusFluxWave 14s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '-20%', right: '-10%', width: '80%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(127,29,29,0.4) 0%, transparent 65%)', filter: 'blur(70px)', animation: 'nexusFluxWave 18s ease-in-out infinite reverse' }} />
+        <div style={{ position: 'absolute', top: '-20%', left: '-10%', width: '90%', height: '80%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(220,38,38,0.35) 0%, rgba(220,38,38,0.21) 25%, rgba(220,38,38,0.11) 45%, rgba(220,38,38,0.05) 65%, transparent 85%)', animation: 'nexusFluxWave 14s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '-20%', right: '-10%', width: '80%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(127,29,29,0.4) 0%, rgba(127,29,29,0.24) 25%, rgba(127,29,29,0.13) 45%, rgba(127,29,29,0.06) 65%, transparent 85%)', animation: 'nexusFluxWave 18s ease-in-out infinite reverse' }} />
     </div>
 );
 
@@ -288,7 +339,7 @@ const SolarHorizon = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusHorizonGlow { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.85; } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(0deg, #7C2D12 0%, #C2410C 35%, #1C1917 100%)' }} />
-        <div style={{ position: 'absolute', bottom: '0', left: '50%', width: '600px', height: '300px', marginLeft: '-300px', borderRadius: '50% 50% 0 0', background: 'radial-gradient(ellipse at 50% 100%, rgba(251,146,60,0.6) 0%, transparent 70%)', filter: 'blur(30px)', animation: 'nexusHorizonGlow 7s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '0', left: '50%', width: '600px', height: '300px', marginLeft: '-300px', borderRadius: '50% 50% 0 0', background: 'radial-gradient(ellipse at 50% 100%, rgba(251,146,60,0.6) 0%, rgba(251,146,60,0.36) 25%, rgba(251,146,60,0.19) 45%, rgba(251,146,60,0.08) 65%, rgba(251,146,60,0.02) 85%, transparent 100%)', animation: 'nexusHorizonGlow 7s ease-in-out infinite' }} />
     </div>
 );
 
@@ -296,8 +347,8 @@ const FrostAmber = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusFrostShift { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3%, -3%); } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: '#0C1E2E' }} />
-        <div style={{ position: 'absolute', top: '-10%', left: '10%', width: '60%', height: '60%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.3) 0%, transparent 70%)', filter: 'blur(55px)', animation: 'nexusFrostShift 16s ease-in-out infinite' }} />
-        <div style={{ position: 'absolute', bottom: '-10%', right: '5%', width: '45%', height: '45%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(251,191,36,0.22) 0%, transparent 70%)', filter: 'blur(55px)', animation: 'nexusFrostShift 20s ease-in-out infinite reverse' }} />
+        <div style={{ position: 'absolute', top: '-10%', left: '10%', width: '60%', height: '60%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.3) 0%, rgba(56,189,248,0.18) 25%, rgba(56,189,248,0.1) 45%, rgba(56,189,248,0.04) 65%, transparent 85%)', animation: 'nexusFrostShift 16s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', bottom: '-10%', right: '5%', width: '45%', height: '45%', borderRadius: '50%', background: 'radial-gradient(circle, rgba(251,191,36,0.22) 0%, rgba(251,191,36,0.13) 25%, rgba(251,191,36,0.07) 45%, rgba(251,191,36,0.03) 65%, transparent 85%)', animation: 'nexusFrostShift 20s ease-in-out infinite reverse' }} />
     </div>
 );
 
@@ -307,8 +358,8 @@ const StellarNebula = () => {
         <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
             <style>{`@keyframes nexusNebulaSwirl { 0%, 100% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(8deg) scale(1.08); } } @keyframes nexusNebulaTwinkle { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.9; } }`}</style>
             <div style={{ position: 'absolute', inset: 0, background: '#0B0A1F' }} />
-            <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '70%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(190,24,93,0.4) 0%, transparent 65%)', filter: 'blur(65px)', animation: 'nexusNebulaSwirl 25s ease-in-out infinite' }} />
-            <div style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '65%', height: '65%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(30,27,75,0.6) 0%, transparent 65%)', filter: 'blur(65px)', animation: 'nexusNebulaSwirl 30s ease-in-out infinite reverse' }} />
+            <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '70%', height: '70%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(190,24,93,0.4) 0%, rgba(190,24,93,0.24) 25%, rgba(190,24,93,0.13) 45%, rgba(190,24,93,0.06) 65%, transparent 85%)', animation: 'nexusNebulaSwirl 25s ease-in-out infinite' }} />
+            <div style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '65%', height: '65%', borderRadius: '50%', background: 'radial-gradient(ellipse, rgba(30,27,75,0.6) 0%, rgba(30,27,75,0.36) 25%, rgba(30,27,75,0.19) 45%, rgba(30,27,75,0.08) 65%, rgba(30,27,75,0.02) 85%, transparent 100%)', animation: 'nexusNebulaSwirl 30s ease-in-out infinite reverse' }} />
             {stars.map((s, i) => (
                 <div key={i} style={{ position: 'absolute', left: s.left, top: s.top, width: '2px', height: '2px', borderRadius: '50%', background: '#F9A8D4', animation: `nexusNebulaTwinkle ${2 + (i % 3)}s ease-in-out infinite`, animationDelay: s.delay }} />
             ))}
@@ -320,7 +371,7 @@ const AbyssalDark = () => (
     <div style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <style>{`@keyframes nexusAbyssalDrift { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.3; } }`}</style>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, #000205 0%, #061018 100%)' }} />
-        <div style={{ position: 'absolute', top: '60%', left: '50%', width: '500px', height: '500px', marginLeft: '-250px', marginTop: '-250px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(8,47,73,0.5) 0%, transparent 70%)', filter: 'blur(70px)', animation: 'nexusAbyssalDrift 10s ease-in-out infinite' }} />
+        <div style={{ position: 'absolute', top: '60%', left: '50%', width: '500px', height: '500px', marginLeft: '-250px', marginTop: '-250px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(8,47,73,0.5) 0%, rgba(8,47,73,0.3) 25%, rgba(8,47,73,0.16) 45%, rgba(8,47,73,0.07) 65%, transparent 85%)', animation: 'nexusAbyssalDrift 10s ease-in-out infinite' }} />
     </div>
 );
 
@@ -330,7 +381,7 @@ const PrismGlass = () => (
         <div style={{ position: 'absolute', inset: 0, background: '#0A0A0F' }} />
         <div style={{
             position: 'absolute', inset: 0,
-            background: 'linear-gradient(115deg, rgba(244,114,182,0.28), rgba(56,189,248,0.28), rgba(163,230,53,0.22), rgba(251,191,36,0.24))',
+            backgroundImage: 'linear-gradient(115deg, rgba(244,114,182,0.28), rgba(56,189,248,0.28), rgba(163,230,53,0.22), rgba(251,191,36,0.24))',
             backgroundSize: '300% 300%', animation: 'nexusPrismShift 14s ease infinite',
         }} />
     </div>
@@ -373,14 +424,54 @@ const WALLPAPER_COMPONENTS = {
 
 const KNOWN_WALLPAPER_IDS = new Set(WALLPAPER_OPTIONS.map((wp) => wp.id));
 
+// The 130+ expansion themes (Cyberpunk & Neon variants, Deep Space &
+// Cosmic, Aurora & Flow, Matrix & Tech Grid, Quantum & Abstract Void,
+// Solar & Ember, Pastel Dream, Monochrome & Glass Dark, Prism & Crystal,
+// Nature & Emerald, Ocean & Frost) all render through the single generic
+// ParametricWallpaper component instead of 130 more hand-written ones -
+// see wallpaperThemeConfigs.js for why.
+const PARAMETRIC_CONFIG_MAP = Object.fromEntries(PARAMETRIC_THEME_CONFIGS.map((cfg) => [cfg.id, cfg]));
+
 const AlternateBackgrounds = ({ wallpaper }) => {
+    // 'custom-image' is deliberately not in WALLPAPER_OPTIONS (see
+    // CustomImageWallpaper's own comment above) so it has to be checked
+    // before the KNOWN_WALLPAPER_IDS guard below, not after.
+    if (wallpaper === 'custom-image') {
+        return (
+            <div data-diag="sky-root" style={{ display: 'contents' }}>
+                <CustomImageWallpaper />
+            </div>
+        );
+    }
+
     // Guards against a wallpaper id that isn't genuinely, currently
     // listed in the shared source of truth (e.g. a stale value left over
     // from a since-removed theme) - falls through to null rather than
     // ever rendering a mismatched or undefined component.
     if (!KNOWN_WALLPAPER_IDS.has(wallpaper)) return null;
+
     const Component = WALLPAPER_COMPONENTS[wallpaper];
-    return Component ? <Component /> : null;
+    const parametricConfig = !Component ? PARAMETRIC_CONFIG_MAP[wallpaper] : null;
+    if (!Component && !parametricConfig) return null;
+
+    // data-diag="sky-root" mirrors DynamicBackground.jsx's own root
+    // attribute - it's what the existing Battery Saver CSS rule
+    // (html.nexus-battery-saver [data-diag="sky-root"] *) actually
+    // targets to freeze background animations. Every custom wallpaper
+    // (the original 23 here and the 130+ expansion themes alike) was
+    // previously missing this entirely, since this component renders as
+    // a sibling of .nexus-app-shell rather than a descendant - meaning
+    // Battery Saver's "freezes background animations for low-end
+    // devices" promise silently never applied to any of them. Fixed here
+    // for both groups at once, at the one shared wrapper. display:
+    // contents keeps this purely a CSS selector anchor - it adds no box
+    // of its own, so the fixed-position layer underneath still fills the
+    // viewport exactly as before.
+    return (
+        <div data-diag="sky-root" style={{ display: 'contents' }}>
+            {Component ? <Component /> : <ParametricWallpaper config={parametricConfig} />}
+        </div>
+    );
 };
 
 export default AlternateBackgrounds;

@@ -25,6 +25,7 @@
 // elsewhere in this app (header.jsx, ProfilePage.jsx, CloudSyncContext.jsx)
 // after a save, which the four source modules now also do.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { getLocalDateString } from '../utils/dateUtils.js';
 
 const STORAGE_KEYS = {
     planner: 'nexus_planner_tasks',
@@ -102,11 +103,22 @@ const normalizeTimetableSlots = () => {
     const data = readJson(STORAGE_KEYS.timetable, {});
     if (!data || typeof data !== 'object') return [];
     const todayName = DAY_NAMES[new Date().getDay()];
+    // A slot whose range crosses midnight (e.g. "10:00 PM - 06:00 AM") is
+    // filed under the day it STARTS on, but its early-morning portion
+    // genuinely runs into the NEXT real calendar day - a Saturday-filed
+    // sleep block is still honestly happening at 2 AM Sunday. Without this,
+    // isToday flips false the instant the clock rolls over to Sunday (day
+    // === 'Saturday' stops matching todayName === 'Sunday'), and the slot
+    // vanishes from HomePage's queue entirely for the rest of its own
+    // active window, even though isWithinTimeRange below already knows how
+    // to treat it as active once it IS in the queue.
+    const yesterdayName = DAY_NAMES[(new Date().getDay() + 6) % 7];
     const out = [];
     Object.keys(data).forEach((day) => {
         const slots = Array.isArray(data[day]) ? data[day] : [];
         slots.forEach((slot, idx) => {
             const { startHour, endHour } = parseTimeRange(slot.time);
+            const crossesMidnight = startHour !== null && endHour !== null && endHour < startHour;
             out.push({
                 id: `timetable_${day}_${idx}`,
                 title: slot.title || 'Untitled slot',
@@ -116,7 +128,7 @@ const normalizeTimetableSlots = () => {
                 endHour,
                 date: null, // weekly-recurring template, not tied to one calendar date
                 day,
-                isToday: day === todayName,
+                isToday: day === todayName || (crossesMidnight && day === yesterdayName),
                 // Reflects the real completed flag now tracked on each
                 // slot (added alongside the Timetable page's own check-off
                 // UI) - genuinely 'completed' when checked, not a
@@ -155,7 +167,7 @@ const normalizeGymPlans = () => {
     const plans = readJson(STORAGE_KEYS.gymPlans, []);
     const history = readJson(STORAGE_KEYS.gymHistory, []);
     if (!Array.isArray(plans)) return [];
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     const completedTodayTitles = new Set(
         (Array.isArray(history) ? history : [])
             .filter((h) => h.date === todayStr)
@@ -347,6 +359,28 @@ export const TaskRegistryProvider = ({ children }) => {
         // needing a page reload to see a newly-added task appear here.
         window.addEventListener('storage', refresh);
         return () => window.removeEventListener('storage', refresh);
+    }, [refresh]);
+
+    // `entries` is otherwise ONLY recomputed by a 'storage' event - if a
+    // user leaves a page open across real local midnight with no source
+    // module happening to save in between, normalizeTimetableSlots' own
+    // todayName/yesterdayName (and normalizeGymPlans' todayStr) stay
+    // frozen on the PREVIOUS calendar day: yesterday's non-overnight
+    // Timetable slots would keep showing as "isToday" and today's real
+    // ones wouldn't, until some unrelated save finally triggers a
+    // 'storage' event. A cheap once-a-minute check for the real date
+    // string actually changing (not an unconditional rebuild every tick)
+    // is what catches that day rollover on its own.
+    useEffect(() => {
+        let lastDate = getLocalDateString();
+        const id = setInterval(() => {
+            const nowDate = getLocalDateString();
+            if (nowDate !== lastDate) {
+                lastDate = nowDate;
+                refresh();
+            }
+        }, 60000);
+        return () => clearInterval(id);
     }, [refresh]);
 
     const bySource = useMemo(() => {

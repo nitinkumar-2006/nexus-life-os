@@ -1,17 +1,16 @@
 // src/pages/AIPage.jsx
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import {
-    Cpu, Sparkles, Send, Bot, User, ShieldCheck, RefreshCw, ArrowUpRight, Flame,
-    DollarSign, BookOpen, CheckCircle, Trash2, Code, Utensils, PanelLeftClose, PanelLeftOpen,
-    PanelRightClose, PanelRightOpen, Plus, MessageSquare, Copy, Check, Clock, Activity,
-    Wallet, Layers, ChevronRight, X, Menu,
-} from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Bot, Flame, DollarSign, Code, Utensils, Clock, Activity, Wallet, Layers } from 'lucide-react';
 import { generateNexusAIResponse } from '../utils/nexusAIEngine.js';
+import { streamGeminiResponse, GeminiApiError, resolveModelCandidates as resolveGeminiModels } from '../utils/geminiClient.js';
+import { streamOpenAiResponse, OpenAiApiError } from '../utils/openaiClient.js';
+import { streamGrokResponse, GrokApiError, resolveGrokModels, buildGrokImageContent } from '../utils/grokClient.js';
+import { streamDeepseekResponse, DeepseekApiError, resolveDeepseekModels } from '../utils/deepseekClient.js';
+import { TOOL_DEFINITIONS, executeToolCall } from '../utils/aiTools.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import TourGuide from '../components/TourGuide.jsx';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
-import { TOUR_STEPS } from '../constants/tourSteps.js';
+import AILayout from '../components/ai/AILayout.jsx';
 
 // Real personas - each genuinely changes response routing (not just a
 // cosmetic label): when the active persona is non-'general' and the
@@ -26,173 +25,33 @@ const PERSONAS = [
     { id: 'nutrition', label: 'Nutrition Expert', icon: Utensils, accent: '#10B981' },
 ];
 
-// Hoisted out of the starter-grid JSX so the new Plus-icon attachment
-// menu's own "Quick Prompts" item can reuse the exact same real list
-// (mid-conversation, not just on a fresh/empty chat) instead of a
-// second, duplicated copy that could drift out of sync.
-const QUICK_PROMPTS = [
-    { text: 'Debug my Java/React code', icon: Code },
-    { text: 'Analyze my weekly calories', icon: Utensils },
-    { text: 'Plan my schedule for today', icon: Clock },
-    { text: 'How is my gym consistency?', icon: Flame },
-    { text: 'Check my monthly budget status', icon: DollarSign },
-    { text: 'Show my study progress', icon: BookOpen },
-];
-
-// Shared row style for every item in the Plus-icon attachment popup -
-// hoisted since it's identical across all of New Chat / Switch Assistant
-// Mode / each Quick Prompt row.
-const ATTACH_MENU_ROW_STYLE = {
-    width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-    background: 'transparent', border: 'none', borderRadius: '10px', color: 'var(--text-primary)',
-    fontSize: '13px', fontWeight: '600', textAlign: 'left', cursor: 'pointer', lineHeight: 1.4,
+// Real system instructions for the live Gemini API path (see
+// streamGeminiResponse below) - one per persona, mirroring the same
+// domain focus as PERSONAS/getDefaultGreeting, so switching persona
+// genuinely changes how the live model behaves, not just which local
+// canned-response branch would have been used.
+const PERSONA_SYSTEM_PROMPTS = {
+    general: "You are Nexus AI, the general-purpose assistant built into Nexus Life OS, a personal-operating-system app. Be concise, warm, and genuinely useful. Use the user's real data below directly when it's relevant instead of asking them to repeat it.",
+    study: 'You are the Study & Code Expert inside Nexus Life OS. You help with studying, coursework, and reviewing or writing code (Java, Python, JavaScript/React, and more). Be precise, and use the real syllabus/assignment data below when relevant.',
+    fitness: "You are the Fitness Coach inside Nexus Life OS. You help with workouts, training consistency, and recovery, grounded in the user's real gym history below.",
+    finance: "You are the Finance Advisor inside Nexus Life OS. You help with budgeting and spending using the user's real accounts/transactions below. Reason only over the user's own real data and general budgeting practice - never give personalized investment/trading advice.",
+    nutrition: "You are the Nutrition Expert inside Nexus Life OS. You help with calories, macros, and diet using the user's real diet log below.",
 };
 
-// Real, lightweight token rules for basic syntax highlighting - no
-// external library is installed in this app (confirmed via direct
-// inspection of package.json), and adding one would be a meaningfully
-// new dependency decision for an app that has deliberately stayed at 5
-// core dependencies throughout. Covers the three languages this request
-// explicitly names (Java, Python, React/JSX) plus plain JS, which JSX
-// naturally shares a token set with.
-const LANG_KEYWORDS = {
-    java: ['class', 'public', 'private', 'protected', 'static', 'void', 'new', 'return', 'if', 'else', 'for', 'while', 'import', 'package', 'extends', 'implements', 'interface', 'final', 'this', 'super', 'try', 'catch', 'throw', 'throws', 'int', 'boolean', 'String', 'double', 'float', 'long', 'null', 'true', 'false'],
-    python: ['def', 'class', 'return', 'if', 'elif', 'else', 'for', 'while', 'import', 'from', 'as', 'try', 'except', 'finally', 'raise', 'with', 'lambda', 'self', 'None', 'True', 'False', 'and', 'or', 'not', 'in', 'is', 'pass', 'break', 'continue'],
-    javascript: ['const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'import', 'export', 'from', 'default', 'class', 'extends', 'new', 'this', 'super', 'try', 'catch', 'finally', 'throw', 'async', 'await', 'null', 'undefined', 'true', 'false'],
-};
-LANG_KEYWORDS.jsx = LANG_KEYWORDS.javascript;
-LANG_KEYWORDS.js = LANG_KEYWORDS.javascript;
-LANG_KEYWORDS.py = LANG_KEYWORDS.python;
+// Appended to the system prompt only for the Gemini path (see
+// submitMessage below) - the only provider client in this app with
+// real, wired-up function-calling support (see geminiClient.js's tools
+// param and aiTools.js's TOOL_DEFINITIONS/executeToolCall). Explicitly
+// asks for a real, conversational multi-turn gather-then-confirm flow
+// rather than calling a tool the instant a title is mentioned, matching
+// what was actually requested - the model asks for details one at a
+// time, discusses them, and only calls the real tool once the user has
+// clearly confirmed.
+const TOOL_USAGE_SYSTEM_SUFFIX = `
 
-// Real, lightweight syntax highlighter - tokenizes comments and strings
-// FIRST (via one, combined regex, checked in this priority order), so a
-// keyword-looking word that happens to appear inside a string or comment
-// is never wrongly colored as a keyword. Numbers and real language
-// keywords are colored last, everything else renders as plain text.
-const highlightCode = (code, lang) => {
-    const keywords = LANG_KEYWORDS[lang] || LANG_KEYWORDS.javascript;
-    const keywordPattern = keywords.join('|');
-    // Order matters: comments/strings first (highest priority - their
-    // contents must never be re-tokenized), then numbers, then keywords.
-    const tokenRegex = new RegExp(
-        `(\\/\\/.*$|#.*$)|("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*'|\`(?:[^\`\\\\]|\\\\.)*\`)|(\\b\\d+(?:\\.\\d+)?\\b)|(\\b(?:${keywordPattern})\\b)`,
-        'gm'
-    );
-    const nodes = [];
-    let lastIndex = 0;
-    let match;
-    let key = 0;
-    while ((match = tokenRegex.exec(code)) !== null) {
-        if (match.index > lastIndex) nodes.push(<span key={key++}>{code.slice(lastIndex, match.index)}</span>);
-        const [full, comment, string, number, keyword] = match;
-        if (comment) nodes.push(<span key={key++} style={{ color: '#6B7280', fontStyle: 'italic' }}>{comment}</span>);
-        else if (string) nodes.push(<span key={key++} style={{ color: '#86EFAC' }}>{string}</span>);
-        else if (number) nodes.push(<span key={key++} style={{ color: '#FCA5A5' }}>{number}</span>);
-        else if (keyword) nodes.push(<span key={key++} style={{ color: '#93C5FD', fontWeight: '700' }}>{keyword}</span>);
-        lastIndex = match.index + full.length;
-    }
-    if (lastIndex < code.length) nodes.push(<span key={key++}>{code.slice(lastIndex)}</span>);
-    return nodes;
-};
+You also have real tools to directly create things in the user's Nexus OS: a new Planner task, a new Finance transaction (which also updates the matching account's real balance), a logged Gym workout, a logged Diet meal, a new Study assignment, or a new Calendar event. Use them conversationally - ask for whatever details you genuinely need one at a time (not all at once), discuss or confirm details naturally if the user seems unsure, and only call a tool once the user has clearly confirmed they want it saved. After a tool call's result comes back, tell the user what happened in one short, natural sentence - don't just repeat the raw result, and if it failed, explain why in plain language.`;
 
-// Real, working "Copy Code" button - uses the actual Clipboard API with
-// genuine "Copied!" visual feedback (auto-reverting after 1.6s), not a
-// decorative, non-functional button.
-const CopyCodeButton = ({ code }) => {
-    const [copied, setCopied] = useState(false);
-    const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(code);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1600);
-        } catch (e) { /* clipboard permission denied - button stays clickable, just doesn't confirm */ }
-    };
-    return (
-        <button
-            type="button" onClick={handleCopy}
-            style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '7px', color: copied ? '#86EFAC' : '#9CA3AF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', flexShrink: 0 }}
-        >
-            {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied!' : 'Copy'}
-        </button>
-    );
-};
-
-// Real, lightweight markdown for non-code text: **bold**, *italic*,
-// `inline code`, # headers, - list items. Applied line-by-line so block
-// elements (headers, list items) are detected per-line, with inline
-// formatting (bold/italic/code) applied within each line's own text.
-const renderInlineMarkdown = (line, keyPrefix) => {
-    const parts = line.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g).filter((p) => p !== '');
-    return parts.map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**')) return <strong key={`${keyPrefix}_${i}`}>{part.slice(2, -2)}</strong>;
-        if (part.startsWith('`') && part.endsWith('`')) return <code key={`${keyPrefix}_${i}`} style={{ background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '5px', fontSize: '13px', fontFamily: 'monospace' }}>{part.slice(1, -1)}</code>;
-        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) return <em key={`${keyPrefix}_${i}`}>{part.slice(1, -1)}</em>;
-        return <React.Fragment key={`${keyPrefix}_${i}`}>{part}</React.Fragment>;
-    });
-};
-
-const renderMarkdownBlock = (text, keyPrefix) => {
-    const lines = text.split('\n');
-    const blocks = [];
-    let listBuffer = [];
-    const flushList = (idx) => {
-        if (listBuffer.length > 0) {
-            blocks.push(<ul key={`${keyPrefix}_list_${idx}`} style={{ margin: '4px 0', paddingLeft: '20px' }}>{listBuffer}</ul>);
-            listBuffer = [];
-        }
-    };
-    lines.forEach((line, idx) => {
-        if (/^#{1,3}\s/.test(line)) {
-            flushList(idx);
-            const level = line.match(/^#+/)[0].length;
-            const content = line.replace(/^#{1,3}\s/, '');
-            const size = level === 1 ? '17px' : level === 2 ? '15px' : '14px';
-            blocks.push(<div key={`${keyPrefix}_h_${idx}`} style={{ fontSize: size, fontWeight: '800', margin: '6px 0 2px' }}>{renderInlineMarkdown(content, `${keyPrefix}_h_${idx}`)}</div>);
-        } else if (/^[-*]\s/.test(line)) {
-            listBuffer.push(<li key={`${keyPrefix}_li_${idx}`} style={{ fontSize: '14px', lineHeight: '1.6' }}>{renderInlineMarkdown(line.replace(/^[-*]\s/, ''), `${keyPrefix}_li_${idx}`)}</li>);
-        } else if (line.trim() === '') {
-            flushList(idx);
-        } else {
-            flushList(idx);
-            blocks.push(<p key={`${keyPrefix}_p_${idx}`} style={{ fontSize: '14px', lineHeight: '1.6', margin: 0, whiteSpace: 'pre-wrap' }}>{renderInlineMarkdown(line, `${keyPrefix}_p_${idx}`)}</p>);
-        }
-    });
-    flushList(lines.length);
-    return blocks;
-};
-
-// Splits on triple-backtick code fences first (same, proven approach as
-// before), then applies real syntax highlighting to code segments and
-// real markdown parsing to everything else - genuinely richer than the
-// earlier version's flat, uncolored <pre> block and plain-text-only
-// non-code segments.
-const renderMessageText = (text) => {
-    if (!text.includes('```')) return <>{renderMarkdownBlock(text, 'md')}</>;
-
-    const parts = text.split('```');
-    return parts.map((part, index) => {
-        if (index % 2 !== 0) {
-            const firstLineBreak = part.indexOf('\n');
-            const langTag = firstLineBreak > -1 ? part.slice(0, firstLineBreak).trim().toLowerCase() : '';
-            const codeContent = (LANG_KEYWORDS[langTag] || langTag === '') && firstLineBreak > -1 ? part.slice(firstLineBreak + 1) : part;
-            const lang = LANG_KEYWORDS[langTag] ? langTag : 'javascript';
-            return (
-                <div key={index} style={{ background: '#0D0D12', borderRadius: '10px', marginTop: '8px', marginBottom: '8px', border: '1px solid var(--border-premium)', overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid var(--border-premium)' }}>
-                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase' }}>{langTag || 'code'}</span>
-                        <CopyCodeButton code={codeContent} />
-                    </div>
-                    <pre style={{ margin: 0, padding: '12px', fontSize: '13px', overflowX: 'auto', fontFamily: 'monospace', lineHeight: '1.5' }}>
-                        <code>{highlightCode(codeContent, lang)}</code>
-                    </pre>
-                </div>
-            );
-        }
-        return <React.Fragment key={index}>{renderMarkdownBlock(part, `md_${index}`)}</React.Fragment>;
-    });
-};
-
-const AIPage = () => {
+const AIPage = ({ setActiveTab: setAppActiveTab }) => {
     const isMobile = useIsMobile();
     // Contextual first-visit tour (see TourGuide.jsx) - mobile only; the
     // menu-toggle step in particular only exists in the mobile top bar.
@@ -210,9 +69,46 @@ const AIPage = () => {
     const [financeAccounts] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_finance_accounts')) || []; } catch (e) { return []; } });
     const [calendarEvents] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_calendar_events')) || []; } catch (e) { return []; } });
     const [dietProfile] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_diet_profile')) || { dailyCalories: 0 }; } catch (e) { return { dailyCalories: 0 }; } });
+
+    // Real AI provider key state (both Gemini and OpenAI) - read directly
+    // from 'nexus_global_settings' (not via useGlobalSettings/
+    // GlobalUserSettingsContext above, which only exposes its own small,
+    // curated whitelist of genuinely-shared fields - monthlyBudgetCap,
+    // waterGoal, currencySymbol, weightUnit, temperatureUnit - and never
+    // re-exposes the raw settings object). Live-updated the same way
+    // SettingsPage's own handleChange signals every other cross-component
+    // listener: both 'nexus_settings_updated' AND the native 'storage'
+    // event (the latter is what CloudSyncContext's own real-time
+    // onSnapshot listener dispatches when a key arrives from another
+    // device - see applyCloudData in CloudSyncContext.jsx).
+    const readAiKeySettings = () => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
+            return {
+                geminiApiKey: saved.geminiApiKey || '', geminiApiKeyConfirmed: !!saved.geminiApiKeyConfirmed,
+                openaiApiKey: saved.openaiApiKey || '', openaiApiKeyConfirmed: !!saved.openaiApiKeyConfirmed,
+                grokApiKey: saved.grokApiKey || '', grokApiKeyConfirmed: !!saved.grokApiKeyConfirmed,
+                deepseekApiKey: saved.deepseekApiKey || '', deepseekApiKeyConfirmed: !!saved.deepseekApiKeyConfirmed,
+            };
+        } catch (e) {
+            return {
+                geminiApiKey: '', geminiApiKeyConfirmed: false, openaiApiKey: '', openaiApiKeyConfirmed: false,
+                grokApiKey: '', grokApiKeyConfirmed: false, deepseekApiKey: '', deepseekApiKeyConfirmed: false,
+            };
+        }
+    };
+    const [aiKeySettings, setAiKeySettings] = useState(readAiKeySettings);
+    useEffect(() => {
+        const syncAiKeySettings = () => setAiKeySettings(readAiKeySettings());
+        window.addEventListener('nexus_settings_updated', syncAiKeySettings);
+        window.addEventListener('storage', syncAiKeySettings);
+        return () => {
+            window.removeEventListener('nexus_settings_updated', syncAiKeySettings);
+            window.removeEventListener('storage', syncAiKeySettings);
+        };
+    }, []);
     const [dietDailyLog] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_diet_daily_log')) || { caloriesConsumed: 0 }; } catch (e) { return { caloriesConsumed: 0 }; } });
 
-    const [activeTab, setActiveTab] = useState('Chat');
     const [activePersona, setActivePersona] = useState('general');
 
     // Real, distinct greeting per persona - reflects that persona's own,
@@ -355,43 +251,9 @@ const AIPage = () => {
     }, [subjects, workouts, transactions, financeProfile, timetableData]);
 
     const [inputPrompt, setInputPrompt] = useState('');
-    const [sidebarOpen, setSidebarOpen] = useState(() => !isMobile);
-    const [inspectorOpen, setInspectorOpen] = useState(() => !isMobile);
     const [isGenerating, setIsGenerating] = useState(false);
-    const chatEndRef = useRef(null);
     const streamTimeoutRef = useRef(null);
     const streamIntervalRef = useRef(null);
-
-    // ChatGPT-style "+" attachment menu embedded in the chat input bar -
-    // real actions this app already has (new chat, quick prompts, switch
-    // assistant mode), not illustrative dummy items.
-    const [attachMenuOpen, setAttachMenuOpen] = useState(false);
-    const attachMenuRef = useRef(null);
-    const attachBtnRef = useRef(null);
-    // The popup renders with position:fixed (so the chat card's
-    // overflow:hidden never clips it) - its screen coordinates are read
-    // from the button once, right when it opens. The input bar's own
-    // position is stable while the menu is open (only the message list
-    // above it scrolls internally), so a single read on open is enough.
-    const [attachMenuPos, setAttachMenuPos] = useState({ left: 16, bottom: 90 });
-    const toggleAttachMenu = () => {
-        setAttachMenuOpen((prev) => {
-            const next = !prev;
-            if (next && attachBtnRef.current) {
-                const rect = attachBtnRef.current.getBoundingClientRect();
-                setAttachMenuPos({ left: rect.left, bottom: window.innerHeight - rect.top + 10 });
-            }
-            return next;
-        });
-    };
-    useEffect(() => {
-        if (!attachMenuOpen) return;
-        const onOutsideClick = (e) => {
-            if (attachMenuRef.current && !attachMenuRef.current.contains(e.target)) setAttachMenuOpen(false);
-        };
-        document.addEventListener('mousedown', onOutsideClick);
-        return () => document.removeEventListener('mousedown', onOutsideClick);
-    }, [attachMenuOpen]);
 
     // Cleans up any in-flight "thinking" timeout or streaming interval if
     // the user navigates away mid-response - prevents a dangling timer
@@ -400,21 +262,9 @@ const AIPage = () => {
         return () => {
             if (streamTimeoutRef.current) clearTimeout(streamTimeoutRef.current);
             if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+            if (aiAbortRef.current) aiAbortRef.current.abort();
         };
     }, []);
-
-    useEffect(() => {
-        // Smooth scrolling makes sense for a real, discrete jump (a new
-        // message being sent) - but during active streaming, messages
-        // updates dozens of times per second as each chunk reveals,
-        // and re-triggering a smooth animation on every single tick
-        // just interrupts the previous one, producing real visible
-        // jank rather than a fluid scroll. Instant scrolling during
-        // streaming is what actually keeps the latest text in view
-        // smoothly as it streams in - the same behavior modern AI
-        // clients use.
-        chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? 'auto' : 'smooth' });
-    }, [messages, isGenerating]);
 
     // Clear Chat Function
     // Replaces window.confirm, matching this app's own, established
@@ -437,35 +287,309 @@ const AIPage = () => {
     };
     const generateSmartResponse = (prompt, persona) => generateNexusAIResponse(prompt, aiContext, persona);
 
-    // Core send logic, shared by both the chat form and every quick
-    // prompt chip/coach button - takes the message text directly rather
-    // than reading it from inputPrompt state, since state set via
-    // setInputPrompt wouldn't be visible yet to a same-tick, synchronous
-    // read due to React's batching. This is what makes a chip genuinely,
-    // instantly submit rather than just pre-fill the input box.
-    const submitMessage = (text) => {
-        const userMsgText = text.trim();
-        if (!userMsgText || isGenerating) return;
+    // Real, confirmed keys - genuinely wired to the live APIs below, not
+    // just read for the Settings page's own connection status.
+    // *ApiKeyConfirmed only ever becomes true after SettingsPage's own
+    // live key-validation succeeds (its geminiKeyStatus/openaiKeyStatus
+    // effects), so this check alone is enough to trust the key is real
+    // without re-validating it here.
+    const {
+        geminiApiKey, geminiApiKeyConfirmed, openaiApiKey, openaiApiKeyConfirmed,
+        grokApiKey, grokApiKeyConfirmed, deepseekApiKey, deepseekApiKeyConfirmed,
+    } = aiKeySettings;
+    const geminiReady = geminiApiKeyConfirmed && !!geminiApiKey.trim();
+    const openaiReady = openaiApiKeyConfirmed && !!openaiApiKey.trim();
+    const grokReady = grokApiKeyConfirmed && !!grokApiKey.trim();
+    const deepseekReady = deepseekApiKeyConfirmed && !!deepseekApiKey.trim();
 
-        const userMsg = {
-            id: Date.now().toString(),
-            sender: 'user',
-            text: userMsgText,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
+    // Real, user-controlled provider switcher - persisted so the choice
+    // sticks across reloads, not just a session default. Falls back
+    // sensibly: if the user's saved preference is no longer usable (that
+    // key got removed/invalidated) but another provider is ready, prefer
+    // the first genuinely ready one over silently dropping to local mode.
+    const [preferredProvider, setPreferredProvider] = useState(() => localStorage.getItem('nexus_ai_provider') || 'gemini');
+    // Same real 'nexus_settings_updated' convention every other cross-
+    // component setting in this app already dispatches on write (see
+    // SettingsPage.jsx/VoiceAssistantSettings.jsx) - without this, a
+    // provider switch here only reached other same-tab listeners (e.g.
+    // ProfilePage's own Connections widget, GreetingCard's AI Mode
+    // status) on the next unrelated 'storage' event or a reload, since
+    // plain localStorage.setItem fires no event at all in the same tab.
+    useEffect(() => {
+        localStorage.setItem('nexus_ai_provider', preferredProvider);
+        window.dispatchEvent(new Event('nexus_settings_updated'));
+    }, [preferredProvider]);
+    const READY_BY_PROVIDER = { gemini: geminiReady, openai: openaiReady, grok: grokReady, deepseek: deepseekReady };
+    // 'local' is a real, explicit, always-selectable choice - not just
+    // the automatic fallback for "no key configured yet". Before this,
+    // there was no way to deliberately turn a configured, ready provider
+    // OFF and use the local nexusAIEngine-only path instead - the
+    // fallback below always preferred any ready provider over local,
+    // with no way to override that. Checked first and unconditionally:
+    // picking Local always wins, even while a real key is ready.
+    //
+    // A genuine string 'local' (never null) both when explicitly chosen
+    // and when nothing is configured yet - collapsing both into the
+    // same real id, rather than null, is what lets the provider picker
+    // below correctly show the Local pill as the active one in either
+    // case, honestly reflecting what's actually about to answer.
+    const activeProvider = preferredProvider === 'local'
+        ? 'local'
+        : READY_BY_PROVIDER[preferredProvider]
+        ? preferredProvider
+        : (Object.keys(READY_BY_PROVIDER).find((id) => READY_BY_PROVIDER[id]) || 'local');
 
-        updateActiveSessionMessages(prev => [...prev, userMsg]);
-        setInputPrompt('');
+    // Per-provider model choice - a real arrow next to the active
+    // provider's badge (see AIChatArea.jsx) opens a slide-down panel to
+    // pick a specific model, matching Gemini's own real model-picker.
+    // Persisted per-provider (not one shared value) since each provider's
+    // model IDs are a disjoint namespace - switching provider must never
+    // silently carry over a stale model id from a different one.
+    const [modelByProvider, setModelByProvider] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('nexus_ai_model_by_provider') || '{}'); } catch (e) { return {}; }
+    });
+    useEffect(() => { localStorage.setItem('nexus_ai_model_by_provider', JSON.stringify(modelByProvider)); }, [modelByProvider]);
+    const setModelForProvider = (providerId, modelId) => setModelByProvider((prev) => ({ ...prev, [providerId]: modelId }));
+
+    // Real, live-discovered model lists for the model picker - each
+    // provider's own client already knows how to ask its real API "what
+    // models can this key use" (resolveModelCandidates/resolveGrokModels/
+    // resolveDeepseekModels), so the picker's options come from the same
+    // live source of truth the actual chat call itself uses, never a
+    // separate guessed list that could drift out of sync with it.
+    const [availableModels, setAvailableModels] = useState({});
+    useEffect(() => {
+        let cancelled = false;
+        const loaders = [
+            geminiReady && resolveGeminiModels(geminiApiKey).then((list) => { if (!cancelled) setAvailableModels((prev) => ({ ...prev, gemini: list })); }),
+            grokReady && resolveGrokModels(grokApiKey).then((list) => { if (!cancelled) setAvailableModels((prev) => ({ ...prev, grok: list })); }),
+            deepseekReady && resolveDeepseekModels(deepseekApiKey).then((list) => { if (!cancelled) setAvailableModels((prev) => ({ ...prev, deepseek: list })); }),
+        ];
+        Promise.all(loaders).catch(() => {});
+        return () => { cancelled = true; };
+    }, [geminiReady, geminiApiKey, grokReady, grokApiKey, deepseekReady, deepseekApiKey]);
+
+    // Real grounding data for the live model - the exact same safe field
+    // access nexusAIEngine.js's own response functions already use, just
+    // formatted as plain text lines instead of prose, so Gemini answers
+    // from genuine current Nexus data instead of generic knowledge alone.
+    const buildContextSummary = () => {
+        const allTopics = subjects.flatMap((s) => (s.units || []).flatMap((u) => u.topics || []));
+        const doneTopics = allTopics.filter((t) => t.done).length;
+        const pendingAssignments = studyAssignments.filter((a) => a.status !== 'Completed').length;
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const recentWorkouts = workouts.filter((w) => w.date && new Date(w.date) >= sevenDaysAgo).length;
+        const totalSpent = transactions.filter((t) => t.type === 'Expense').reduce((acc, curr) => acc + curr.amount, 0);
+        const totalBalance = financeAccounts.reduce((acc, a) => acc + (a.balance || 0), 0);
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const todaySlots = (timetableData[dayNames[new Date().getDay()]] || []).length;
+        const pendingTasks = plannerTasks.filter((t) => !t.completed).length;
+        return [
+            `Study: ${subjects.length} subject(s) tracked, ${doneTopics}/${allTopics.length} topics completed, ${pendingAssignments} pending assignment(s).`,
+            `Fitness: ${workouts.length} total workout(s) logged, ${recentWorkouts} in the last 7 days.`,
+            `Finance: monthly budget ₹${financeProfile.monthlyBudget || 0}, ₹${totalSpent} spent so far, ${financeAccounts.length} account(s) totalling ₹${totalBalance}.`,
+            `Nutrition: ${dietDailyLog.caloriesConsumed || 0}/${dietProfile.dailyCalories || 0} kcal logged today.`,
+            `Schedule: ${todaySlots} timetable slot(s) today, ${calendarEvents.length} calendar event(s), ${pendingTasks} pending planner task(s).`,
+        ].join('\n');
+    };
+
+    // Real multi-turn history (not just the latest message) - excludes
+    // the synthetic greeting and any past error bubbles, neither of
+    // which are real prior model turns. Gemini's own contents shape
+    // (role: 'user'|'model', system instruction passed separately).
+    // imagePart ({ mimeType, base64, kind }, optional): the exact same
+    // inline_data shape the syllabus-OCR pipeline already sends Gemini
+    // (see geminiClient.js's generateStructuredContent) - real, working
+    // vision/document input, not a decorative attach button. Gemini's own
+    // API genuinely accepts application/pdf as an inline_data mimeType
+    // the same way it accepts image/*, so a PDF here is read by the live
+    // model itself, not routed through any separate extraction step. Only
+    // ever attached to the new turn, never rewritten into prior history.
+    const buildGeminiContents = (priorMessages, newUserText, imagePart) => {
+        const history = priorMessages
+            .filter((m) => m.id !== 'greeting' && !m.isError && m.text)
+            .map((m) => ({ role: m.sender === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
+        const fallbackPrompt = imagePart?.kind === 'pdf' ? 'Summarize this document.' : 'Describe this image.';
+        const newParts = [{ text: newUserText || fallbackPrompt }];
+        if (imagePart) newParts.push({ inline_data: { mime_type: imagePart.mimeType, data: imagePart.base64 } });
+        return [...history, { role: 'user', parts: newParts }];
+    };
+
+    // Same real history, OpenAI's own flat shape instead (role:
+    // 'user'|'assistant', system instruction as the first message in the
+    // same array rather than a separate field). imagePart (optional) is
+    // only ever passed for Grok - see the runAIResponse call site - and
+    // turns just the new user turn's content into a real multimodal
+    // array (buildGrokImageContent) rather than a plain string; every
+    // prior-history message stays plain text either way, which every
+    // OpenAI-compatible endpoint accepts mixed like that.
+    const buildOpenAiMessages = (systemInstruction, priorMessages, newUserText, imagePart) => {
+        const history = priorMessages
+            .filter((m) => m.id !== 'greeting' && !m.isError && m.text)
+            .map((m) => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text }));
+        const userContent = imagePart
+            ? buildGrokImageContent(newUserText || 'Describe this image.', imagePart)
+            : newUserText;
+        return [{ role: 'system', content: systemInstruction }, ...history, { role: 'user', content: userContent }];
+    };
+
+    // Cancels an in-flight real AI stream (e.g. component unmount) -
+    // mirrors the existing streamTimeoutRef/streamIntervalRef cleanup
+    // pattern for the local-engine fake-stream path below. Shared by
+    // both providers since only one stream is ever in flight at a time.
+    const aiAbortRef = useRef(null);
+
+    // Real file attachment (image or PDF), staged from the "+" menu's
+    // Upload File item (see AIChatArea.jsx) and sent on the next message -
+    // { mimeType, base64, previewUrl, name, kind: 'image' | 'pdf' }.
+    // Enabled for whichever active provider genuinely has a live vision
+    // path: Gemini (image + PDF, via inline_data - the same path the
+    // syllabus-OCR feature uses) and Grok (image only, via the standard
+    // OpenAI-style image_url content part - see buildOpenAiMessages/
+    // buildGrokImageContent). DeepSeek's chat API has no image input at
+    // all, and OpenAI's endpoint can't be reached from this browser at all
+    // (CORS - see openaiClient.js), so the upload control itself stays
+    // disabled for those two rather than silently dropping the file or
+    // sending something the API can't actually read.
+    const [pendingImage, setPendingImage] = useState(null);
+
+    // The actual "ask the model and stream a reply" logic - pulled out of
+    // submitMessage so regenerateResponse (the message toolbar's Retry
+    // button) can call the exact same real generation path against an
+    // already-existing user turn, instead of needing its own separate,
+    // driftable copy of the whole provider-routing/tool-calling/local-
+    // fallback block. priorMessages is real history that does NOT
+    // include userMsgText's own turn yet (both callers snapshot it
+    // themselves, in submitMessage's case before appending the new user
+    // message, in regenerateResponse's case as everything up to and
+    // including that turn's own user message).
+    const runAIResponse = (priorMessages, userMsgText, imagePart) => {
         setIsGenerating(true);
 
+        // Real, live provider path - only ever taken once at least one
+        // key has actually, successfully validated AND the user hasn't
+        // explicitly chosen Local (activeProvider is the string 'local'
+        // in both of those other cases - see its own comment above). Any
+        // failure here surfaces as a real, distinct error bubble (see
+        // isError below) - it never silently falls back to the local
+        // canned engine and pretends that was a live answer.
+        if (activeProvider && activeProvider !== 'local') {
+            const persona = activeSession?.persona || 'general';
+            const systemInstruction = `${PERSONA_SYSTEM_PROMPTS[persona] || PERSONA_SYSTEM_PROMPTS.general}\n\nThe user's real, current Nexus OS data:\n${buildContextSummary()}${activeProvider === 'gemini' ? TOOL_USAGE_SYSTEM_SUFFIX : ''}`;
+            const aiMsgId = (Date.now() + 1).toString();
+            const aiTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const controller = new AbortController();
+            aiAbortRef.current = controller;
+
+            // Fires as each real chunk arrives from whichever provider is
+            // active - the message starts absent and is created on the
+            // first real chunk, so the existing "Analyzing..." indicator
+            // stays visible for the real network/thinking latency instead
+            // of an empty bubble appearing immediately.
+            const onChunk = (fullTextSoFar) => {
+                updateActiveSessionMessages(prev => {
+                    if (!prev.some((m) => m.id === aiMsgId)) return [...prev, { id: aiMsgId, sender: 'ai', text: fullTextSoFar, time: aiTime }];
+                    return prev.map((m) => m.id === aiMsgId ? { ...m, text: fullTextSoFar } : m);
+                });
+            };
+
+            // Real, two-hop function-calling flow (Gemini only - see
+            // geminiClient.js/aiTools.js) - the model's first response can
+            // either be plain text, or a real functionCall part asking to
+            // create a Planner task / Finance transaction. When it does,
+            // executeToolCall runs the actual local write BEFORE the model
+            // ever gets to claim it worked, then a second call hands that
+            // real result back to the model so its final reply genuinely
+            // describes what happened, not what it assumes happened. Any
+            // lead-in text from the first call (the model can legitimately
+            // say something like "Sure, adding that now..." alongside the
+            // function call) is prepended to the second call's own
+            // progressive text rather than lost, since onChunk otherwise
+            // replaces the message text with whichever single stream call
+            // most recently fired it.
+            const runGeminiTurn = async () => {
+                const contents = buildGeminiContents(priorMessages, userMsgText, imagePart);
+                const first = await streamGeminiResponse({
+                    apiKey: geminiApiKey, systemInstruction, contents,
+                    tools: [{ functionDeclarations: TOOL_DEFINITIONS }],
+                    preferredModel: modelByProvider.gemini, signal: controller.signal, onChunk,
+                });
+                if (!first.functionCalls || first.functionCalls.length === 0) return first.text;
+
+                const leadInText = first.text ? `${first.text} ` : '';
+                const modelTurnParts = [
+                    ...(first.text ? [{ text: first.text }] : []),
+                    ...first.functionCalls.map((fc) => ({ functionCall: fc })),
+                ];
+                const functionResponseParts = first.functionCalls.map((fc) => ({
+                    functionResponse: { name: fc.name, response: executeToolCall(fc.name, fc.args) },
+                }));
+                const second = await streamGeminiResponse({
+                    apiKey: geminiApiKey, systemInstruction,
+                    contents: [...contents, { role: 'model', parts: modelTurnParts }, { role: 'function', parts: functionResponseParts }],
+                    preferredModel: modelByProvider.gemini, signal: controller.signal,
+                    onChunk: (fullTextSoFar, newText) => onChunk(leadInText + fullTextSoFar, newText),
+                });
+                return leadInText + second.text;
+            };
+
+            const openAiShapedMessages = buildOpenAiMessages(systemInstruction, priorMessages, userMsgText, activeProvider === 'grok' ? imagePart : null);
+            const streamPromise = activeProvider === 'gemini'
+                ? runGeminiTurn()
+                : activeProvider === 'grok'
+                ? streamGrokResponse({ apiKey: grokApiKey, messages: openAiShapedMessages, preferredModel: modelByProvider.grok, signal: controller.signal, onChunk })
+                : activeProvider === 'deepseek'
+                ? streamDeepseekResponse({ apiKey: deepseekApiKey, messages: openAiShapedMessages, preferredModel: modelByProvider.deepseek, signal: controller.signal, onChunk })
+                : streamOpenAiResponse({ apiKey: openaiApiKey, messages: openAiShapedMessages, signal: controller.signal, onChunk });
+
+            streamPromise.then(() => {
+                setIsGenerating(false);
+                aiAbortRef.current = null;
+            }).catch((err) => {
+                // Real cancellation (unmount) - no error bubble needed, but
+                // isGenerating must still reset here too. This was a real,
+                // confirmed bug: the early return below used to skip both
+                // resets, so any abort - including the one React's own
+                // StrictMode triggers by deliberately mounting every
+                // component twice in dev (mount, cleanup, remount, which
+                // fires this exact effect's cleanup and aborts an in-flight
+                // request if one was already running) - left isGenerating
+                // stuck true forever, permanently disabling Send with no
+                // way to recover short of a full page reload.
+                if (err && err.name === 'AbortError') {
+                    setIsGenerating(false);
+                    aiAbortRef.current = null;
+                    return;
+                }
+                const providerLabel = { gemini: 'Gemini', openai: 'ChatGPT', grok: 'Grok', deepseek: 'DeepSeek' }[activeProvider] || 'AI';
+                const message = (err instanceof GeminiApiError || err instanceof OpenAiApiError || err instanceof GrokApiError || err instanceof DeepseekApiError)
+                    ? err.message
+                    : `Something went wrong talking to the ${providerLabel} API. Please try again.`;
+                updateActiveSessionMessages(prev => {
+                    const errMsg = { id: aiMsgId, sender: 'ai', text: message, time: aiTime, isError: true };
+                    if (!prev.some((m) => m.id === aiMsgId)) return [...prev, errMsg];
+                    return prev.map((m) => m.id === aiMsgId ? errMsg : m);
+                });
+                setIsGenerating(false);
+                aiAbortRef.current = null;
+            });
+            return;
+        }
+
+        // No confirmed AI provider key yet - an honest local fallback:
+        // real computed insights from the user's actual Nexus data via
+        // nexusAIEngine, not a live model. Still genuinely useful, just
+        // not what "live Gemini/ChatGPT" means - fake-streamed in small
+        // chunks purely as a visual pace-matching effect, since the full
+        // text here is already fully computed up front (unlike the real
+        // provider paths above, which stream actual arriving tokens).
         streamTimeoutRef.current = setTimeout(() => {
             const aiResponseText = generateSmartResponse(userMsgText, activeSession?.persona);
             const aiMsgId = (Date.now() + 1).toString();
             const aiTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-            // Start the message empty, then genuinely, progressively
-            // reveal it in small chunks - a real streaming effect, not
-            // the full text appearing all at once.
             updateActiveSessionMessages(prev => [...prev, { id: aiMsgId, sender: 'ai', text: '', time: aiTime }]);
 
             const CHUNK_SIZE = 3;
@@ -482,653 +606,167 @@ const AIPage = () => {
         }, 700); // brief "thinking" pause before streaming begins
     };
 
-    const handleSendMessage = (e) => {
-        e.preventDefault();
-        submitMessage(inputPrompt);
+    // Core send logic, shared by both the chat form and every quick
+    // prompt chip/coach button - takes the message text directly rather
+    // than reading it from inputPrompt state, since state set via
+    // setInputPrompt wouldn't be visible yet to a same-tick, synchronous
+    // read due to React's batching. This is what makes a chip genuinely,
+    // instantly submit rather than just pre-fill the input box.
+    const submitMessage = (text) => {
+        const userMsgText = text.trim();
+        const imagePart = pendingImage;
+        if ((!userMsgText && !imagePart) || isGenerating) return;
+
+        const userMsg = {
+            id: Date.now().toString(),
+            sender: 'user',
+            text: userMsgText,
+            // A PDF has no real previewUrl (see AIChatArea.jsx's
+            // handleFilePicked - only an image gets a cheap object URL),
+            // so attachmentKind is the real signal an attachment exists at
+            // all; imagePreview is only ever meaningful alongside it.
+            imagePreview: imagePart?.previewUrl || null,
+            attachmentKind: imagePart?.kind || null,
+            attachmentName: imagePart?.name || null,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+
+        const priorMessages = messages; // real history, snapshotted before this new user turn is appended
+        updateActiveSessionMessages(prev => [...prev, userMsg]);
+        setInputPrompt('');
+        setPendingImage(null);
+        runAIResponse(priorMessages, userMsgText, imagePart);
     };
 
-    // Instantly submits the prompt (not just pre-fills it) - this is
-    // what "instantly populating and submitting" genuinely requires, and
-    // what the previous version was missing (it only ever called
-    // setInputPrompt, leaving the user to press Send themselves).
-    const handleQuickPrompt = (promptText) => {
-        setActiveTab('Chat');
-        submitMessage(promptText);
+    // The message toolbar's Retry/regenerate button - finds the real user
+    // turn that produced this AI message, drops the old AI response (and,
+    // if it was an error bubble, the error along with it) from the actual
+    // session history, and re-runs the exact same generation path fresh.
+    // Never re-attaches the original turn's image/PDF (previewUrl is a
+    // cheap, possibly already-revoked object URL by the time someone
+    // clicks Retry, and Gemini's own base64 payload was never kept around
+    // after that first send) - a plain-text regenerate of the same
+    // prompt covers the real, common "the model's answer was bad, try
+    // again" case without holding onto attachment payloads indefinitely
+    // just for this.
+    const regenerateResponse = (aiMsgId) => {
+        if (isGenerating) return;
+        const aiIndex = messages.findIndex((m) => m.id === aiMsgId);
+        if (aiIndex === -1) return;
+        let userIndex = aiIndex - 1;
+        while (userIndex >= 0 && messages[userIndex].sender !== 'user') userIndex -= 1;
+        if (userIndex < 0) return;
+        const userMsgText = messages[userIndex].text;
+        const priorMessages = messages.slice(0, userIndex + 1);
+        updateActiveSessionMessages(() => messages.slice(0, aiIndex));
+        runAIResponse(priorMessages, userMsgText, null);
     };
 
+    // The message toolbar's "Branch in new chat" - a genuine new session
+    // pre-seeded with a real copy of the conversation up to and including
+    // the chosen message, so the branch keeps full context and can be
+    // continued independently without touching the original chat at all.
+    const branchChatAt = (messageId) => {
+        const index = messages.findIndex((m) => m.id === messageId);
+        if (index === -1) return;
+        const branchedMessages = messages.slice(0, index + 1).map((m) => ({ ...m }));
+        const now = Date.now();
+        const firstUserMsg = branchedMessages.find((m) => m.sender === 'user');
+        const newSession = {
+            id: `session_${now}`,
+            title: firstUserMsg ? `${firstUserMsg.text.slice(0, 34)} (branch)` : 'Branched Chat',
+            persona: activeSession?.persona || 'general',
+            messages: branchedMessages, createdAt: now, updatedAt: now,
+        };
+        setSessions((prev) => [...prev, newSession]);
+        setActiveSessionId(newSession.id);
+    };
+
+    // A lightweight, purely-local "good response" mark on the message
+    // itself - no feedback pipeline or analytics endpoint exists to send
+    // this to, so it's a real, working toggle that persists with the rest
+    // of that session's messages (same localStorage-backed sessions array
+    // every other message field already rides along on) rather than a
+    // decorative button that resets on reload.
+    const toggleMessageLike = (msgId) => {
+        updateActiveSessionMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, liked: !m.liked } : m)));
+    };
+
+    // Picking a coach in the sidebar switches the CURRENT session's own
+    // persona/routing (same real behavior the old persona pills already
+    // had) rather than silently starting a new chat and discarding
+    // whatever conversation was in progress - switching who you're
+    // talking to should never be a data-losing action.
+    const handleSelectCoach = (personaId) => {
+        setActivePersona(personaId);
+        setSessions((prev) => prev.map((s) => (s.id === activeSession?.id ? { ...s, persona: personaId } : s)));
+    };
+
+    // Model list only ever populated for providers with a real, working
+    // live-discovery client (see the availableModels effect above) -
+    // ChatGPT deliberately has none here, since its chat endpoint is
+    // CORS-blocked from a browser regardless of which model you'd pick
+    // (see openaiClient.js), so a model picker for it would just be
+    // another dead control pretending to work.
+    // 'local' is always ready, unlike the four real API providers below -
+    // it's the explicit "don't call any live model" choice (see
+    // activeProvider above), always selectable regardless of whether any
+    // key is configured, so turning AI off entirely is a real, one-click
+    // option rather than only something that happens automatically when
+    // no key exists yet.
+    const providers = [
+        { id: 'local', label: 'Local', ready: true, models: [], selectedModel: null },
+        { id: 'gemini', label: 'Gemini', ready: geminiReady, models: availableModels.gemini || [], selectedModel: modelByProvider.gemini },
+        { id: 'openai', label: 'ChatGPT', ready: openaiReady, models: [], selectedModel: null },
+        { id: 'grok', label: 'Grok', ready: grokReady, models: availableModels.grok || [], selectedModel: modelByProvider.grok },
+        { id: 'deepseek', label: 'DeepSeek', ready: deepseekReady, models: availableModels.deepseek || [], selectedModel: modelByProvider.deepseek },
+    ];
+
+    // DashboardLayout.jsx now gives this page's slot a real, plain flex-fill
+    // parent (flex:1, minHeight:0, flex-column) with zero padding around it
+    // specifically for the AI tab (isAIFullBleed), instead of the old fixed
+    // .glass-panel padding every other module still gets. flex:1 + minHeight:0
+    // here is the correct, robust way to claim "all of the real remaining
+    // space" inside that chain - a hand-computed calc(100vh - Npx) would
+    // silently drift out of sync the moment any ancestor's own chrome
+    // height changes, exactly what made the old value fragile.
     return (
-        <div style={{
-            display: 'flex', flexDirection: 'column', gap: '16px',
-            // Mobile: sized to exactly fill the real space this page
-            // actually sits in - glass-panel's own 16px top padding plus
-            // its 76px bottom padding (see DashboardLayout.jsx; that
-            // bottom padding is what keeps content clear of the fixed
-            // MobileTabBar) plus the device's own safe-area inset, the
-            // same env() this app already uses for that padding and for
-            // MobileTabBar itself. This is a genuine exact fit (16 + this
-            // height + 76 + safe-area-bottom == 100vh), not the old,
-            // disconnected "100vh - 140px" guess, which left the card ~60px
-            // shorter than the space actually available - real dead space
-            // between the chat card and the bottom nav dock rather than the
-            // small, intentional-looking gap glass-panel's own padding
-            // already provides. Desktop is untouched (different chrome
-            // above it, no bottom dock to clear).
-            // Also now subtracts safe-area-inset-top: glass-panel's own top
-            // padding on this page became `16px + that inset` (see
-            // DashboardLayout.jsx's isHeaderHiddenOnMobile) once the global
-            // Header - hidden here on mobile - stopped being what cleared
-            // the status bar for this page. Leaving this height calc as it
-            // was would make the page's real total height (top padding +
-            // this + bottom padding) exceed 100vh by exactly that inset,
-            // pushing the bottom of the chat card behind the bottom nav.
-            height: isMobile ? 'calc(100vh - 92px - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px))' : 'calc(100vh - 140px)',
-            animation: 'fadeInScale 0.3s ease', position: 'relative', width: '100%', boxSizing: 'border-box', minWidth: 0,
-        }}>
-            {showTour && <TourGuide tourId="ai" steps={TOUR_STEPS.ai} onFinish={() => setShowTour(false)} />}
-
-            {/* Desktop keeps the full title + subtitle. Mobile gets a
-                genuinely minimal ChatGPT-style top bar instead - just a
-                menu toggle, the app name, and New Chat. The global
-                DashboardLayout header is hidden entirely on this page on
-                mobile (see DashboardLayout.jsx), so this replaces it as
-                the ONLY chrome above the chat - everything this bar used
-                to also carry (chat history, personas, the Chat/Coaches
-                view switch, Live Context, Clear Chat) now lives inside
-                the menu drawer instead, categorized like ChatGPT's own
-                side menu, rather than crowding a second row up top. */}
-            {!isMobile ? (
-                <div>
-                    <h1 style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Nexus AI Intelligence Core</h1>
-                    <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Context-aware assistant integrated with specialized domain coaches.</p>
-                </div>
-            ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                    <button type="button" onClick={() => setSidebarOpen(true)} title="Open menu" aria-label="Open menu" data-tour-id="ai-menu" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0 }}>
-                        <Menu size={18} />
-                    </button>
-                    <h1 style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, flex: 1, textAlign: 'center' }}>Nexus AI</h1>
-                    <button type="button" onClick={() => createNewSession()} title="New chat" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', cursor: 'pointer', flexShrink: 0 }}>
-                        <Plus size={17} />
-                    </button>
-                </div>
-            )}
-
-            {/* Main 3-column body: Sidebar | Chat | Context Inspector.
-                minWidth: 0 here is what actually lets the flex children
-                below shrink below their own content's intrinsic width
-                instead of forcing the row to overflow - the single most
-                common cause of a flex layout that looks fine at a zoomed-
-                out size (more logical px available) but overflows at
-                100% zoom (less logical px available for the exact same
-                real content). Always nowrap (not just on desktop): the
-                sidebar/inspector panels are both position:fixed overlays
-                on every viewport size, so the center chat column is the
-                ONLY normal-flow child here. flex-wrap:'wrap' with a
-                single flex item breaks the cross-axis stretch that
-                min-height:0 depends on - the line sizes to the item's own
-                content height instead of the row's actual available
-                height, letting the chat column (and the input bar inside
-                it) grow past the viewport and get pushed down behind the
-                bottom nav instead of staying clipped/scrollable. This was
-                the real, remaining cause of the "input drifts on scroll"
-                bug - the min-height:0 additions elsewhere were correct
-                but couldn't take effect while this stayed 'wrap'. */}
-            <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 'clamp(8px, 1.2vw, 14px)', flex: 1, minHeight: 0, minWidth: 0 }}>
-
-                {/* LEFT: Chat History Sidebar - real, multi-session store,
-                    not just the flat, single-thread history from before.
-                    Width is now a real, responsive clamp() instead of a
-                    fixed 240px, so it genuinely narrows on tighter
-                    viewports rather than staying rigid while the center
-                    column is squeezed to compensate. Desktop-only inline
-                    layout - mobile gets its own slide-over overlay
-                    version below instead, matching a native chat app's
-                    history drawer rather than squeezing a column into a
-                    narrow viewport. */}
-                {sidebarOpen && !isMobile && (
-                    <div data-diag="ai-left-sidebar" style={{ width: 'clamp(190px, 20vw, 240px)', flexShrink: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', overflow: 'hidden', boxSizing: 'border-box' }}>
-                        <button
-                            type="button" onClick={() => createNewSession()}
-                            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}
-                        >
-                            <Plus size={16} /> New Chat
-                        </button>
-                        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            {[...sessions].sort((a, b) => b.updatedAt - a.updatedAt).map((s) => {
-                                const isActive = s.id === activeSession?.id;
-                                const personaMeta = PERSONAS.find((p) => p.id === s.persona) || PERSONAS[0];
-                                return (
-                                    <div
-                                        key={s.id} onClick={() => setActiveSessionId(s.id)}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', background: isActive ? 'var(--widget-bg)' : 'transparent', border: isActive ? '1px solid var(--border-premium)' : '1px solid transparent' }}
-                                    >
-                                        <MessageSquare size={14} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} style={{ flexShrink: 0 }} />
-                                        <span style={{ flex: 1, minWidth: 0, fontSize: '12px', fontWeight: isActive ? '700' : '600', color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.title}>{s.title}</span>
-                                        <button
-                                            type="button" onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} title="Delete chat"
-                                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', color: 'var(--text-muted)', flexShrink: 0, opacity: 0.7 }}
-                                        >
-                                            <Trash2 size={12} />
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* Mobile: the ChatGPT-style side menu - now the ONLY place
-                    chat history, assistant personas, the Chat/Coaches view
-                    switch, and the Live Context/Clear Chat tools live on
-                    mobile (all previously crowded into the main page as
-                    horizontally-scrolling pills and extra top-bar icons).
-                    Categorized into clear labeled sections, same real
-                    slide-over-with-backdrop pattern already used here. */}
-                {isMobile && (
-                    <>
-                        <div
-                            onClick={() => setSidebarOpen(false)}
-                            aria-hidden="true"
-                            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.5)', opacity: sidebarOpen ? 1 : 0, pointerEvents: sidebarOpen ? 'auto' : 'none', transition: 'opacity 0.25s ease' }}
-                        />
-                        <div style={{
-                            position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 301, width: 'min(300px, 82vw)',
-                            background: 'var(--bg-surface)', borderRight: '1px solid var(--border-premium)',
-                            padding: '16px', paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
-                            paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
-                            display: 'flex', flexDirection: 'column', gap: '14px', boxSizing: 'border-box',
-                            overflowY: 'auto',
-                            transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-                            transition: 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
-                            boxShadow: sidebarOpen ? '8px 0 24px rgba(0,0,0,0.3)' : 'none',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                                <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)' }}>Nexus AI</span>
-                                <button type="button" onClick={() => setSidebarOpen(false)} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}><X size={18} /></button>
-                            </div>
-
-                            <button
-                                type="button" onClick={() => { createNewSession(); setSidebarOpen(false); }}
-                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', flexShrink: 0 }}
-                            >
-                                <Plus size={16} /> New Chat
-                            </button>
-
-                            {/* Assistant Mode - the personas that used to be
-                                a horizontally-scrolling pill row up top. */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
-                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px' }}>Assistant Mode</span>
-                                {PERSONAS.map((p) => {
-                                    const PIcon = p.icon;
-                                    const active = activePersona === p.id;
-                                    return (
-                                        <button
-                                            key={p.id} type="button"
-                                            onClick={() => {
-                                                setActivePersona(p.id);
-                                                setSessions((prev) => prev.map((s) => s.id === activeSession?.id ? { ...s, persona: p.id } : s));
-                                                setSidebarOpen(false);
-                                            }}
-                                            style={{
-                                                display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                                                background: active ? 'rgba(var(--primary-rgb), 0.15)' : 'transparent',
-                                                border: active ? `1px solid ${p.accent}` : '1px solid transparent',
-                                                color: active ? p.accent : 'var(--text-secondary)', fontSize: '13px', fontWeight: active ? '700' : '600',
-                                            }}
-                                        >
-                                            <PIcon size={15} style={{ flexShrink: 0 }} /> {p.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            <div style={{ height: '1px', background: 'var(--border-premium)', flexShrink: 0 }} />
-
-                            {/* View - the Chat Assistant / Specialized
-                                Coaches switch that used to be a second tab
-                                row in the main content. */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
-                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px' }}>View</span>
-                                <button
-                                    type="button" onClick={() => { setActiveTab('Chat'); setSidebarOpen(false); }}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                                        background: activeTab === 'Chat' ? 'var(--widget-bg)' : 'transparent',
-                                        border: activeTab === 'Chat' ? '1px solid var(--border-premium)' : '1px solid transparent',
-                                        color: activeTab === 'Chat' ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '13px', fontWeight: activeTab === 'Chat' ? '700' : '600',
-                                    }}
-                                >
-                                    <Bot size={15} style={{ flexShrink: 0 }} /> AI Chat Assistant
-                                </button>
-                                <button
-                                    type="button" onClick={() => { setActiveTab('Coaches'); setSidebarOpen(false); }}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                                        background: activeTab === 'Coaches' ? 'var(--widget-bg)' : 'transparent',
-                                        border: activeTab === 'Coaches' ? '1px solid var(--border-premium)' : '1px solid transparent',
-                                        color: activeTab === 'Coaches' ? 'var(--text-primary)' : 'var(--text-secondary)', fontSize: '13px', fontWeight: activeTab === 'Coaches' ? '700' : '600',
-                                    }}
-                                >
-                                    <Cpu size={15} style={{ flexShrink: 0 }} /> Specialized AI Coaches
-                                </button>
-                            </div>
-
-                            <div style={{ height: '1px', background: 'var(--border-premium)', flexShrink: 0 }} />
-
-                            {/* Tools - Live Context and Clear Chat, moved
-                                off the old top bar's icon row. */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
-                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px' }}>Tools</span>
-                                <button
-                                    type="button" onClick={() => { setSidebarOpen(false); setInspectorOpen(true); }}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', background: 'transparent', border: '1px solid transparent', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: '600' }}
-                                >
-                                    <ShieldCheck size={15} style={{ flexShrink: 0 }} /> Live Context
-                                </button>
-                                <button
-                                    type="button" onClick={() => { setSidebarOpen(false); clearChat(); }}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 10px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', background: 'transparent', border: '1px solid transparent', color: '#EF4444', fontSize: '13px', fontWeight: '600' }}
-                                >
-                                    <Trash2 size={15} style={{ flexShrink: 0 }} /> Clear This Chat
-                                </button>
-                            </div>
-
-                            <div style={{ height: '1px', background: 'var(--border-premium)', flexShrink: 0 }} />
-
-                            {/* Chat History - the only section that scrolls
-                                independently, so the fixed sections above
-                                stay put regardless of how many sessions
-                                exist. */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minHeight: '80px' }}>
-                                <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', padding: '0 2px', flexShrink: 0 }}>Chat History</span>
-                                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                    {[...sessions].sort((a, b) => b.updatedAt - a.updatedAt).map((s) => {
-                                        const isActive = s.id === activeSession?.id;
-                                        return (
-                                            <div
-                                                key={s.id} onClick={() => { setActiveSessionId(s.id); setSidebarOpen(false); }}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', borderRadius: '10px', cursor: 'pointer', background: isActive ? 'var(--widget-bg)' : 'transparent', border: isActive ? '1px solid var(--border-premium)' : '1px solid transparent' }}
-                                            >
-                                                <MessageSquare size={14} color={isActive ? 'var(--primary)' : 'var(--text-muted)'} style={{ flexShrink: 0 }} />
-                                                <span style={{ flex: 1, minWidth: 0, fontSize: '13px', fontWeight: isActive ? '700' : '600', color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.title}>{s.title}</span>
-                                                <button
-                                                    type="button" onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} title="Delete chat"
-                                                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', color: 'var(--text-muted)', flexShrink: 0, opacity: 0.7 }}
-                                                >
-                                                    <Trash2 size={13} />
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {/* CENTER: main chat column - minHeight: 0 is the real
-                    fix for the reported "input bar drifts/scrolls with
-                    the messages" bug: this column sits between two
-                    siblings that both already had it (the row above and
-                    the Chat-tab wrapper below), but was missing it right
-                    here. Without min-height:0 on every link in a nested
-                    flex-column chain, a child can't shrink below its own
-                    content size, so the message list's intended
-                    "overflow-y: auto, bounded height" never actually
-                    took effect - the whole page grew to fit all the
-                    messages instead, and the outer page-level scroll
-                    that produced dragged the input bar (just an ordinary
-                    child in that flow) up and down with it, instead of
-                    the input staying pinned while only the messages
-                    above it scrolled. */}
-                <div data-diag="ai-center-chat" style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
-
-                    {/* Top bar: sidebar/inspector toggles + Persona & Model
-                        Switcher pills - real, interactive mode transitions,
-                        not a decorative label row. Desktop-only now in its
-                        entirety - on mobile, personas/history/context/wipe
-                        all live in the menu drawer instead (see the drawer
-                        above), so the main chat column stays genuinely
-                        clean with zero secondary chrome, matching this
-                        request's own "clean chat area" ask. */}
-                    {!isMobile && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button type="button" onClick={() => setSidebarOpen((v) => !v)} title={sidebarOpen ? 'Hide chat history' : 'Show chat history'} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '9px', padding: '5px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', flexShrink: 0 }}>
-                            {sidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
-                        </button>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', overflowX: 'auto', overflowY: 'hidden', flex: 1, WebkitOverflowScrolling: 'touch' }}>
-                            {PERSONAS.map((p) => {
-                                const PIcon = p.icon;
-                                const active = activePersona === p.id;
-                                return (
-                                    <button
-                                        key={p.id} type="button"
-                                        onClick={() => {
-                                            setActivePersona(p.id);
-                                            // Switching persona on the CURRENT session updates
-                                            // its own routing going forward, rather than
-                                            // silently leaving the session on its old persona
-                                            // while the pill shows something different.
-                                            setSessions((prev) => prev.map((s) => s.id === activeSession?.id ? { ...s, persona: p.id } : s));
-                                        }}
-                                        style={{
-                                            display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '20px', cursor: 'pointer', flexShrink: 0,
-                                            background: active ? 'rgba(var(--primary-rgb), 0.15)' : 'var(--widget-bg)',
-                                            border: active ? `1px solid ${p.accent}` : '1px solid var(--border-premium)',
-                                            color: active ? p.accent : 'var(--text-secondary)', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap', lineHeight: 1,
-                                        }}
-                                    >
-                                        <PIcon size={12} /> {p.label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        <button type="button" onClick={() => setInspectorOpen((v) => !v)} title={inspectorOpen ? 'Hide context inspector' : 'Show context inspector'} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '9px', padding: '5px', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', flexShrink: 0 }}>
-                            {inspectorOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
-                        </button>
-
-                        <button
-                            type="button" onClick={clearChat}
-                            style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 11px', background: 'rgba(239, 68, 68, 0.1)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '9px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}
-                            title="Clear this chat"
-                        >
-                            <Trash2 size={13} /> Wipe
-                        </button>
-                    </div>
-                    )}
-
-                    {/* Navigation Tabs - desktop-only, same reasoning as
-                        the row above: this switch now lives in the mobile
-                        drawer's own "View" section instead. */}
-                    {!isMobile && (
-                    <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', flexShrink: 0 }}>
-                        <button
-                            onClick={() => setActiveTab('Chat')}
-                            style={{ padding: '6px 14px', background: activeTab === 'Chat' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Chat' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Chat' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', lineHeight: 1.4 }}
-                        >
-                            <Bot size={14} /> AI Chat Assistant
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('Coaches')}
-                            style={{ padding: '6px 14px', background: activeTab === 'Coaches' ? 'var(--widget-bg)' : 'transparent', color: activeTab === 'Coaches' ? 'var(--primary)' : 'var(--text-secondary)', border: 'none', borderBottom: activeTab === 'Coaches' ? '2px solid var(--primary)' : '2px solid transparent', fontWeight: '600', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', lineHeight: 1.4 }}
-                        >
-                            <Cpu size={14} /> Specialized AI Coaches
-                        </button>
-                    </div>
-                    )}
-
-                    {/* TAB CONTENT: CHAT ASSISTANT */}
-                    {activeTab === 'Chat' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 }}>
-                            <div style={{ flex: 1, minHeight: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '22px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-                                {messages.length <= 1 ? (
-                                    /* Floating Starter Grid - shown on a new/empty chat
-                                       instead of the chat log, for instant execution. */
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '20px' }}>
-                                        <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'var(--primary)', color: 'var(--text-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(var(--primary-rgb), 0.35)' }}>
-                                            <Sparkles size={28} />
-                                        </div>
-                                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>What would you like to know?</p>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', width: '100%', maxWidth: '720px' }}>
-                                            {QUICK_PROMPTS.map((card, idx) => (
-                                                <button
-                                                    key={idx} type="button" onClick={() => handleQuickPrompt(card.text)}
-                                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', cursor: 'pointer', textAlign: 'left' }}
-                                                >
-                                                    <card.icon size={17} color="var(--accent)" style={{ flexShrink: 0 }} />
-                                                    <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{card.text}</span>
-                                                    <ArrowUpRight size={14} color="var(--text-muted)" style={{ marginLeft: 'auto', flexShrink: 0 }} />
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px', paddingRight: '8px' }}>
-                                        {messages.map(msg => (
-                                            <div key={msg.id} style={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', gap: '12px', alignItems: 'flex-start' }}>
-                                                {msg.sender === 'ai' && (
-                                                    <div style={{ width: '36px', height: '36px', borderRadius: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 0 12px rgba(var(--primary-rgb), 0.3)' }}>
-                                                        <Bot size={20} />
-                                                    </div>
-                                                )}
-
-                                                <div style={{ maxWidth: '80%', background: msg.sender === 'user' ? 'var(--primary)' : 'var(--widget-bg)', color: msg.sender === 'user' ? 'var(--text-on-primary)' : 'var(--text-primary)', padding: '16px 20px', borderRadius: '16px', border: msg.sender === 'ai' ? '1px solid var(--border-premium)' : 'none', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                    {renderMessageText(msg.text)}
-                                                    <span style={{ fontSize: '10px', opacity: 0.7, alignSelf: 'flex-end', marginTop: '4px' }}>{msg.time}</span>
-                                                </div>
-
-                                                {msg.sender === 'user' && (
-                                                    <div style={{ width: '36px', height: '36px', borderRadius: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                        <User size={20} />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-
-                                        {isGenerating && (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                <div style={{ width: '36px', height: '36px', borderRadius: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <Bot size={20} />
-                                                </div>
-                                                <div style={{ background: 'var(--widget-bg)', padding: '14px 20px', borderRadius: '16px', border: '1px solid var(--border-premium)', color: 'var(--text-muted)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Analyzing Nexus Context & Memory...
-                                                </div>
-                                            </div>
-                                        )}
-                                        <div ref={chatEndRef} />
-                                    </div>
-                                )}
-
-                                <form onSubmit={handleSendMessage} style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-premium)', flexShrink: 0 }}>
-                                    {/* Unified ChatGPT-style pill: the Plus button, text
-                                        input, and Send button all live inside ONE rounded
-                                        container instead of three separate boxes. */}
-                                    <div data-tour-id="ai-input" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 6px 6px 6px', borderRadius: '26px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}>
-                                        <div ref={attachMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
-                                            <button
-                                                type="button"
-                                                ref={attachBtnRef}
-                                                onClick={toggleAttachMenu}
-                                                aria-label="Open attachment menu"
-                                                aria-expanded={attachMenuOpen}
-                                                data-tour-id="ai-plus"
-                                                style={{ width: '38px', height: '38px', borderRadius: '50%', background: attachMenuOpen ? 'var(--primary)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: attachMenuOpen ? 'var(--text-on-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s, color 0.2s' }}
-                                            >
-                                                <Plus size={19} style={{ transform: attachMenuOpen ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }} />
-                                            </button>
-
-                                            {attachMenuOpen && (
-                                                <div style={{ position: 'fixed', left: attachMenuPos.left, bottom: attachMenuPos.bottom, width: '260px', maxWidth: 'calc(100vw - 32px)', maxHeight: '50vh', overflowY: 'auto', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', boxShadow: '0 12px 32px rgba(0,0,0,0.4)', padding: '8px', zIndex: 250 }}>
-                                                    <button type="button" onClick={() => { createNewSession(); setAttachMenuOpen(false); }} style={ATTACH_MENU_ROW_STYLE}>
-                                                        <MessageSquare size={16} color="var(--accent)" style={{ flexShrink: 0 }} /> New Chat
-                                                    </button>
-                                                    <button type="button" onClick={() => { setSidebarOpen(true); setAttachMenuOpen(false); }} style={ATTACH_MENU_ROW_STYLE}>
-                                                        <Layers size={16} color="var(--accent)" style={{ flexShrink: 0 }} /> Switch Assistant Mode
-                                                    </button>
-                                                    <div style={{ margin: '8px 10px 4px', fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Quick Prompts</div>
-                                                    {QUICK_PROMPTS.map((qp, idx) => (
-                                                        <button key={idx} type="button" onClick={() => { handleQuickPrompt(qp.text); setAttachMenuOpen(false); }} style={ATTACH_MENU_ROW_STYLE}>
-                                                            <qp.icon size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                                                            <span style={{ fontSize: '13px', fontWeight: '600', lineHeight: 1.3 }}>{qp.text}</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <input
-                                            type="text"
-                                            aria-label="Chat message"
-                                            placeholder="Ask anything"
-                                            value={inputPrompt} onChange={(e) => setInputPrompt(e.target.value)}
-                                            style={{ flex: 1, minWidth: 0, padding: '10px 6px', border: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '14px', lineHeight: '20px', outline: 'none' }}
-                                        />
-
-                                        <button
-                                            type="submit"
-                                            disabled={isGenerating || !inputPrompt.trim()}
-                                            aria-label="Send message"
-                                            style={{ width: '38px', height: '38px', flexShrink: 0, background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: (!inputPrompt.trim() || isGenerating) ? 0.5 : 1, transition: 'opacity 0.2s' }}
-                                        >
-                                            <Send size={16} />
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* TAB CONTENT: SPECIALIZED COACHES - buttons now also
-                        switch the active persona (not just submit a prompt),
-                        so consulting a coach genuinely puts the AI into
-                        that domain's own persona going forward too. */}
-                    {activeTab === 'Coaches' && (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', overflowY: 'auto', flex: 1, paddingBottom: '16px' }}>
-                            
-                            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '14px', color: 'var(--primary)' }}><Code size={24} /></div>
-                                    <div>
-                                        <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Study & Code Coach</h3>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Programming & Academic Mentor</span>
-                                    </div>
-                                </div>
-                                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                                    Helps you write, debug, and understand code (Java, C, Python). Evaluates good vs bad coding practices.
-                                </p>
-                                <button 
-                                    onClick={() => { setActivePersona('study'); setSessions((prev) => prev.map((s) => s.id === activeSession?.id ? { ...s, persona: 'study' } : s)); handleQuickPrompt("Write a Java code example explaining Good vs Bad practice."); }}
-                                    style={{ marginTop: 'auto', padding: '10px 16px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-                                >
-                                    Ask for Code Review →
-                                </button>
-                            </div>
-
-                            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '14px', color: '#EF4444' }}><Flame size={24} /></div>
-                                    <div>
-                                        <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Fitness Coach</h3>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Workout & Consistency Analysis</span>
-                                    </div>
-                                </div>
-                                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                                    Evaluates your gym history from the Gym module. Monitors progressive overload and calculates consistency.
-                                </p>
-                                <button 
-                                    onClick={() => { setActivePersona('fitness'); setSessions((prev) => prev.map((s) => s.id === activeSession?.id ? { ...s, persona: 'fitness' } : s)); handleQuickPrompt("How is my gym consistency based on my workout history?"); }}
-                                    style={{ marginTop: 'auto', padding: '10px 16px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-                                >
-                                    Consult Fitness Coach →
-                                </button>
-                            </div>
-
-                            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ padding: '12px', background: 'var(--widget-bg)', borderRadius: '14px', color: '#3B82F6' }}><DollarSign size={24} /></div>
-                                    <div>
-                                        <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)' }}>AI Finance Coach</h3>
-                                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Budget & Savings Optimizer</span>
-                                    </div>
-                                </div>
-                                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                                    Reads your Finance module to monitor spending limits, alert on low balance, and analyze transactions.
-                                </p>
-                                <button 
-                                    onClick={() => { setActivePersona('finance'); setSessions((prev) => prev.map((s) => s.id === activeSession?.id ? { ...s, persona: 'finance' } : s)); handleQuickPrompt("Check my monthly budget status and total expenses."); }}
-                                    style={{ marginTop: 'auto', padding: '10px 16px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-                                >
-                                    Consult Finance Coach →
-                                </button>
-                            </div>
-
-                        </div>
-                    )}
-                </div>
-
-                {/* RIGHT: Live Context Inspector - real, live-computed
-                    data the AI genuinely, currently has access to.
-                    Desktop-only inline layout; mobile's equivalent
-                    slide-over drawer (from the right) is right below. */}
-                {inspectorOpen && !isMobile && (
-                    <div data-diag="ai-right-context-panel" style={{ width: 'clamp(170px, 17vw, 210px)', flexShrink: 0, background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <ShieldCheck size={16} color="#10B981" />
-                            <span style={{ fontSize: '12px', fontWeight: '800', color: 'var(--text-primary)' }}>Live Context</span>
-                        </div>
-                        {liveContext.map((ctx) => (
-                            <div key={ctx.label} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 12px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', minWidth: 0 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                                    <ctx.icon size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
-                                    <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={ctx.label}>{ctx.label}</span>
-                                </div>
-                                <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ctx.value}>{ctx.value}</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {isMobile && (
-                    <>
-                        <div
-                            onClick={() => setInspectorOpen(false)}
-                            aria-hidden="true"
-                            style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.5)', opacity: inspectorOpen ? 1 : 0, pointerEvents: inspectorOpen ? 'auto' : 'none', transition: 'opacity 0.25s ease' }}
-                        />
-                        <div style={{
-                            position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 301, width: 'min(280px, 80vw)',
-                            background: 'var(--bg-surface)', borderLeft: '1px solid var(--border-premium)',
-                            padding: '16px', paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
-                            display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', boxSizing: 'border-box',
-                            transform: inspectorOpen ? 'translateX(0)' : 'translateX(100%)',
-                            transition: 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
-                            boxShadow: inspectorOpen ? '-8px 0 24px rgba(0,0,0,0.3)' : 'none',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                                    <ShieldCheck size={16} color="#10B981" /> Live Context
-                                </span>
-                                <button type="button" onClick={() => setInspectorOpen(false)} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}><X size={17} /></button>
-                            </div>
-                            {liveContext.map((ctx) => (
-                                <div key={ctx.label} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 12px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', minWidth: 0 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                                        <ctx.icon size={13} color="var(--accent)" style={{ flexShrink: 0 }} />
-                                        <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }} title={ctx.label}>{ctx.label}</span>
-                                    </div>
-                                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ctx.value}>{ctx.value}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
-
-            {showClearConfirm && (
-                <div
-                    onClick={() => setShowClearConfirm(false)}
-                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
-                >
-                    <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '26px', width: '100%', maxWidth: '360px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}
-                    >
-                        <div style={{ textAlign: 'center' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Clear AI Chat?</h3>
-                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>This permanently erases this conversation.</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <button onClick={() => setShowClearConfirm(false)} style={{ flex: 1, padding: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>Cancel</button>
-                            <button onClick={confirmClearChat} style={{ flex: 1, padding: '10px', background: '#EF4444', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>Confirm</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+        <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', boxSizing: 'border-box', minWidth: 0, animation: 'fadeInScale 0.3s ease' }}>
+            <AILayout
+                coaches={PERSONAS}
+                selectedCoachId={activePersona}
+                onSelectCoach={handleSelectCoach}
+                sessions={sessions}
+                activeSessionId={activeSession?.id}
+                onSelectSession={setActiveSessionId}
+                onNewChat={() => createNewSession()}
+                onDeleteSession={deleteSession}
+                messages={messages}
+                isGenerating={isGenerating}
+                inputPrompt={inputPrompt}
+                onInputChange={setInputPrompt}
+                onSubmit={() => submitMessage(inputPrompt)}
+                providers={providers}
+                activeProviderId={activeProvider}
+                onSelectProvider={setPreferredProvider}
+                onSelectModel={setModelForProvider}
+                pendingImage={pendingImage}
+                onAttachImage={setPendingImage}
+                liveContext={liveContext}
+                onClearChat={clearChat}
+                onRegenerateMessage={regenerateResponse}
+                onBranchChat={branchChatAt}
+                onToggleMessageLike={toggleMessageLike}
+                showClearConfirm={showClearConfirm}
+                onCancelClear={() => setShowClearConfirm(false)}
+                onConfirmClear={confirmClearChat}
+                showTour={showTour}
+                onFinishTour={() => setShowTour(false)}
+                onOpenSettings={typeof setAppActiveTab === 'function' ? () => setAppActiveTab('Settings') : undefined}
+            />
         </div>
     );
 };
 
 export default AIPage;
+

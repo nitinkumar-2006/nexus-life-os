@@ -6,14 +6,15 @@ import {
     Cloud, Monitor, Volume2, VolumeX, Play, HardDrive,
     LayoutDashboard, Trash2, DollarSign, Activity, LogOut, RefreshCw, CloudOff,
     Check, X, Music, Lock, Unlock, Edit3, Mail, Thermometer, Sparkles,
-    Image, LayoutGrid, Battery, BookOpen, ChevronDown,
+    Image, ImagePlus, LayoutGrid, BookOpen, ChevronDown,
     Clock, ClipboardList, CalendarDays, Utensils, RotateCcw,
-    Link2, Phone, Cpu, User, ArrowUpRight,
+    Link2, Phone, Cpu, User, ArrowUpRight, Type, Search, Mic, Key, FileType, Video,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getAuthErrorMessage } from '../utils/authErrorMessages.js';
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator.jsx';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
+import { useStreaming } from '../context/StreamingContext.jsx';
 import { useCloudSync } from '../context/CloudSyncContext.jsx';
 import { useSoundSettings, useSoundActions, SOUND_CHANNELS } from '../context/SoundSettingsContext.jsx';
 import { getUiClickUrl, getTaskAlertUrl } from '../utils/noiseSynth.js';
@@ -25,11 +26,20 @@ import { linkIdentifierToAccount, unlinkIdentifierFromAccount, getLinkedIdentifi
 import { doc, deleteDoc } from 'firebase/firestore';
 import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import VoiceAssistantSettings from '../components/VoiceAssistantSettings.jsx';
 import TourGuide from '../components/TourGuide.jsx';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
 import { TOUR_STEPS } from '../constants/tourSteps.js';
-import { WALLPAPER_OPTIONS } from '../constants/wallpaperOptions.js';
+import { WALLPAPER_OPTIONS, WALLPAPER_CATEGORIES } from '../constants/wallpaperOptions.js';
+import { FONT_OPTIONS, FONT_CATEGORIES, DEFAULT_FONT_ID, getFontOption } from '../constants/fontOptions.js';
+import { loadFontStylesheet, preloadFontsForPreview } from '../utils/fontLoader.js';
+import { saveCustomFontBlob, getCustomFontBlob, deleteCustomFontBlob } from '../utils/customFontStorage.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
+import { SAAVN_API_BASE_URL_FALLBACK } from '../config/streamingConfig.js';
+import { searchSaavnSongs } from '../utils/saavnClient.js';
+import SettingsLayout from '../components/settings/SettingsLayout.jsx';
+import SettingsProfileHeader from '../components/settings/SettingsProfileHeader.jsx';
+import SettingCard from '../components/settings/SettingCard.jsx';
 
 // Real wallpaper presets - each preview gradient genuinely matches its
 // actual, corresponding component in AlternateBackgrounds.jsx, not an
@@ -45,12 +55,12 @@ import { db, isFirebaseConfigured } from '../firebase/config.js';
 // work than a normal re-render would. Both now pull their own data via
 // hooks instead of closing over the parent's variables, which is what
 // makes moving them out here possible without changing their behavior.
+// Real CSS classes (settingsLayout.css) instead of the previous fully
+// inline-styled implementation - same exact props/behavior (including
+// the real UI-click sound), now with a genuine subtle glow while
+// active instead of a flat color swap.
 const ToggleSwitch = ({ checked, onChange, compact = false }) => {
     const { playChannelSound } = useSoundActions();
-    const trackW = compact ? '32px' : '44px';
-    const trackH = compact ? '18px' : '24px';
-    const knobSize = compact ? '13px' : '18px';
-    const knobOffOn = compact ? ['2px', '17px'] : ['3px', '23px'];
     const fire = () => { playChannelSound('uiFeedback', getUiClickUrl); onChange(!checked); };
     return (
         <div
@@ -61,19 +71,9 @@ const ToggleSwitch = ({ checked, onChange, compact = false }) => {
             onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(); }
             }}
-            style={{
-                width: trackW, height: trackH, background: checked ? 'var(--primary)' : 'var(--surface-inset)',
-                borderRadius: '20px', position: 'relative', cursor: 'pointer', flexShrink: 0,
-                border: checked ? 'none' : '1px solid var(--border-premium)',
-                transition: 'background 0.3s ease'
-            }}
+            className={`settings-toggle${compact ? ' is-compact' : ''}${checked ? ' is-checked' : ''}`}
         >
-            <div style={{
-                width: knobSize, height: knobSize, background: '#fff', borderRadius: '50%',
-                position: 'absolute', top: checked ? (compact ? '2px' : '3px') : '2px', left: checked ? knobOffOn[1] : knobOffOn[0],
-                transition: 'left 0.3s ease, box-shadow 0.3s ease',
-                boxShadow: checked ? '0 2px 5px rgba(0,0,0,0.2)' : 'none'
-            }} />
+            <div className="settings-toggle-knob" />
         </div>
     );
 };
@@ -141,7 +141,14 @@ const SmoothVolumeSlider = ({ value, onChange, disabled, id, ariaLabel }) => {
                 onChange={handleChange}
                 onPointerUp={commitNow}
                 onPointerCancel={commitNow}
-                style={{ width: '72px', accentColor: 'var(--primary)', opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer', height: '4px' }}
+                // touchAction: 'none' is load-bearing on mobile (especially
+                // inside Capacitor's Android WebView) - without it, a
+                // horizontal finger-drag on this small thumb can be
+                // reinterpreted as an attempt to vertically scroll the
+                // Settings page instead of dragging the slider, since this
+                // whole page scrolls and the browser's default touch
+                // handling arbitrates that ambiguity in favor of scrolling.
+                style={{ width: '72px', accentColor: 'var(--primary)', opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer', height: '4px', touchAction: 'none' }}
             />
         </>
     );
@@ -190,7 +197,11 @@ const SmoothRangeSlider = ({ value, min, max, step, onChange, disabled, width = 
                 onChange={handleChange}
                 onPointerUp={commitNow}
                 onPointerCancel={commitNow}
-                style={{ width, accentColor: 'var(--primary)', opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer', height: '4px' }}
+                // See SmoothVolumeSlider's identical comment above -
+                // touchAction: 'none' stops a finger-drag on this small
+                // thumb from being swallowed as a page-scroll gesture on
+                // mobile/Capacitor WebView.
+                style={{ width, accentColor: 'var(--primary)', opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer', height: '4px', touchAction: 'none' }}
             />
         </>
     );
@@ -299,7 +310,7 @@ const ManageSoundsModal = ({ channelKey, icon, onClose }) => {
 
     return (
         <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
             onClick={onClose}
         >
             <div
@@ -405,7 +416,7 @@ const PinVerifyModal = ({ fieldLabel, storedPinHash, onVerified, onClose }) => {
 
     return (
         <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 220000 }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 220000 }}
             onClick={onClose}
         >
             <form
@@ -485,7 +496,7 @@ const BackupPassphraseModal = ({ mode, onSubmit, onClose }) => {
     };
 
     return (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 220000 }} onClick={onClose}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 220000 }} onClick={onClose}>
             <form onSubmit={handleSubmit} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', width: '100%', maxWidth: '360px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
                 <Lock size={26} color="var(--accent)" />
                 <div style={{ textAlign: 'center' }}>
@@ -587,7 +598,7 @@ const SettingsConfirmModal = ({ title, message, onConfirm, onCancel, forceGlass 
 
     return (
         <div
-            style={{ position: 'fixed', inset: 0, zIndex: 220000, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ position: 'fixed', inset: 0, zIndex: 220000, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={onCancel}
         >
             <div
@@ -615,49 +626,51 @@ const SettingsConfirmModal = ({ title, message, onConfirm, onCancel, forceGlass 
 // Security, or Cloud Sync inside System Defaults) keeps its own existing
 // look untouched - this only adds the outer grouping, spacing, and the
 // collapse/expand affordance around them.
-const SettingsSection = ({ icon: Icon, title, subtitle, defaultOpen = false, children, tourId }) => {
-    const [isOpen, setIsOpen] = useState(defaultOpen);
-    return (
-        <div data-tour-id={tourId} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', overflow: 'hidden' }}>
-            <button
-                type="button"
-                onClick={() => setIsOpen((v) => !v)}
-                aria-expanded={isOpen}
-                style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', width: '100%',
-                    padding: '20px 24px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '11px', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Icon size={18} color="var(--accent)" />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                        <h2 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{title}</h2>
-                        {subtitle && <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '500' }}>{subtitle}</span>}
-                    </div>
-                </div>
-                <ChevronDown size={20} color="var(--text-secondary)" style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
-            </button>
-            {isOpen && (
-                <div style={{ padding: '0 24px 24px 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    {children}
-                </div>
-            )}
-        </div>
-    );
-};
 
-const SettingsPage = ({ setActiveTab }) => {
+const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
     const isMobile = useIsMobile();
     // Contextual first-visit tour (see TourGuide.jsx) - mobile only, same
     // scoping as every other page's own tour this pass.
     const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('settings'));
+    // Split-pane category state for the redesigned layout - each real
+    // settings card below (unchanged content, unchanged handlers) is
+    // grouped into whichever of these it actually belongs to. Grouped by
+    // real content, not a literal copy of the request's own illustrative
+    // "e.g." category names: there's no genuine "About" section in this
+    // app to put behind that label, so Backup & Data (cloud backup,
+    // export, factory reset) takes its place, and General absorbs Module
+    // Manager + System Defaults rather than forcing either into a
+    // category it doesn't really belong to.
+    const [activeCategory, setActiveCategory] = useState('account');
+    const SETTINGS_CATEGORIES = [
+        { id: 'account', label: 'Account', icon: User },
+        { id: 'general', label: 'General', icon: LayoutDashboard },
+        { id: 'appearance', label: 'Appearance', icon: Monitor },
+        { id: 'glassmorphism', label: 'Glassmorphism', icon: Sparkles },
+        { id: 'typography', label: 'Typography', icon: Type },
+        { id: 'audio', label: 'Audio', icon: Music },
+        { id: 'security', label: 'Security & Privacy', icon: Shield },
+        { id: 'api', label: 'API Integrations', icon: Key },
+        { id: 'backup', label: 'Backup & Data', icon: Cloud },
+    ];
     const { user, isConfigured, logout, login, signup, loginWithGoogle, changePassword } = useAuth();
-    const { volume, setVolume, isMuted, toggleMute, crossfadeEnabled, setCrossfadeEnabled } = useAudioPlayer();
+    const { volume, setVolume: setLocalVolume, isMuted, toggleMute, crossfadeEnabled, setCrossfadeEnabled } = useAudioPlayer();
+    // Real, reported bug: this slider only ever touched the local <audio>
+    // element - Spotify's Web Playback SDK has its own, completely
+    // separate volume, so dragging this had zero effect while Spotify was
+    // the active, playing source. Both are updated together now - the
+    // local volume so it's ready the moment playback switches back to a
+    // local/Saavn track, and Spotify's own SDK volume so it takes effect
+    // immediately if Spotify is what's actually playing right now.
+    const { activeSource: activeStreamingSource, spotifySetVolume } = useStreaming();
+    const setVolume = (v) => {
+        setLocalVolume(v);
+        if (activeStreamingSource === 'spotify') spotifySetVolume(v);
+    };
     const { isSyncing, syncStatus, syncError, lastSyncedAt, pushToCloud, pullFromCloud } = useCloudSync();
     const [activeSyncDirection, setActiveSyncDirection] = useState(null); // null | 'push' | 'pull'
     useEffect(() => { if (!isSyncing) setActiveSyncDirection(null); }, [isSyncing]);
+
     // Which channel's Manage Sounds modal is open, if any - a deliberate,
     // infrequent user action (not a per-pixel drag event), so holding this
     // in SettingsPage's own state doesn't reintroduce the kind of
@@ -686,15 +699,41 @@ const SettingsPage = ({ setActiveTab }) => {
         openaiApiKeyConfirmed: false,
         geminiApiKey: '',
         geminiApiKeyConfirmed: false,
+        youtubeApiKey: '',
+        youtubeApiKeyConfirmed: false,
+        saavnEnabled: false,
+        saavnApiBaseUrl: '',
+        saavnApiBaseUrlConfirmed: false,
+        grokApiKey: '',
+        grokApiKeyConfirmed: false,
+        deepseekApiKey: '',
+        deepseekApiKeyConfirmed: false,
         performanceMode: false,
+        // Off by default (opt-in) - matches VoiceAssistantSettings.jsx's
+        // and AIDailyBriefingCard.jsx's own defaults exactly. This copy
+        // matters even though this page doesn't read it back out: several
+        // writes below persist this whole `settings` object wholesale
+        // (PIN-hash migration, theme sync, ...), so if this default ever
+        // drifted to `true` it would silently bake an explicit "on" into
+        // nexus_global_settings for a user who never touched the switch,
+        // the moment they so much as opened Settings.
+        aiVoiceAssistantEnabled: false,
+        aiVoiceLanguage: 'en',
+        aiVoiceURI: '',
+        aiVoiceVolume: 1,
+        aiVoiceRate: 1,
+        aiVoiceAutoPlay: false,
         autoBackupFreq: 'Weekly',
         weightUnit: 'kg',
         temperatureUnit: '°C',
         liquidUnit: 'L',
         glassBlur: 20,
         glassOpacity: 3,
+        osBrightness: 100,
         glassAccentTint: 'default',
         glassAnimationsEnabled: true,
+        fontFamily: DEFAULT_FONT_ID,
+        customFonts: [],
         wallpaper: 'sky',
         widgetShowStudy: true,
         widgetShowGym: true,
@@ -740,6 +779,35 @@ const SettingsPage = ({ setActiveTab }) => {
         const root = document.documentElement;
         root.style.setProperty('--glass-blur', `${settings.glassBlur}px`);
         root.style.setProperty('--nexus-user-glass-alpha', (settings.glassOpacity / 100).toFixed(3));
+        // Read by the wallpaper background layers (DynamicBackground.jsx/
+        // AlternateBackgrounds.jsx) as filter: brightness(var(--os-
+        // brightness)). Applied there rather than on .nexus-app-shell
+        // itself (the alternative the task allowed) - that shell is an
+        // ancestor of the fixed-position Sidebar/mobile nav, and filter
+        // (like backdrop-filter/transform) creates a new containing block
+        // for position:fixed descendants, which would silently detach
+        // them from the real viewport. The wallpaper layers are plain
+        // siblings of the shell instead, so brightening/dimming them
+        // carries no such risk while still affecting the dominant visual
+        // surface every glass panel already shows through.
+        // CSS brightness() is a flat per-channel multiplier, so raising it
+        // past 1.0 clips any pixel already near-white (the sun/moon discs'
+        // hottest core, cloud highlights) straight to pure white - erasing
+        // the soft multi-stop falloff that makes them read as glowing
+        // rather than flat. Verified empirically: at the raw 150% this
+        // slider allows, DynamicBackground.jsx's sun disc and night sky
+        // gradient - both already correct at 100% - visibly flatten into
+        // exactly the "flat saturated" / "harsh circle" look a wallpaper-
+        // realism bug report described. Dampening only the >100% half (JS
+        // curve, not a CSS clamp, so `--os-brightness` stays a plain
+        // number every filter: brightness() consumer can use as-is) keeps
+        // the slider genuinely useful for brightening while keeping that
+        // brightening inside a range the gradients can absorb without
+        // clipping. Dimming (<100%) only pulls channels toward 0, which
+        // never clips, so it's left linear.
+        const rawBrightness = settings.osBrightness / 100;
+        const effectiveBrightness = rawBrightness > 1 ? 1 + (rawBrightness - 1) * 0.4 : rawBrightness;
+        root.style.setProperty('--os-brightness', effectiveBrightness.toFixed(2));
         const tint = GLASS_ACCENT_TINTS.find((t) => t.id === settings.glassAccentTint) || GLASS_ACCENT_TINTS[0];
         if (tint.rgb) {
             // Overrides the real, core color variables the whole app already
@@ -762,7 +830,49 @@ const SettingsPage = ({ setActiveTab }) => {
             root.style.setProperty('--nexus-glass-glow-alpha', '0');
         }
         root.classList.toggle('nexus-motion-off', !settings.glassAnimationsEnabled);
-    }, [settings.glassBlur, settings.glassOpacity, settings.glassAccentTint, settings.glassAnimationsEnabled]);
+    }, [settings.glassBlur, settings.glassOpacity, settings.osBrightness, settings.glassAccentTint, settings.glassAnimationsEnabled]);
+
+    // Applies the real, live typography choice - loads the actual font
+    // stylesheet it needs (Google Fonts, Fontshare, or nothing at all for
+    // a real system font - see utils/fontLoader.js), then sets
+    // --font-primary as a live inline style on <html>, the same
+    // "wins over every theme's own stylesheet default" convention
+    // --nexus-user-glass-alpha above already uses. This is what makes
+    // picking a font in Settings apply instantly, everywhere, with no
+    // reload - every element in the app already inherits font-family from
+    // this one variable (see style.css's own `* { font-family:
+    // var(--font-primary) }` rule).
+    useEffect(() => {
+        const customFont = (settings.customFonts || []).find((f) => f.id === settings.fontFamily);
+        if (customFont) {
+            // A real, uploaded font's FontFace is never persisted by the
+            // browser itself across a reload (document.fonts starts empty
+            // every fresh load) - re-registering it from its own real
+            // bytes in IndexedDB before applying --font-primary is what
+            // makes the choice survive a reload at all, not just the
+            // current tab session. Skips the re-fetch/re-register if it's
+            // already loaded (e.g. switching back and forth without a
+            // reload in between).
+            (async () => {
+                const alreadyRegistered = Array.from(document.fonts).some((f) => f.family === customFont.familyName);
+                if (!alreadyRegistered) {
+                    try {
+                        const arrayBuffer = await getCustomFontBlob(customFont.id);
+                        if (arrayBuffer) {
+                            const fontFace = new FontFace(customFont.familyName, arrayBuffer);
+                            await fontFace.load();
+                            document.fonts.add(fontFace);
+                        }
+                    } catch (e) { /* the font simply won't render as custom this time - the stack's own fallback below still applies */ }
+                }
+                document.documentElement.style.setProperty('--font-primary', `'${customFont.familyName}', -apple-system, BlinkMacSystemFont, sans-serif`);
+            })();
+            return;
+        }
+        const option = getFontOption(settings.fontFamily);
+        loadFontStylesheet(option);
+        document.documentElement.style.setProperty('--font-primary', option.stack);
+    }, [settings.fontFamily, settings.customFonts]);
 
     // One-time migration: a PIN saved before this change would still be
     // sitting in localStorage as the raw 4 digits, not a hash. Detects
@@ -793,8 +903,43 @@ const SettingsPage = ({ setActiveTab }) => {
 
     const [isSaved, setIsSaved] = useState(false);
     const [wallpaperExpanded, setWallpaperExpanded] = useState(false);
+    const [wallpaperCategoryFilter, setWallpaperCategoryFilter] = useState('All');
+    const [customImageExpanded, setCustomImageExpanded] = useState(false);
+    const [customWallpaperImage, setCustomWallpaperImage] = useState(() => {
+        try { return localStorage.getItem('nexus_custom_wallpaper_image') || ''; } catch (e) { return ''; }
+    });
+    const [customImageError, setCustomImageError] = useState('');
+    const [customImageProcessing, setCustomImageProcessing] = useState(false);
+    const customImageInputRef = useRef(null);
     const [accentExpanded, setAccentExpanded] = useState(false);
-    const [widgetExpanded, setWidgetExpanded] = useState(false);
+    const [fontExpanded, setFontExpanded] = useState(false);
+    const [fontSearchQuery, setFontSearchQuery] = useState('');
+    const [customFontExpanded, setCustomFontExpanded] = useState(false);
+    const [customFontError, setCustomFontError] = useState('');
+    const [customFontProcessing, setCustomFontProcessing] = useState(false);
+    const customFontInputRef = useRef(null);
+    // Real filtering (not a decorative search box) - matches on the font's
+    // own display name, grouped back into its real category for the
+    // picker's sectioned layout below.
+    const filteredFontsByCategory = FONT_CATEGORIES
+        .map((category) => ({
+            category,
+            fonts: FONT_OPTIONS.filter((f) => f.category === category && f.label.toLowerCase().includes(fontSearchQuery.trim().toLowerCase())),
+        }))
+        .filter((group) => group.fonts.length > 0);
+
+    // Only fetches every OTHER font's real stylesheet once the picker
+    // itself is actually opened (a deliberate, infrequent action) - so a
+    // genuine live "this is what Playfair Display looks like" preview per
+    // option doesn't cost anything on every normal page load, only when
+    // someone is actually browsing the library. Batched into a handful of
+    // consolidated requests (see fontLoader.js) rather than one request
+    // per font, since the library is 130+ fonts now.
+    useEffect(() => {
+        if (!fontExpanded) return;
+        preloadFontsForPreview(FONT_OPTIONS);
+    }, [fontExpanded]);
+
     const [passwordExpanded, setPasswordExpanded] = useState(false);
     const [cacheSize, setCacheSize] = useState('0.0');
     // The PIN input is bound to this local draft, never to settings.appPin
@@ -805,7 +950,18 @@ const SettingsPage = ({ setActiveTab }) => {
     // explicitly cleared it" (must actually disable the lock) - without
     // this distinction, saving ANY other setting would silently wipe an
     // existing PIN every time, since the draft always starts empty.
-    const [pinDraft, setPinDraft] = useState('');
+    //
+    // Stored as 4 separate box values (not one string) so a real 4-box
+    // PIN entry UI - one digit per box, auto-advancing focus, backspace
+    // jumps back a box - can render each box directly from its own
+    // slot without a middle deletion shifting later digits left (which
+    // joining/re-splitting a single string on every keystroke would
+    // cause). pinDraft below is only the flattened form the existing
+    // save/validation logic (handleSavePin, isValidPinInput) actually
+    // needs - never fed back into rendering the boxes themselves.
+    const [pinBoxValues, setPinBoxValues] = useState(['', '', '', '']);
+    const pinDraft = pinBoxValues.join('');
+    const pinInputRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
     const [pinTouched, setPinTouched] = useState(false);
     const [pinError, setPinError] = useState('');
     const [biometricSupported] = useState(() => isBiometricSupported());
@@ -816,17 +972,66 @@ const SettingsPage = ({ setActiveTab }) => {
     const [githubTokenStatus, setGithubTokenStatus] = useState('idle');
     const [githubUsername, setGithubUsername] = useState('');
 
+    // Real, confirmed gap this closes: this only ever merged in
+    // `themeMode` from the separate 'nexus_theme' key, so if this page was
+    // already open when an update to ANY other field arrived from
+    // elsewhere - most importantly a cloud-synced change pushed from a
+    // second device via CloudSyncContext's own live onSnapshot listener,
+    // which already writes the full 'nexus_global_settings' blob to
+    // localStorage and dispatches this exact 'nexus_settings_updated'
+    // event via applyCloudData - the visible UI here (the Gemini API key
+    // field, wallpaper picker, font, glass sliders, everything) stayed
+    // silently stale until the user navigated away and back or reloaded.
+    // Re-reading and merging the full saved object (not just theme) is
+    // what actually makes "log in on a new device and your key/settings
+    // are just there, instantly, no re-entry" true for a session that's
+    // already sitting open on this page, not only for a fresh mount.
+    // Safe against clobbering an in-flight local edit: every field here
+    // already persists to localStorage synchronously inside handleChange
+    // itself (not a separate effect), so by the time this event's own
+    // dispatch runs (always after that same synchronous write - see
+    // handleChange below), localStorage already reflects this page's own
+    // latest local edit too, not stale data.
+    // True only for the exact synchronous duration handleChange's own
+    // dispatch below is running - the same "don't re-absorb my own echo"
+    // guard CloudSyncContext.jsx already uses (isPullingRef) for the
+    // identical shape of problem. Without this, every single call to
+    // handleChange (every keystroke, toggle, and - critically - every
+    // requestAnimationFrame tick while dragging the Blur/Opacity sliders,
+    // see SmoothRangeSlider above) re-triggered this exact listener on
+    // its own dispatch, which then did a redundant full JSON.parse +
+    // whole-object setSettings on top of the state update handleChange
+    // had just already made correctly - real, measurable double work on
+    // every single settings change, worst during a slider drag where it
+    // compounds up to 60x/second. The guard is what makes this listener
+    // fire ONLY for its actual, intended purpose: an update that
+    // genuinely came from outside this component (a cloud-synced change
+    // arriving via CloudSyncContext's onSnapshot listener, or another
+    // browser tab), which is the only case where the local `settings`
+    // state could actually be stale.
+    const isLocalChangeRef = useRef(false);
+
     useEffect(() => {
-        const syncSettingsTheme = () => {
+        const syncFromExternalUpdate = () => {
+            if (isLocalChangeRef.current) return;
             const currentTheme = localStorage.getItem('nexus_theme') || 'night';
-            setSettings(prev => ({ ...prev, themeMode: currentTheme }));
+            const saved = localStorage.getItem('nexus_global_settings');
+            if (!saved) {
+                setSettings((prev) => ({ ...prev, themeMode: currentTheme }));
+                return;
+            }
+            try {
+                setSettings({ ...defaultSettings, ...JSON.parse(saved), themeMode: currentTheme });
+            } catch (e) {
+                setSettings((prev) => ({ ...prev, themeMode: currentTheme }));
+            }
         };
-        window.addEventListener('nexus_theme_changed', syncSettingsTheme);
-        window.addEventListener('nexus_settings_updated', syncSettingsTheme);
-        
+        window.addEventListener('nexus_theme_changed', syncFromExternalUpdate);
+        window.addEventListener('nexus_settings_updated', syncFromExternalUpdate);
+
         return () => {
-            window.removeEventListener('nexus_theme_changed', syncSettingsTheme);
-            window.removeEventListener('nexus_settings_updated', syncSettingsTheme);
+            window.removeEventListener('nexus_theme_changed', syncFromExternalUpdate);
+            window.removeEventListener('nexus_settings_updated', syncFromExternalUpdate);
         };
     }, []);
 
@@ -858,6 +1063,8 @@ const SettingsPage = ({ setActiveTab }) => {
         // separate Apply Changes click to actually stick.
         localStorage.setItem('nexus_global_settings', JSON.stringify(next));
 
+        isLocalChangeRef.current = true;
+
         if (key === 'themeMode') {
             document.documentElement.setAttribute('data-theme', value);
             localStorage.setItem('nexus_theme', value);
@@ -871,6 +1078,23 @@ const SettingsPage = ({ setActiveTab }) => {
         // actually take effect live elsewhere in the app immediately,
         // not just inside this page's own React state.
         window.dispatchEvent(new Event('nexus_settings_updated'));
+        // Real, confirmed gap this closes: CloudSyncContext's own
+        // debounced auto-push listener (the actual mechanism that pushes
+        // any local change to Firestore within ~3s) only ever listens
+        // for the native 'storage' event - handleChange never dispatched
+        // it, meaning NO Settings change (a toggle, theme, font, or API
+        // key) ever triggered a real-time cloud push at all. The only
+        // way a Settings change previously reached the cloud was the
+        // coarse 5-minute periodic backup, or by coincidentally riding
+        // along with an unrelated page's own 'storage' dispatch. This
+        // one line is what actually makes "instant, silent auto-save...
+        // localStorage + real-time cloud sync" true for every field in
+        // this file, matching the same two-event dispatch pattern
+        // already used elsewhere in this same file (see the PIN/backup/
+        // account-linking handlers below).
+        window.dispatchEvent(new Event('storage'));
+
+        isLocalChangeRef.current = false;
 
         // Changing a credential field's own value invalidates any prior
         // confirmation of it - the "Connected" badge must reflect the
@@ -883,6 +1107,10 @@ const SettingsPage = ({ setActiveTab }) => {
             spotifyClientSecret: 'spotifyCredConfirmed',
             openaiApiKey: 'openaiApiKeyConfirmed',
             geminiApiKey: 'geminiApiKeyConfirmed',
+            youtubeApiKey: 'youtubeApiKeyConfirmed',
+            grokApiKey: 'grokApiKeyConfirmed',
+            deepseekApiKey: 'deepseekApiKeyConfirmed',
+            saavnApiBaseUrl: 'saavnApiBaseUrlConfirmed',
         };
         if (CONFIRM_FLAG_FOR[key]) {
             const withConfirmCleared = { ...next, [CONFIRM_FLAG_FOR[key]]: false };
@@ -907,26 +1135,46 @@ const SettingsPage = ({ setActiveTab }) => {
         // same event-based sync the rest of the app already uses for
         // cross-component settings changes (see themeMode above).
         window.dispatchEvent(new Event('nexus_settings_updated'));
+        // Real, reported bug: CloudSync's own local-change listener only
+        // PUSHES a change after a 3-second debounce (see
+        // AUTO_PUSH_DEBOUNCE_MS in CloudSyncContext.jsx) - a refresh inside
+        // that window kills the pending push before it ever fires, and the
+        // fresh page load's own one-shot "pull once per sign-in" effect
+        // then pulls back the OLD cloud data (still missing this
+        // confirmation) and applies it, silently reverting a Confirm click
+        // that felt instant. A field the user just explicitly clicked
+        // Confirm on is exactly the kind of action that shouldn't be at
+        // the mercy of that debounce window - pushed immediately instead
+        // of waiting for it. (Safe to call even when CloudSync isn't
+        // configured/signed-in - pushToCloud no-ops silently in that case,
+        // same as every other caller of it in this file.)
+        pushToCloud();
     };
 
     const handleModuleToggle = (moduleKey) => {
-        setSettings(prev => {
-            const next = {
-                ...prev,
-                activeModules: { ...prev.activeModules, [moduleKey]: !prev.activeModules[moduleKey] }
-            };
-            // Immediate persist, matching themeMode/autoBackupFreq - module
-            // visibility directly controls what's in the sidebar RIGHT NOW,
-            // so it can't wait on a separate Save Changes click. The
-            // sidebar already has a real listener for this exact event
-            // (see sidebar.jsx's nexus_settings_updated handler) - this is
-            // the missing half that was never actually firing it.
-            const globalSettings = JSON.parse(localStorage.getItem('nexus_global_settings')) || {};
-            globalSettings.activeModules = next.activeModules;
-            localStorage.setItem('nexus_global_settings', JSON.stringify(globalSettings));
-            window.dispatchEvent(new Event('nexus_settings_updated'));
-            return next;
-        });
+        // Real bug fix: the side effects below (localStorage write, the
+        // real event dispatch Sidebar.jsx listens for) used to live
+        // INSIDE this setSettings updater function - a React state
+        // updater is expected to be a pure function of prev state, and
+        // synchronously dispatching a DOM event from inside one lets that
+        // event's own listener (Sidebar's setActiveModules) run while
+        // React is still mid-render/commit for THIS component, which is
+        // exactly the real "Cannot update a component while rendering a
+        // different component" warning this produced. Computing the next
+        // value once, then setting state and firing the side effects as
+        // two separate, ordinary statements, is what actually fixes it.
+        const nextActiveModules = { ...settings.activeModules, [moduleKey]: !settings.activeModules[moduleKey] };
+        setSettings(prev => ({ ...prev, activeModules: nextActiveModules }));
+        // Immediate persist, matching themeMode/autoBackupFreq - module
+        // visibility directly controls what's in the sidebar RIGHT NOW,
+        // so it can't wait on a separate Save Changes click. The
+        // sidebar already has a real listener for this exact event
+        // (see sidebar.jsx's nexus_settings_updated handler) - this is
+        // the missing half that was never actually firing it.
+        const globalSettings = JSON.parse(localStorage.getItem('nexus_global_settings')) || {};
+        globalSettings.activeModules = nextActiveModules;
+        localStorage.setItem('nexus_global_settings', JSON.stringify(globalSettings));
+        window.dispatchEvent(new Event('nexus_settings_updated'));
     };
 
     // Toggles a single module in/out of the set requiring the OS Lock PIN.
@@ -1133,6 +1381,139 @@ const SettingsPage = ({ setActiveTab }) => {
         };
     }, [settings.geminiApiKey]);
 
+    // YouTube: validates against videos.list?chart=mostPopular - a real,
+    // genuine call (proves the key is valid AND the YouTube Data API v3
+    // is actually enabled on it) that costs exactly 1 quota unit, versus
+    // the 100 units a real search.list call costs. Checking the key on
+    // every keystroke with a search call would burn a meaningful chunk
+    // of the free daily 10,000-unit quota just to type it in - this is
+    // the actual reason a *different* endpoint is used here than the
+    // syllabus resource search itself later calls.
+    const [youtubeKeyStatus, setYoutubeKeyStatus] = useState('idle');
+    useEffect(() => {
+        const key = settings.youtubeApiKey.trim();
+        if (!key) {
+            setYoutubeKeyStatus('idle');
+            return undefined;
+        }
+        let cancelled = false;
+        setYoutubeKeyStatus('checking');
+        const timeoutId = setTimeout(() => {
+            fetch(`https://www.googleapis.com/youtube/v3/videos?part=id&chart=mostPopular&maxResults=1&key=${encodeURIComponent(key)}`)
+                .then((res) => {
+                    if (cancelled) return;
+                    setYoutubeKeyStatus(res.ok ? 'connected' : 'invalid');
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setYoutubeKeyStatus('error');
+                });
+        }, 700);
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [settings.youtubeApiKey]);
+
+    // Saavn has no credential to validate - what actually needs checking
+    // is whether the configured mirror (the default, or whatever's typed
+    // into saavnApiBaseUrl below) is reachable at all right now. Unlike
+    // every other field on this page, "invalid" isn't really a possible
+    // outcome here (there's no key format to get wrong) - only "reachable"
+    // or "not reachable", so this runs a real, tiny search.songs call
+    // (the exact same client function the Audio Hub search itself uses)
+    // rather than just checking the field is non-empty. handleChange
+    // already writes every keystroke straight to localStorage, so by the
+    // time this debounce fires, searchSaavnSongs (which reads the base
+    // URL from that same localStorage value) is genuinely testing what
+    // was just typed, not a stale value.
+    const [saavnBaseUrlStatus, setSaavnBaseUrlStatus] = useState('idle');
+    useEffect(() => {
+        if (!settings.saavnEnabled) { setSaavnBaseUrlStatus('idle'); return undefined; }
+        let cancelled = false;
+        setSaavnBaseUrlStatus('checking');
+        const timeoutId = setTimeout(() => {
+            searchSaavnSongs('test', { limit: 1 })
+                .then((results) => {
+                    if (cancelled) return;
+                    // A mirror that's up but genuinely returns zero results
+                    // for a common word like "test" would be very unusual -
+                    // treated as a real, working connection either way,
+                    // since the request itself succeeded end-to-end.
+                    setSaavnBaseUrlStatus('connected');
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setSaavnBaseUrlStatus('error');
+                });
+        }, 700);
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [settings.saavnEnabled, settings.saavnApiBaseUrl]);
+
+    // Grok (xAI): xAI's own API is OpenAI-compatible (same request/
+    // response shape, same /v1/models list endpoint convention) - same
+    // debounced, race-safe verification pattern as OpenAI above, just
+    // pointed at api.x.ai instead.
+    const [grokKeyStatus, setGrokKeyStatus] = useState('idle');
+    useEffect(() => {
+        const key = settings.grokApiKey.trim();
+        if (!key) {
+            setGrokKeyStatus('idle');
+            return undefined;
+        }
+        let cancelled = false;
+        setGrokKeyStatus('checking');
+        const timeoutId = setTimeout(() => {
+            fetch('https://api.x.ai/v1/models', {
+                headers: { Authorization: `Bearer ${key}` },
+            })
+                .then((res) => {
+                    if (cancelled) return;
+                    setGrokKeyStatus(res.ok ? 'connected' : 'invalid');
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setGrokKeyStatus('error');
+                });
+        }, 700);
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [settings.grokApiKey]);
+
+    // DeepSeek: also an OpenAI-compatible REST API - same pattern again.
+    const [deepseekKeyStatus, setDeepseekKeyStatus] = useState('idle');
+    useEffect(() => {
+        const key = settings.deepseekApiKey.trim();
+        if (!key) {
+            setDeepseekKeyStatus('idle');
+            return undefined;
+        }
+        let cancelled = false;
+        setDeepseekKeyStatus('checking');
+        const timeoutId = setTimeout(() => {
+            fetch('https://api.deepseek.com/v1/models', {
+                headers: { Authorization: `Bearer ${key}` },
+            })
+                .then((res) => {
+                    if (cancelled) return;
+                    setDeepseekKeyStatus(res.ok ? 'connected' : 'invalid');
+                })
+                .catch(() => {
+                    if (cancelled) return;
+                    setDeepseekKeyStatus('error');
+                });
+        }, 700);
+        return () => {
+            cancelled = true;
+            clearTimeout(timeoutId);
+        };
+    }, [settings.deepseekApiKey]);
+
     // The PIN genuinely needs its own, explicit save step - unlike every
     // other preference on this page, it requires async hashing and
     // 4-digit validation before it's safe to persist, so it can't just
@@ -1147,24 +1528,231 @@ const SettingsPage = ({ setActiveTab }) => {
             setPinError('PIN must be exactly 4 digits, or left blank to disable the lock.');
             return; // block the save - never persist a half-valid PIN
         }
+        let resolvedPin;
         try {
-            const resolvedPin = pinDraft === '' ? '' : await hashPin(pinDraft);
-            setSettings((prev) => {
-                const next = { ...prev, appPin: resolvedPin };
-                localStorage.setItem('nexus_global_settings', JSON.stringify(next));
-                return next;
-            });
+            resolvedPin = pinDraft === '' ? '' : await hashPin(pinDraft);
         } catch (err) {
             setPinError('Could not save PIN right now. Please try again.');
             return; // block the save - never persist without resolving the PIN
         }
 
+        // Same real read-modify-write + isLocalChangeRef guard pattern as
+        // handleChange above - a genuine, confirmed bug without it: this
+        // used to do the localStorage.setItem INSIDE the setSettings
+        // updater function (which can run more than once, and more
+        // importantly runs asynchronously relative to the dispatch right
+        // below), so by the time nexus_settings_updated fired,
+        // localStorage hadn't actually been written yet - the page's own
+        // syncFromExternalUpdate listener then re-read the STALE saved
+        // blob and overwrote the just-saved PIN straight back to
+        // "Disabled", live-confirmed: the PIN hash was genuinely in
+        // localStorage, but the visible "Enabled" badge and Protected
+        // Modules section never appeared because this state update raced
+        // itself and lost.
+        const next = { ...settings, appPin: resolvedPin };
+        setSettings(next);
+        localStorage.setItem('nexus_global_settings', JSON.stringify(next));
+        isLocalChangeRef.current = true;
         window.dispatchEvent(new Event('nexus_settings_updated'));
-        setPinDraft('');
+        window.dispatchEvent(new Event('storage'));
+        isLocalChangeRef.current = false;
+
+        setPinBoxValues(['', '', '', '']);
         setPinTouched(false);
         setPinError('');
         setIsSaved(true);
         setTimeout(() => setIsSaved(false), 2500);
+    };
+
+    // A real "forgot PIN" flow, not just a suggestion to remember it -
+    // there's genuinely no server-side recovery possible (appPin only
+    // ever stores a one-way SHA-256 hash, see pinSecurity.js), so the
+    // only honest recovery is resetting the lock outright and letting
+    // the user set a fresh PIN afterward. The Protected Modules section
+    // already hides itself once neither a PIN nor biometric is
+    // configured (see its own condition below), so this can't leave
+    // anything in an orphaned "locked with no way to unlock" state.
+    const handleForgotPin = () => {
+        if (!window.confirm('Reset your PIN? This turns off PIN lock immediately - you can set a new one any time after.')) return;
+        // Same isLocalChangeRef-guarded write as handleSavePin above -
+        // see its own comment for the exact race this avoids.
+        const next = { ...settings, appPin: '' };
+        setSettings(next);
+        localStorage.setItem('nexus_global_settings', JSON.stringify(next));
+        isLocalChangeRef.current = true;
+        window.dispatchEvent(new Event('nexus_settings_updated'));
+        window.dispatchEvent(new Event('storage'));
+        isLocalChangeRef.current = false;
+
+        setPinBoxValues(['', '', '', '']);
+        setPinTouched(false);
+        setPinError('');
+    };
+
+    // A real, immediate manual lock - reloading is what actually forces
+    // this: AppRoot.jsx's Gate component decides whether to show the
+    // lock screen from its own local isBiometricUnlocked/
+    // isQuickPinUnlocked state, which only exists in memory and is
+    // always false again on a fresh mount - a genuine full reload (not
+    // a client-side route change) is what makes that happen correctly,
+    // without needing a new cross-component "please re-lock now" signal
+    // built just for this button.
+    const handleLockNow = () => {
+        window.location.reload();
+    };
+
+    // Stored under its own dedicated localStorage key, deliberately
+    // separate from nexus_global_settings - that key is a small shared
+    // JSON blob every settings writer merges into (never replaces), and
+    // a multi-hundred-KB image data URL has no business bloating every
+    // future read/write of it. `wallpaper: 'custom-image'` in the real
+    // settings blob is just an id, same as any other wallpaper id - the
+    // actual pixels live here instead. window.Image (not the bare
+    // `Image` identifier) is deliberate: this file already imports an
+    // `Image` icon from lucide-react at the top, which would otherwise
+    // silently shadow the real DOM Image constructor.
+    const handleCustomImageFile = (file) => {
+        if (!file) return;
+        if (!file.type.startsWith('image/')) {
+            setCustomImageError('Please choose an image file (PNG, JPG, or WEBP).');
+            return;
+        }
+        setCustomImageError('');
+        setCustomImageProcessing(true);
+        const reader = new FileReader();
+        reader.onload = () => {
+            const img = new window.Image();
+            img.onload = () => {
+                // Downscale + re-encode as JPEG before saving - a raw phone
+                // photo can be several MB, comfortably enough to blow past
+                // localStorage's per-origin quota once base64-inflated by
+                // ~33%. Capping the longer edge at 1920px and re-encoding
+                // at 0.85 quality keeps this to a reliably small size
+                // while staying sharp at any real wallpaper viewing size.
+                const maxDim = 1920;
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(img.width * scale));
+                canvas.height = Math.max(1, Math.round(img.height * scale));
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                try {
+                    localStorage.setItem('nexus_custom_wallpaper_image', dataUrl);
+                    setCustomWallpaperImage(dataUrl);
+                    // Separate event from nexus_settings_updated - the
+                    // `wallpaper` id can stay 'custom-image' across a
+                    // photo REPLACE (same id, new pixels), which the
+                    // regular settings-sync listener in DashboardLayout
+                    // deliberately skips re-rendering for when the id
+                    // itself hasn't changed. This event is what tells the
+                    // already-mounted background layer to re-read the
+                    // new image in that exact case.
+                    window.dispatchEvent(new Event('nexus_custom_wallpaper_updated'));
+                    handleChange('wallpaper', 'custom-image');
+                } catch (e) {
+                    setCustomImageError('That photo is too large to save. Try a smaller image.');
+                }
+                setCustomImageProcessing(false);
+            };
+            img.onerror = () => {
+                setCustomImageError('Could not read that image. Try a different file.');
+                setCustomImageProcessing(false);
+            };
+            img.src = reader.result;
+        };
+        reader.onerror = () => {
+            setCustomImageError('Could not read that file.');
+            setCustomImageProcessing(false);
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const handleUseCustomImage = () => {
+        if (customWallpaperImage) handleChange('wallpaper', 'custom-image');
+    };
+
+    const handleRemoveCustomImage = () => {
+        try { localStorage.removeItem('nexus_custom_wallpaper_image'); } catch (e) { /* nothing to clean up */ }
+        setCustomWallpaperImage('');
+        setCustomImageError('');
+        window.dispatchEvent(new Event('nexus_custom_wallpaper_updated'));
+        if (settings.wallpaper === 'custom-image') handleChange('wallpaper', 'sky');
+    };
+
+    // Real, working custom font upload - a genuine FontFace loaded from
+    // the user's own file (not a preview/mockup), immediately applied
+    // app-wide via the same --font-primary variable the curated library
+    // uses, and persisted (the raw bytes in IndexedDB, see
+    // customFontStorage.js; just the {id, label, familyName} metadata in
+    // the regular settings blob) so it's still there next time the font-
+    // application effect above runs.
+    const MAX_FONT_FILE_BYTES = 5 * 1024 * 1024;
+    const handleCustomFontFile = async (file) => {
+        if (!file) return;
+        if (!/\.(ttf|otf|woff2?|ttc)$/i.test(file.name)) {
+            setCustomFontError('Please choose a .ttf, .otf, .woff, or .woff2 font file.');
+            return;
+        }
+        if (file.size > MAX_FONT_FILE_BYTES) {
+            setCustomFontError('That font file is too large (max 5MB).');
+            return;
+        }
+        setCustomFontError('');
+        setCustomFontProcessing(true);
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const id = `custom_${Date.now()}`;
+            const familyName = `NexusCustom_${id}`;
+            const fontFace = new FontFace(familyName, arrayBuffer);
+            await fontFace.load();
+            document.fonts.add(fontFace);
+            await saveCustomFontBlob(id, arrayBuffer);
+            const label = file.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Custom Font';
+            const nextCustomFonts = [...(settings.customFonts || []), { id, label, fileName: file.name, familyName }];
+            const next = { ...settings, customFonts: nextCustomFonts, fontFamily: id };
+            setSettings(next);
+            localStorage.setItem('nexus_global_settings', JSON.stringify(next));
+            isLocalChangeRef.current = true;
+            window.dispatchEvent(new Event('nexus_settings_updated'));
+            window.dispatchEvent(new Event('storage'));
+            isLocalChangeRef.current = false;
+        } catch (e) {
+            setCustomFontError('Could not load that font file - it may be corrupted or an unsupported format.');
+        } finally {
+            setCustomFontProcessing(false);
+        }
+    };
+
+    const handleRemoveCustomFont = async (id) => {
+        try { await deleteCustomFontBlob(id); } catch (e) { /* nothing to clean up */ }
+        const nextCustomFonts = (settings.customFonts || []).filter((f) => f.id !== id);
+        const wasActive = settings.fontFamily === id;
+        const next = { ...settings, customFonts: nextCustomFonts, fontFamily: wasActive ? DEFAULT_FONT_ID : settings.fontFamily };
+        setSettings(next);
+        localStorage.setItem('nexus_global_settings', JSON.stringify(next));
+        isLocalChangeRef.current = true;
+        window.dispatchEvent(new Event('nexus_settings_updated'));
+        window.dispatchEvent(new Event('storage'));
+        isLocalChangeRef.current = false;
+    };
+
+    const handlePinBoxChange = (index, rawValue) => {
+        const digit = rawValue.replace(/\D/g, '').slice(-1) || '';
+        setPinBoxValues((prev) => {
+            const next = [...prev];
+            next[index] = digit;
+            return next;
+        });
+        setPinTouched(true);
+        setPinError('');
+        if (digit && index < 3) pinInputRefs[index + 1].current?.focus();
+    };
+
+    const handlePinBoxKeyDown = (index, e) => {
+        if (e.key === 'Backspace' && !pinBoxValues[index] && index > 0) {
+            pinInputRefs[index - 1].current?.focus();
+        }
     };
 
     const handleToggleBiometric = async () => {
@@ -1601,18 +2189,23 @@ const SettingsPage = ({ setActiveTab }) => {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', paddingBottom: '60px' }}>
+        <div className="settings-shell" style={{ paddingBottom: '60px' }}>
             {showTour && <TourGuide tourId="settings" steps={TOUR_STEPS.settings} onFinish={() => setShowTour(false)} />}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '16px' }}>
-                <div>
-                    <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Settings Hub</h1>
-                </div>
-            </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-
-                <SettingsSection icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile" tourId="settings-account">
+            <SettingsLayout
+                categories={SETTINGS_CATEGORIES}
+                activeCategory={activeCategory}
+                onSelectCategory={setActiveCategory}
+                onMobileOverlayChange={onMobileOverlayChange}
+                header={(
+                    <>
+                        <h1 className="settings-page-title">Settings Hub</h1>
+                        <SettingsProfileHeader user={user} cacheSize={cacheSize} settings={settings} setActiveTab={setActiveTab} />
+                    </>
+                )}
+            >
+                {activeCategory === 'account' && (
+                <SettingCard icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile" tourId="settings-account" defaultOpen>
                     <button
                         type="button"
                         onClick={() => setActiveTab && setActiveTab('Profile')}
@@ -1916,19 +2509,41 @@ const SettingsPage = ({ setActiveTab }) => {
                                             : isSyncing ? 'Syncing…' : lastSyncedAt ? `Last synced ${lastSyncedAt.toLocaleTimeString()}.` : 'Not synced yet.'}
                                     </span>
                                 </div>
-                                <div style={{ display: 'flex', gap: '10px' }}>
-                                    {/* Real, dedicated Re-Sync button - only shown
-                                        during a genuine error state, per this
-                                        request's own explicit "clear 'Re-Sync' button
-                                        that triggers a fresh scan" ask. Calls
-                                        pullFromCloud (checking what's actually on the
-                                        server) rather than reusing Sync Now's own push
-                                        action - a real, distinct recovery action from
-                                        the normal happy-path manual sync below. */}
-                                    {syncStatus === 'error' && (
-                                        <button type="button" onClick={pullFromCloud} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}><RotateCcw size={15} /> {isSyncing ? 'Retrying…' : 'Re-Sync'}</button>
-                                    )}
-                                    <button type="button" onClick={pushToCloud} disabled={isSyncing} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}><RefreshCw size={15} /> {isSyncing ? 'Syncing…' : 'Sync Now'}</button>
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    {/* Real, reported bug fixed: this used to be
+                                        labeled "Sync Now" (sounds like "fetch/restore
+                                        my data") but actually called pushToCloud (send
+                                        LOCAL state TO the cloud, overwriting whatever
+                                        was there) - a genuinely dangerous mislabel. The
+                                        real pull action (pullFromCloud) used to be
+                                        hidden entirely unless syncStatus was already
+                                        'error' - useless for the actual real-world case
+                                        that matters ("my data looks wrong/missing" is
+                                        NOT the same technical state as a sync
+                                        transport error; the sync mechanism can be
+                                        reporting perfectly healthy while still holding
+                                        wrong data). Both directions are now always
+                                        visible, unambiguously labeled by direction, and
+                                        confirm before running - each one overwrites
+                                        whichever side it targets, and that needs to be
+                                        a deliberate choice, not a guess based on a
+                                        vague button name. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (window.confirm('Pull from Cloud will REPLACE your data on THIS device with whatever is currently saved in the cloud. Any local changes not yet synced will be lost. Continue?')) pullFromCloud();
+                                        }}
+                                        disabled={isSyncing}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: syncStatus === 'error' ? 'rgba(239, 68, 68, 0.12)' : 'var(--surface-inset)', color: syncStatus === 'error' ? '#EF4444' : 'var(--text-primary)', border: syncStatus === 'error' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}
+                                    ><RotateCcw size={15} /> {isSyncing ? 'Pulling…' : 'Pull from Cloud'}</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (window.confirm('Push to Cloud will REPLACE the cloud copy with whatever is currently on THIS device. If this device is missing data, this will overwrite the cloud with that missing data too. Continue?')) pushToCloud();
+                                        }}
+                                        disabled={isSyncing}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}
+                                    ><RefreshCw size={15} /> {isSyncing ? 'Pushing…' : 'Push to Cloud'}</button>
                                     <button type="button" onClick={logout} title="Sign Out" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: '#EF4444', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}><LogOut size={15} /> Sign Out</button>
                                 </div>
                             </>
@@ -1948,9 +2563,26 @@ const SettingsPage = ({ setActiveTab }) => {
                             </div>
                         )}
                     </div>
-                </SettingsSection>
+                </SettingCard>
+                )}
 
-                <SettingsSection icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS" tourId="settings-modules">
+                {activeCategory === 'general' && (
+                <>
+                <SettingCard icon={Sliders} title="System Defaults" subtitle="Currency, weight, and temperature units" defaultOpen>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '16px' }}>
+                        <div><label htmlFor="currency" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><DollarSign size={14}/> Currency</label>
+                            <select id="currency" name="currency" value={globalSettings.currencySymbol} onChange={(e) => updateGlobalSetting('currencySymbol', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="₹" style={{ background: 'var(--surface-inset)' }}>₹ INR</option><option value="$" style={{ background: 'var(--surface-inset)' }}>$ USD</option><option value="€" style={{ background: 'var(--surface-inset)' }}>€ EUR</option></select>
+                        </div>
+                        <div><label htmlFor="weightUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Activity size={14}/> Weight Unit</label>
+                            <select id="weightUnit" name="weightUnit" value={settings.weightUnit} onChange={(e) => handleChange('weightUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="kg" style={{ background: 'var(--surface-inset)' }}>Kilograms (kg)</option><option value="lbs" style={{ background: 'var(--surface-inset)' }}>Pounds (lbs)</option></select>
+                        </div>
+                        <div><label htmlFor="temperatureUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Thermometer size={14}/> Temperature Unit</label>
+                            <select id="temperatureUnit" name="temperatureUnit" value={settings.temperatureUnit} onChange={(e) => handleChange('temperatureUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="°C" style={{ background: 'var(--surface-inset)' }}>Celsius (°C)</option><option value="°F" style={{ background: 'var(--surface-inset)' }}>Fahrenheit (°F)</option></select>
+                        </div>
+                    </div>
+                </SettingCard>
+
+                <SettingCard icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS" tourId="settings-modules" defaultOpen>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                         {Object.keys(settings.activeModules).map(mod => (
                             <div key={mod} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
@@ -1959,18 +2591,63 @@ const SettingsPage = ({ setActiveTab }) => {
                             </div>
                         ))}
                     </div>
-                </SettingsSection>
+                </SettingCard>
 
-                <SettingsSection icon={Shield} title="Security & API Integrations" subtitle="OS lock, biometrics, and every connected credential">
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Shield size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Security & API</h3></div>
-                    <div>
-                        <label htmlFor="appPin" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                            <span>App PIN</span>
-                            <span style={{ color: isPinConfigured(settings.appPin) ? 'var(--success)' : 'var(--text-muted)', fontWeight: '600' }}>
-                                {isPinConfigured(settings.appPin) ? 'Lock Enabled' : 'Lock Disabled'}
+                {/* Same grid-of-boxes treatment as OS Module Manager above,
+                    per explicit request, instead of a plain stacked list -
+                    7 items lays out as 4+3 in the same
+                    minmax(200px, 1fr) auto-fit grid. */}
+                <SettingCard icon={LayoutGrid} title="Productivity Widget Customization" subtitle="Show or hide each category's items on the Home dashboard queue">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><BookOpen size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Study Tracker</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowStudy} onChange={(v) => handleChange('widgetShowStudy', v)} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Activity size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Gym Split</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowGym} onChange={(v) => handleChange('widgetShowGym', v)} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><DollarSign size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Finance Overview</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowFinance} onChange={(v) => handleChange('widgetShowFinance', v)} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Clock size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Daily Timetable</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowTimetable} onChange={(v) => handleChange('widgetShowTimetable', v)} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><ClipboardList size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Planner Tasks</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowPlanner} onChange={(v) => handleChange('widgetShowPlanner', v)} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><CalendarDays size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Calendar Schedule</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowCalendar} onChange={(v) => handleChange('widgetShowCalendar', v)} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Utensils size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Nutrition / Diet</strong></div>
+                            <ToggleSwitch checked={settings.widgetShowDiet} onChange={(v) => handleChange('widgetShowDiet', v)} />
+                        </div>
+                    </div>
+                </SettingCard>
+                </>
+                )}
+
+                {activeCategory === 'security' && (
+                <SettingCard icon={Shield} title="Security" subtitle="App lock, PIN, and biometrics" defaultOpen>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Lock size={14} color={isPinConfigured(settings.appPin) ? 'var(--success)' : 'var(--text-muted)'} />
+                                <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>App PIN</strong>
+                            </div>
+                            <span style={{
+                                fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '999px',
+                                background: isPinConfigured(settings.appPin) ? 'rgba(16, 185, 129, 0.12)' : 'var(--widget-bg)',
+                                color: isPinConfigured(settings.appPin) ? 'var(--success)' : 'var(--text-muted)',
+                            }}>
+                                {isPinConfigured(settings.appPin) ? 'Enabled' : 'Disabled'}
                             </span>
-                        </label>
+                        </div>
                         {/* One PIN, one setup flow - previously two nearly-
                             identical "type a 4-digit PIN" sections (this one
                             for locking individual modules while already
@@ -1980,40 +2657,77 @@ const SettingsPage = ({ setActiveTab }) => {
                             Setting a PIN here now does both jobs at once -
                             see utils/quickPin.js for how QuickPinUnlockScreen
                             reads this exact same value. */}
-                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
-                            One PIN for everything: unlock the app on this device instead of retyping your password, and gate individual modules below.
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            One PIN unlocks the app on this device and gates the modules you choose below.
                         </span>
-                        <input
-                            id="appPin" name="appPin" type="password" inputMode="numeric" maxLength="4"
-                            placeholder={isPinConfigured(settings.appPin) ? 'Enter a new 4-digit PIN, or clear to disable' : 'Enter a 4-digit PIN to enable'}
-                            value={pinDraft}
-                            onChange={(e) => {
-                                const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 4);
-                                setPinDraft(digitsOnly);
-                                setPinTouched(true);
-                                setPinError('');
-                            }}
-                            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: `1px solid ${pinError ? '#EF4444' : 'var(--border-premium)'}`, background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', letterSpacing: '4px', boxSizing: 'border-box' }}
-                        />
-                        {pinError && <span style={{ fontSize: '11px', color: '#EF4444', marginTop: '6px', display: 'block' }}>{pinError}</span>}
-                        {pinTouched && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px' }}>
-                                <button
-                                    type="button" onClick={handleSavePin}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}
-                                >
-                                    <Save size={14} /> Save PIN
-                                </button>
+
+                        {/* 4-box entry - real per-digit boxes with
+                            auto-advance and backspace-to-previous, not one
+                            plain masked text field. */}
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', padding: '4px 0' }}>
+                            {[0, 1, 2, 3].map((i) => (
+                                <input
+                                    key={i}
+                                    ref={pinInputRefs[i]}
+                                    type="password" inputMode="numeric" maxLength={1}
+                                    aria-label={`PIN digit ${i + 1}`}
+                                    value={pinBoxValues[i]}
+                                    onChange={(e) => handlePinBoxChange(i, e.target.value)}
+                                    onKeyDown={(e) => handlePinBoxKeyDown(i, e)}
+                                    style={{
+                                        width: '46px', height: '50px', textAlign: 'center', fontSize: '20px', fontWeight: '800',
+                                        borderRadius: '12px', border: `1px solid ${pinError ? '#EF4444' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none',
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        {pinError && <span style={{ fontSize: '11px', color: '#EF4444', textAlign: 'center' }}>{pinError}</span>}
+
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minHeight: '28px' }}>
+                                {pinTouched && (
+                                    <button
+                                        type="button" onClick={handleSavePin}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit' }}
+                                    >
+                                        <Save size={13} /> Save PIN
+                                    </button>
+                                )}
                                 {isSaved && (
                                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: '700', color: 'var(--success)' }}>
-                                        <CheckCircle size={13} /> PIN Saved
+                                        <CheckCircle size={13} /> Saved
                                     </span>
                                 )}
                             </div>
-                        )}
+                            {/* A real "forgot PIN" flow - there's no server-
+                                side recovery possible (appPin only ever
+                                stores a one-way hash), so this honestly
+                                resets the lock rather than pretending a
+                                forgotten PIN can be recovered. */}
+                            {isPinConfigured(settings.appPin) && (
+                                <button
+                                    type="button" onClick={handleForgotPin}
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '12px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', padding: 0 }}
+                                >
+                                    Forgot PIN?
+                                </button>
+                            )}
+                        </div>
                     </div>
+
                     {(isPinConfigured(settings.appPin) || biometricEnabled) && (
-                        <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px' }}>
+                        <button
+                            type="button" onClick={handleLockNow}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 16px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}
+                            title="Immediately require your PIN or biometric again"
+                        >
+                            <Lock size={14} /> Lock App Now
+                        </button>
+                    )}
+
+                    {(isPinConfigured(settings.appPin) || biometricEnabled) && (
+                        <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '14px' }}>
                             <div style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '4px' }}>Protected Modules</div>
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '10px' }}>
                                 Choose which pages require a PIN or biometric unlock to open{(settings.lockedModules || []).length === 0 ? ' - none selected yet, so nothing is currently locked' : ''}.
@@ -2044,7 +2758,7 @@ const SettingsPage = ({ setActiveTab }) => {
                         </div>
                     )}
                     {biometricSupported && (
-                        <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px' }}>
+                        <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '14px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                                 <div style={{ minWidth: 0 }}>
                                     <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Biometric Lock</strong>
@@ -2060,15 +2774,12 @@ const SettingsPage = ({ setActiveTab }) => {
                             )}
                         </div>
                     )}
-                    {/* Sub-group label - visually separates the two real
-                        concerns this one card covers (device lock vs. API
-                        integrations) so it reads as two clearly organized
-                        groups instead of one long, undifferentiated list
-                        of fields. */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '4px 0 -6px 0' }}>
-                        <span style={{ fontSize: '10px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', whiteSpace: 'nowrap' }}>API Integrations</span>
-                        <div style={{ flex: 1, height: '1px', background: 'var(--border-premium)' }} />
-                    </div>
+                </SettingCard>
+                )}
+
+                {activeCategory === 'api' && (
+                <>
+                <SettingCard icon={Key} title="Media & Developer API Integrations" subtitle="GitHub, Apple Music, Spotify, and Saavn" defaultOpen>
                     <LockedApiField label="GitHub API Token" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.githubToken}>
                         <div>
                             <label htmlFor="githubToken" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -2233,11 +2944,109 @@ const SettingsPage = ({ setActiveTab }) => {
                             </span>
                         </div>
                     </LockedApiField>
-                </div>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cpu size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>AI API Integrations</h3></div>
+                    {/* Saavn (unofficial JioSaavn API) - needs no secret key at
+                        all (every public mirror of this reverse-engineered API
+                        is unauthenticated), so this isn't a LockedApiField/PIN
+                        situation. What DOES need checking, the same way every
+                        other field above checks its own key, is whether the
+                        mirror itself is actually reachable right now - these
+                        community-run deployments are frequently taken down and
+                        redeployed at a new URL with no notice. Confirmed live
+                        while building this: the default mirror below, plus
+                        several other commonly-referenced ones (saavn.me,
+                        saavn.dev, and this project's own documented reference
+                        deployment), do not currently resolve or respond at
+                        all - toggling this on will very likely show "Could not
+                        connect" until a working mirror is pasted in below. */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', marginTop: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Music size={16} color="var(--text-secondary)" />
+                            <div>
+                                <strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Saavn Music Search</strong>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Unofficial JioSaavn API - no credentials needed, but the mirror below must actually respond</span>
+                            </div>
+                        </div>
+                        <ToggleSwitch checked={settings.saavnEnabled} onChange={(v) => handleChange('saavnEnabled', v)} />
+                    </div>
+                    {settings.saavnEnabled && (
+                        <div style={{ marginTop: '12px' }}>
+                            <label htmlFor="saavnApiBaseUrl" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>Saavn API Base URL <span style={{ fontWeight: '500', color: 'var(--text-muted)' }}>(the server address search requests go to - not a secret)</span></span>
+                                <span style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    color: settings.saavnApiBaseUrlConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                                    fontWeight: '700', fontSize: '12px', flexShrink: 0,
+                                }}>
+                                    {settings.saavnApiBaseUrlConfirmed && <Check size={13} />}
+                                    {settings.saavnApiBaseUrlConfirmed ? 'Connected' : 'Not Connected'}
+                                </span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    id="saavnApiBaseUrl" name="saavnApiBaseUrl" type="text"
+                                    placeholder={`${SAAVN_API_BASE_URL_FALLBACK} (default - update if this mirror goes down)`}
+                                    value={settings.saavnApiBaseUrl} onChange={(e) => handleChange('saavnApiBaseUrl', e.target.value)}
+                                    style={{
+                                        flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
+                                        border: `1px solid ${saavnBaseUrlStatus === 'error' ? '#EF4444' : saavnBaseUrlStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => confirmApiField('saavnApiBaseUrlConfirmed')}
+                                    disabled={saavnBaseUrlStatus !== 'connected'}
+                                    title={saavnBaseUrlStatus === 'connected' ? 'Save this base URL' : 'The mirror must respond successfully before this can be confirmed'}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
+                                        background: saavnBaseUrlStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: saavnBaseUrlStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${saavnBaseUrlStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
+                                        cursor: saavnBaseUrlStatus === 'connected' ? 'pointer' : 'default',
+                                        opacity: saavnBaseUrlStatus === 'connected' ? 1 : 0.6,
+                                    }}
+                                >
+                                    <Check size={14} /> Confirm
+                                </button>
+                            </div>
+                            <span style={{ fontSize: '11px', color: saavnBaseUrlStatus === 'error' ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {saavnBaseUrlStatus === 'checking' && 'Checking - running a real test search against this mirror…'}
+                                {saavnBaseUrlStatus === 'connected' && !settings.saavnApiBaseUrlConfirmed && 'Mirror responded successfully - click Confirm to save'}
+                                {saavnBaseUrlStatus === 'connected' && settings.saavnApiBaseUrlConfirmed && 'Mirror responded successfully - Saavn search is live'}
+                                {saavnBaseUrlStatus === 'error' && 'Could not reach this mirror - it may be down or moved. Leave blank to retry the default, or paste a different working URL (or your own self-hosted instance).'}
+                                {saavnBaseUrlStatus === 'idle' && 'Leave blank to use the default mirror shown above.'}
+                            </span>
+                        </div>
+                    )}
 
+                    {/* YouTube playback status - read-only here (the actual key
+                        lives in the AI & Learning card below, shared with the
+                        Syllabus Hub's own video search) so both music
+                        providers this card is about have a visible presence
+                        together, without duplicating the real input field
+                        and risking the two copies drifting out of sync. */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', marginTop: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Video size={16} color="var(--text-secondary)" />
+                            <div>
+                                <strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>YouTube Music Search</strong>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Uses the YouTube Data API Key below in AI &amp; Learning API Integrations</span>
+                            </div>
+                        </div>
+                        <span style={{
+                            display: 'flex', alignItems: 'center', gap: '5px',
+                            color: settings.youtubeApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                            fontWeight: '700', fontSize: '12px',
+                        }}>
+                            {settings.youtubeApiKeyConfirmed && <Check size={13} />}
+                            {settings.youtubeApiKeyConfirmed ? 'Connected' : 'Not Connected'}
+                        </span>
+                    </div>
+                </SettingCard>
+
+                <SettingCard icon={Cpu} title="AI & Learning API Integrations" subtitle="Chat providers and the Syllabus Hub's YouTube search">
                     <LockedApiField label="OpenAI (ChatGPT) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.openaiApiKey}>
                         <div>
                             <label htmlFor="openaiApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -2257,7 +3066,7 @@ const SettingsPage = ({ setActiveTab }) => {
                                     value={settings.openaiApiKey} onChange={(e) => handleChange('openaiApiKey', e.target.value)}
                                     style={{
                                         flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
-                                        border: `1px solid ${(openaiKeyStatus === 'invalid' || openaiKeyStatus === 'error') ? '#EF4444' : openaiKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        border: `1px solid ${settings.openaiApiKeyConfirmed ? 'var(--success)' : (openaiKeyStatus === 'invalid' || openaiKeyStatus === 'error') ? '#EF4444' : openaiKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
                                         background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
                                     }}
                                 />
@@ -2279,13 +3088,30 @@ const SettingsPage = ({ setActiveTab }) => {
                                     <Check size={14} /> Confirm
                                 </button>
                             </div>
-                            <span style={{ fontSize: '11px', color: (openaiKeyStatus === 'invalid' || openaiKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
-                                {openaiKeyStatus === 'checking' && 'Checking…'}
-                                {openaiKeyStatus === 'connected' && !settings.openaiApiKeyConfirmed && 'Key verified - click Confirm to save'}
-                                {openaiKeyStatus === 'connected' && settings.openaiApiKeyConfirmed && 'Key valid and connected'}
-                                {openaiKeyStatus === 'invalid' && 'Invalid API key'}
-                                {openaiKeyStatus === 'error' && 'Could not reach OpenAI to verify'}
-                                {openaiKeyStatus === 'idle' && 'Enter a key to verify it'}
+                            {/* Once a key is genuinely confirmed (settings.openaiApiKeyConfirmed,
+                                the real persisted "this is a trusted key" flag),
+                                that always wins over the live re-check's own
+                                status here - openaiKeyStatus re-runs a real
+                                network call to OpenAI on every mount (see the
+                                effect above), and confirmed live that this can
+                                land on 'invalid'/'error' on a fresh page load
+                                for a perfectly good, already-confirmed key
+                                (a transient network hiccup, a CORS/referrer
+                                restriction on the key itself, a slow response
+                                racing the debounce) - which used to show a
+                                scary red "Invalid API key" directly under a
+                                field whose own badge still said "Connected",
+                                a genuinely confusing contradiction. */}
+                            <span style={{ fontSize: '11px', color: !settings.openaiApiKeyConfirmed && (openaiKeyStatus === 'invalid' || openaiKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {settings.openaiApiKeyConfirmed ? 'Key valid and connected' : (
+                                    <>
+                                        {openaiKeyStatus === 'checking' && 'Checking…'}
+                                        {openaiKeyStatus === 'connected' && 'Key verified - click Confirm to save'}
+                                        {openaiKeyStatus === 'invalid' && 'Invalid API key'}
+                                        {openaiKeyStatus === 'error' && 'Could not reach OpenAI to verify'}
+                                        {openaiKeyStatus === 'idle' && 'Enter a key to verify it'}
+                                    </>
+                                )}
                             </span>
                         </div>
                     </LockedApiField>
@@ -2309,7 +3135,7 @@ const SettingsPage = ({ setActiveTab }) => {
                                     value={settings.geminiApiKey} onChange={(e) => handleChange('geminiApiKey', e.target.value)}
                                     style={{
                                         flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
-                                        border: `1px solid ${(geminiKeyStatus === 'invalid' || geminiKeyStatus === 'error') ? '#EF4444' : geminiKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        border: `1px solid ${settings.geminiApiKeyConfirmed ? 'var(--success)' : (geminiKeyStatus === 'invalid' || geminiKeyStatus === 'error') ? '#EF4444' : geminiKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
                                         background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
                                     }}
                                 />
@@ -2331,21 +3157,205 @@ const SettingsPage = ({ setActiveTab }) => {
                                     <Check size={14} /> Confirm
                                 </button>
                             </div>
-                            <span style={{ fontSize: '11px', color: (geminiKeyStatus === 'invalid' || geminiKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
-                                {geminiKeyStatus === 'checking' && 'Checking…'}
-                                {geminiKeyStatus === 'connected' && !settings.geminiApiKeyConfirmed && 'Key verified - click Confirm to save'}
-                                {geminiKeyStatus === 'connected' && settings.geminiApiKeyConfirmed && 'Key valid and connected'}
-                                {geminiKeyStatus === 'invalid' && 'Invalid API key'}
-                                {geminiKeyStatus === 'error' && 'Could not reach Gemini to verify'}
-                                {geminiKeyStatus === 'idle' && 'Enter a key to verify it'}
+                            {/* Same "an already-confirmed key always wins over
+                                the live re-check" reasoning as OpenAI above. */}
+                            <span style={{ fontSize: '11px', color: !settings.geminiApiKeyConfirmed && (geminiKeyStatus === 'invalid' || geminiKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {settings.geminiApiKeyConfirmed ? 'Key valid and connected' : (
+                                    <>
+                                        {geminiKeyStatus === 'checking' && 'Checking…'}
+                                        {geminiKeyStatus === 'connected' && 'Key verified - click Confirm to save'}
+                                        {geminiKeyStatus === 'invalid' && 'Invalid API key'}
+                                        {geminiKeyStatus === 'error' && 'Could not reach Gemini to verify'}
+                                        {geminiKeyStatus === 'idle' && 'Enter a key to verify it'}
+                                    </>
+                                )}
                             </span>
                         </div>
                     </LockedApiField>
-                </div>
 
-                </SettingsSection>
+                    {/* Optional - the Syllabus Hub's YouTube resource search
+                        works with zero configuration (a real "Search on
+                        YouTube" link for every topic), this key only
+                        upgrades that to real embeddable video cards with
+                        genuine thumbnails/titles from Google's own API. */}
+                    <LockedApiField label="YouTube Data API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.youtubeApiKey}>
+                        <div>
+                            <label htmlFor="youtubeApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>YouTube Data API Key <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>(optional)</span></span>
+                                <span style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    color: settings.youtubeApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                                    fontWeight: '700', fontSize: '12px',
+                                }}>
+                                    {settings.youtubeApiKeyConfirmed && <Check size={13} />}
+                                    {settings.youtubeApiKeyConfirmed ? 'Connected' : 'Not Connected'}
+                                </span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    id="youtubeApiKey" name="youtubeApiKey" type="password" placeholder="AIzaSyxxxxxxxxxxxxxxxxxxxx"
+                                    value={settings.youtubeApiKey} onChange={(e) => handleChange('youtubeApiKey', e.target.value)}
+                                    style={{
+                                        flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
+                                        border: `1px solid ${settings.youtubeApiKeyConfirmed ? 'var(--success)' : (youtubeKeyStatus === 'invalid' || youtubeKeyStatus === 'error') ? '#EF4444' : youtubeKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => confirmApiField('youtubeApiKeyConfirmed')}
+                                    disabled={youtubeKeyStatus !== 'connected'}
+                                    title={youtubeKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
+                                        background: youtubeKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: youtubeKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${youtubeKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
+                                        cursor: youtubeKeyStatus === 'connected' ? 'pointer' : 'default',
+                                        opacity: youtubeKeyStatus === 'connected' ? 1 : 0.6,
+                                    }}
+                                >
+                                    <Check size={14} /> Confirm
+                                </button>
+                            </div>
+                            {/* Same "an already-confirmed key always wins over
+                                the live re-check" reasoning as OpenAI/Gemini
+                                above. */}
+                            <span style={{ fontSize: '11px', color: !settings.youtubeApiKeyConfirmed && (youtubeKeyStatus === 'invalid' || youtubeKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {settings.youtubeApiKeyConfirmed ? 'Key valid and connected' : (
+                                    <>
+                                        {youtubeKeyStatus === 'checking' && 'Checking…'}
+                                        {youtubeKeyStatus === 'connected' && 'Key verified - click Confirm to save'}
+                                        {youtubeKeyStatus === 'invalid' && 'Invalid key, or YouTube Data API v3 isn\'t enabled for it'}
+                                        {youtubeKeyStatus === 'error' && 'Could not reach YouTube to verify'}
+                                        {youtubeKeyStatus === 'idle' && 'Optional - powers real video cards in the Syllabus Hub, and YouTube search/playback in Audio Hub. Without it, a working YouTube search link is used instead.'}
+                                    </>
+                                )}
+                            </span>
+                        </div>
+                    </LockedApiField>
 
-                <SettingsSection icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and glass visual customization" tourId="settings-display">
+                    {/* Same priority/treatment as OpenAI/Gemini above, per
+                        explicit request - Grok (xAI) is an OpenAI-compatible
+                        REST API, so this reuses the identical verification
+                        and confirm-flow pattern, just pointed at api.x.ai. */}
+                    <LockedApiField label="Grok (xAI) API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.grokApiKey}>
+                        <div>
+                            <label htmlFor="grokApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>Grok (xAI) API Key <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>(optional)</span></span>
+                                <span style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    color: settings.grokApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                                    fontWeight: '700', fontSize: '12px',
+                                }}>
+                                    {settings.grokApiKeyConfirmed && <Check size={13} />}
+                                    {settings.grokApiKeyConfirmed ? 'Connected' : 'Not Connected'}
+                                </span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    id="grokApiKey" name="grokApiKey" type="password" placeholder="xai-xxxxxxxxxxxxxxxxxxxx"
+                                    value={settings.grokApiKey} onChange={(e) => handleChange('grokApiKey', e.target.value)}
+                                    style={{
+                                        flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
+                                        border: `1px solid ${settings.grokApiKeyConfirmed ? 'var(--success)' : (grokKeyStatus === 'invalid' || grokKeyStatus === 'error') ? '#EF4444' : grokKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => confirmApiField('grokApiKeyConfirmed')}
+                                    disabled={grokKeyStatus !== 'connected'}
+                                    title={grokKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
+                                        background: grokKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: grokKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${grokKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
+                                        cursor: grokKeyStatus === 'connected' ? 'pointer' : 'default',
+                                        opacity: grokKeyStatus === 'connected' ? 1 : 0.6,
+                                    }}
+                                >
+                                    <Check size={14} /> Confirm
+                                </button>
+                            </div>
+                            <span style={{ fontSize: '11px', color: !settings.grokApiKeyConfirmed && (grokKeyStatus === 'invalid' || grokKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {settings.grokApiKeyConfirmed ? 'Key valid and connected' : (
+                                    <>
+                                        {grokKeyStatus === 'checking' && 'Checking…'}
+                                        {grokKeyStatus === 'connected' && 'Key verified - click Confirm to save'}
+                                        {grokKeyStatus === 'invalid' && 'Invalid key'}
+                                        {grokKeyStatus === 'error' && 'Could not reach xAI to verify'}
+                                        {grokKeyStatus === 'idle' && 'Optional - lets the AI Hub use Grok as a chat provider.'}
+                                    </>
+                                )}
+                            </span>
+                        </div>
+                    </LockedApiField>
+
+                    {/* DeepSeek - also OpenAI-compatible, same pattern again. */}
+                    <LockedApiField label="DeepSeek API Key" pinConfigured={isPinConfigured(settings.appPin)} storedPinHash={settings.appPin} hasValue={!!settings.deepseekApiKey}>
+                        <div>
+                            <label htmlFor="deepseekApiKey" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                                <span>DeepSeek API Key <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>(optional)</span></span>
+                                <span style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    color: settings.deepseekApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
+                                    fontWeight: '700', fontSize: '12px',
+                                }}>
+                                    {settings.deepseekApiKeyConfirmed && <Check size={13} />}
+                                    {settings.deepseekApiKeyConfirmed ? 'Connected' : 'Not Connected'}
+                                </span>
+                            </label>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <input
+                                    id="deepseekApiKey" name="deepseekApiKey" type="password" placeholder="sk-xxxxxxxxxxxxxxxxxxxx"
+                                    value={settings.deepseekApiKey} onChange={(e) => handleChange('deepseekApiKey', e.target.value)}
+                                    style={{
+                                        flex: 1, minWidth: 0, padding: '12px 16px', borderRadius: '12px',
+                                        border: `1px solid ${settings.deepseekApiKeyConfirmed ? 'var(--success)' : (deepseekKeyStatus === 'invalid' || deepseekKeyStatus === 'error') ? '#EF4444' : deepseekKeyStatus === 'connected' ? 'var(--success)' : 'var(--border-premium)'}`,
+                                        background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => confirmApiField('deepseekApiKeyConfirmed')}
+                                    disabled={deepseekKeyStatus !== 'connected'}
+                                    title={deepseekKeyStatus === 'connected' ? 'Save this key' : 'Key must validate successfully before it can be confirmed'}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px', padding: '0 16px', borderRadius: '12px',
+                                        background: deepseekKeyStatus === 'connected' ? 'var(--primary)' : 'var(--widget-bg)',
+                                        color: deepseekKeyStatus === 'connected' ? 'var(--text-on-primary)' : 'var(--text-muted)',
+                                        border: `1px solid ${deepseekKeyStatus === 'connected' ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                        fontWeight: '700', fontSize: '13px', fontFamily: 'inherit', flexShrink: 0,
+                                        cursor: deepseekKeyStatus === 'connected' ? 'pointer' : 'default',
+                                        opacity: deepseekKeyStatus === 'connected' ? 1 : 0.6,
+                                    }}
+                                >
+                                    <Check size={14} /> Confirm
+                                </button>
+                            </div>
+                            <span style={{ fontSize: '11px', color: !settings.deepseekApiKeyConfirmed && (deepseekKeyStatus === 'invalid' || deepseekKeyStatus === 'error') ? '#EF4444' : 'var(--text-muted)', marginTop: '6px', display: 'block' }}>
+                                {settings.deepseekApiKeyConfirmed ? 'Key valid and connected' : (
+                                    <>
+                                        {deepseekKeyStatus === 'checking' && 'Checking…'}
+                                        {deepseekKeyStatus === 'connected' && 'Key verified - click Confirm to save'}
+                                        {deepseekKeyStatus === 'invalid' && 'Invalid key'}
+                                        {deepseekKeyStatus === 'error' && 'Could not reach DeepSeek to verify'}
+                                        {deepseekKeyStatus === 'idle' && 'Optional - lets the AI Hub use DeepSeek as a chat provider.'}
+                                    </>
+                                )}
+                            </span>
+                        </div>
+                    </LockedApiField>
+                </SettingCard>
+                </>
+                )}
+
+                {activeCategory === 'appearance' && (
+                <SettingCard icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and visual adjustments" tourId="settings-display" defaultOpen>
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>System Theme</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose your visual environment</span></div>
                         <select id="themeMode" name="themeMode" aria-label="System Theme" value={settings.themeMode} onChange={(e) => handleChange('themeMode', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>
@@ -2368,53 +3378,26 @@ const SettingsPage = ({ setActiveTab }) => {
                         </select>
                     </div>
 
-                    <div style={{
-                        background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px',
-                        padding: '24px', display: 'flex', flexDirection: 'column', gap: '4px',
-                        boxShadow: '0 0 0 1px rgba(var(--primary-rgb), 0.06), 0 0 32px rgba(var(--primary-rgb), 0.05), inset 0 1px 0 rgba(255,255,255,0.04)',
-                    position: 'relative', overflow: 'hidden',
-                }}>
-                    {/* Faint top sheen - a single, quiet gradient line rather
-                        than a busy decorative border, keeping the "one
-                        signature element" (the glow) as the actual focal
-                        point. */}
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.5), transparent)' }} />
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '16px', marginBottom: '4px' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <Sparkles size={17} color="var(--accent)" />
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, letterSpacing: '0.1px' }}>Glassmorphism & Visual Customization</h3>
-                            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', letterSpacing: '0.3px', textTransform: 'uppercase' }}>Live-tunes the glass rendering across the OS</span>
-                        </div>
-                    </div>
-
+                    {/* Moved back from Glassmorphism, per explicit request -
+                        that section is now scoped to genuinely
+                        glass-specific controls only (Blur, Opacity,
+                        Wallpaper); Brightness/Accent/Animations are
+                        general visual-environment adjustments that
+                        belong here instead. */}
                     <div style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
-                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', marginTop: '16px',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px',
                     }}>
-                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Blur Intensity</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Backdrop blur radius on glass panels</span></div>
+                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Brightness Adjustment</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Overall brightness of the wallpaper and glass panels</span></div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                            <SmoothRangeSlider id="glass-blur-slider" ariaLabel="Blur intensity" value={settings.glassBlur} min={0} max={40} step={1} onChange={(v) => handleChange('glassBlur', v)} />
-                            <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '800', fontFamily: 'monospace', width: '46px', textAlign: 'center', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', borderRadius: '7px', padding: '4px 0' }}>{settings.glassBlur}px</span>
-                        </div>
-                    </div>
-
-                    <div style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
-                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', marginTop: '10px',
-                    }}>
-                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Transparency / Opacity</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Fill opacity of glass panels</span></div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-                            <SmoothRangeSlider id="glass-opacity-slider" ariaLabel="Transparency / opacity" value={settings.glassOpacity} min={1} max={15} step={1} onChange={(v) => handleChange('glassOpacity', v)} />
-                            <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '800', fontFamily: 'monospace', width: '46px', textAlign: 'center', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', borderRadius: '7px', padding: '4px 0' }}>{settings.glassOpacity}%</span>
+                            <SmoothRangeSlider id="os-brightness-slider" ariaLabel="Brightness adjustment" value={settings.osBrightness} min={50} max={150} step={1} onChange={(v) => handleChange('osBrightness', v)} />
+                            <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '800', fontFamily: 'monospace', width: '46px', textAlign: 'center', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', borderRadius: '7px', padding: '4px 0' }}>{settings.osBrightness}%</span>
                         </div>
                     </div>
 
                     <div style={{
                         display: 'flex', flexDirection: 'column', gap: accentExpanded ? '12px' : 0,
-                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', marginTop: '10px',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px',
                     }}>
                         <button
                             type="button"
@@ -2451,20 +3434,86 @@ const SettingsPage = ({ setActiveTab }) => {
 
                     <div style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
-                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', marginTop: '10px', marginBottom: '2px',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px',
                     }}>
                         <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Animations & Motion</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>UI transitions and render performance</span></div>
                         <ToggleSwitch checked={settings.glassAnimationsEnabled} onChange={(v) => handleChange('glassAnimationsEnabled', v)} />
                     </div>
-                </div>
 
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Battery size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Performance / Battery Saver Mode</h3></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Reduce Blur & Motion</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cuts backdrop blur and freezes background animations for low-end devices</span></div>
+                    {/* Merged in from its own separate "Performance /
+                        Battery Saver Mode" card, per explicit request -
+                        one Appearance card, one open/close, not two
+                        separate cards to expand every time.
+                        Relabeled per real, direct feedback: this toggle
+                        already does genuine, real battery-saving work
+                        (see style.css's own html.nexus-battery-saver
+                        rules - it forces --glass-blur down to 4px
+                        everywhere, including the wallpaper layer, and
+                        freezes every CSS animation/transition across the
+                        whole app to near-zero, both of which are real,
+                        meaningful reductions in per-frame GPU compositing
+                        work) - the old "Reduce Blur & Motion" name just
+                        never told the user THAT was the actual point, so
+                        nobody watching their battery drain would have any
+                        reason to think this toggle was the fix for it. */}
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px',
+                    }}>
+                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Battery Saver Mode</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cuts blur and freezes animations everywhere to reduce battery drain - real power savings, not just a visual setting</span></div>
                         <ToggleSwitch checked={settings.performanceSaverMode} onChange={(v) => handleChange('performanceSaverMode', v)} />
                     </div>
+                </SettingCard>
+                )}
+
+                {/* Glassmorphism - scoped to genuinely glass-specific
+                    rendering controls only, per explicit request: Blur
+                    Intensity, Transparency/Opacity, and the Wallpaper
+                    picker (custom backgrounds render THROUGH these same
+                    glass panels). System Theme, Brightness, Accent/Tint,
+                    and Animations & Motion all moved back to Appearance -
+                    general visual-environment adjustments, not
+                    specifically "glass" ones. */}
+                {activeCategory === 'glassmorphism' && (
+                <>
+                <SettingCard icon={Sparkles} title="Glassmorphism & Visual Customization" subtitle="Live-tunes the glass rendering across the OS" defaultOpen>
+                    <div style={{
+                        background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px',
+                        padding: '24px', display: 'flex', flexDirection: 'column', gap: '4px',
+                        boxShadow: '0 0 0 1px rgba(var(--primary-rgb), 0.06), 0 0 32px rgba(var(--primary-rgb), 0.05), inset 0 1px 0 rgba(255,255,255,0.04)',
+                    position: 'relative', overflow: 'hidden',
+                }}>
+                    {/* Faint top sheen - a single, quiet gradient line rather
+                        than a busy decorative border, keeping the "one
+                        signature element" (the glow) as the actual focal
+                        point. No separate icon/title header here anymore -
+                        this box's own SettingCard already carries that,
+                        so a second copy directly below it would just be a
+                        duplicate. */}
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(var(--primary-rgb), 0.5), transparent)' }} />
+
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', marginTop: '6px',
+                    }}>
+                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Blur Intensity</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Backdrop blur radius on glass panels</span></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                            <SmoothRangeSlider id="glass-blur-slider" ariaLabel="Blur intensity" value={settings.glassBlur} min={0} max={40} step={1} onChange={(v) => handleChange('glassBlur', v)} />
+                            <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '800', fontFamily: 'monospace', width: '46px', textAlign: 'center', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', borderRadius: '7px', padding: '4px 0' }}>{settings.glassBlur}px</span>
+                        </div>
                     </div>
+
+                    <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', marginTop: '10px', marginBottom: '2px',
+                    }}>
+                        <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Transparency / Opacity</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Fill opacity of glass panels</span></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+                            <SmoothRangeSlider id="glass-opacity-slider" ariaLabel="Transparency / opacity" value={settings.glassOpacity} min={1} max={15} step={1} onChange={(v) => handleChange('glassOpacity', v)} />
+                            <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '800', fontFamily: 'monospace', width: '46px', textAlign: 'center', background: 'rgba(var(--primary-rgb), 0.1)', border: '1px solid rgba(var(--primary-rgb), 0.2)', borderRadius: '7px', padding: '4px 0' }}>{settings.glassOpacity}%</span>
+                        </div>
+                    </div>
+                </div>
 
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: wallpaperExpanded ? '18px' : 0 }}>
                     <button
@@ -2489,95 +3538,400 @@ const SettingsPage = ({ setActiveTab }) => {
 
                     {wallpaperExpanded && (
                         <>
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-8px' }}>Applies instantly across the whole OS - no reload needed.</span>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
-                                {WALLPAPER_OPTIONS.map((wp) => {
-                                    const active = settings.wallpaper === wp.id;
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-8px' }}>
+                                {WALLPAPER_OPTIONS.length} themes - applies instantly across the whole OS, no reload needed.
+                            </span>
+
+                            {/* Category filter chips - a flat 150+-item grid is unusable even
+                                inside a scroll box, so this narrows it down first. Horizontally
+                                scrollable (not wrapped) so it stays a single compact row on
+                                mobile instead of eating vertical space the scroll box below needs. */}
+                            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '2px', marginTop: '-4px' }}>
+                                {WALLPAPER_CATEGORIES.map((cat) => {
+                                    const active = wallpaperCategoryFilter === cat;
                                     return (
                                         <button
-                                            key={wp.id} type="button"
-                                            onClick={() => handleChange('wallpaper', wp.id)}
+                                            key={cat} type="button"
+                                            onClick={() => setWallpaperCategoryFilter(cat)}
                                             style={{
-                                                display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px',
-                                                background: 'var(--widget-bg)', borderRadius: '14px', cursor: 'pointer', textAlign: 'left',
-                                                border: active ? '2px solid var(--primary)' : '2px solid var(--border-premium)',
-                                                boxShadow: active ? '0 0 0 3px rgba(var(--primary-rgb), 0.15)' : 'none',
-                                                transition: 'border 0.15s ease, box-shadow 0.15s ease',
+                                                flexShrink: 0, padding: isMobile ? '5px 10px' : '6px 12px',
+                                                borderRadius: '999px', cursor: 'pointer', fontFamily: 'inherit',
+                                                fontSize: isMobile ? '11px' : '12px', fontWeight: '700', whiteSpace: 'nowrap',
+                                                background: active ? 'var(--primary)' : 'var(--widget-bg)',
+                                                color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)',
+                                                border: active ? '1px solid var(--primary)' : '1px solid var(--border-premium)',
+                                                transition: 'background 0.15s ease, color 0.15s ease',
                                             }}
                                         >
-                                            <div style={{ width: '100%', height: '52px', borderRadius: '9px', background: wp.preview, position: 'relative', overflow: 'hidden' }}>
-                                                {active && (
-                                                    <div style={{ position: 'absolute', top: '6px', right: '6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <Check size={12} color="var(--text-on-primary)" strokeWidth={3} />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)' }}>{wp.label}</span>
+                                            {cat}
                                         </button>
                                     );
                                 })}
+                            </div>
+
+                            {/* Dedicated scrollable viewport - fixed max-height so this box
+                                never forces the whole Settings page to stretch to fit 150+
+                                cards. Slim inner right padding keeps the (already globally
+                                thin, 6px) scrollbar from overlapping the last column's cards. */}
+                            <div style={{ maxHeight: isMobile ? '360px' : '420px', overflowY: 'auto', paddingRight: '4px' }}>
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(auto-fit, minmax(120px, 1fr))',
+                                    gap: isMobile ? '8px' : '12px',
+                                }}>
+                                    {WALLPAPER_OPTIONS.filter((wp) => wallpaperCategoryFilter === 'All' || wp.category === wallpaperCategoryFilter).map((wp) => {
+                                        const active = settings.wallpaper === wp.id;
+                                        return (
+                                            <button
+                                                key={wp.id} type="button"
+                                                onClick={() => handleChange('wallpaper', wp.id)}
+                                                title={wp.label}
+                                                style={{
+                                                    display: 'flex', flexDirection: 'column', gap: isMobile ? '5px' : '8px',
+                                                    padding: isMobile ? '6px' : '10px', minWidth: 0,
+                                                    background: 'var(--widget-bg)', borderRadius: isMobile ? '11px' : '14px', cursor: 'pointer', textAlign: 'left',
+                                                    border: active ? '2px solid var(--primary)' : '2px solid var(--border-premium)',
+                                                    boxShadow: active ? '0 0 0 3px rgba(var(--primary-rgb), 0.15)' : 'none',
+                                                    transition: 'border 0.15s ease, box-shadow 0.15s ease',
+                                                }}
+                                            >
+                                                <div style={{ width: '100%', height: isMobile ? '38px' : '52px', borderRadius: '9px', background: wp.preview, position: 'relative', overflow: 'hidden' }}>
+                                                    {active && (
+                                                        <div style={{ position: 'absolute', top: '6px', right: '6px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                            <Check size={12} color="var(--text-on-primary)" strokeWidth={3} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <span style={{
+                                                    fontSize: isMobile ? '10px' : '12px', fontWeight: '700', color: 'var(--text-primary)',
+                                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                }}>
+                                                    {wp.label}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         </>
                     )}
                 </div>
 
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: widgetExpanded ? '16px' : 0 }}>
+                {/* A genuinely separate section, not another entry inside the
+                    theme-library grid above - per explicit request, this
+                    lives alongside Custom Background / Wallpaper rather than
+                    merged into it. */}
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: customImageExpanded ? '16px' : 0, marginTop: '18px' }}>
                     <button
                         type="button"
-                        onClick={() => setWidgetExpanded((v) => !v)}
+                        onClick={() => setCustomImageExpanded((v) => !v)}
                         style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
                             background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%',
-                            borderBottom: widgetExpanded ? '1px solid var(--border-premium)' : 'none', paddingBottom: widgetExpanded ? '12px' : 0,
+                            borderBottom: customImageExpanded ? '1px solid var(--border-premium)' : 'none', paddingBottom: customImageExpanded ? '12px' : 0,
                             fontFamily: 'inherit',
                         }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <LayoutGrid size={20} color="var(--accent)" />
-                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Productivity Widget Customization</h3>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px 10px', flexWrap: 'wrap' }}>
+                            <ImagePlus size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
+                            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Your Own Wallpaper</h3>
+                            {settings.wallpaper === 'custom-image' && (
+                                <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent)', background: 'rgba(var(--primary-rgb), 0.1)', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>Active</span>
+                            )}
                         </div>
-                        <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: widgetExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+                        <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: customImageExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
                     </button>
 
-                    {widgetExpanded && (
-                    <>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-4px' }}>Show or hide each category's items on the Home dashboard queue.</span>
+                    {customImageExpanded && (
+                        <>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-4px' }}>
+                                Upload a photo from your device and use it as the wallpaper - PNG, JPG, or WEBP.
+                            </span>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><BookOpen size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Study Tracker</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowStudy} onChange={(v) => handleChange('widgetShowStudy', v)} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Activity size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Gym Split</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowGym} onChange={(v) => handleChange('widgetShowGym', v)} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><DollarSign size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Finance Overview</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowFinance} onChange={(v) => handleChange('widgetShowFinance', v)} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Clock size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Daily Timetable</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowTimetable} onChange={(v) => handleChange('widgetShowTimetable', v)} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><ClipboardList size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Planner Tasks</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowPlanner} onChange={(v) => handleChange('widgetShowPlanner', v)} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><CalendarDays size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Calendar Schedule</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowCalendar} onChange={(v) => handleChange('widgetShowCalendar', v)} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Utensils size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Nutrition / Diet</strong></div>
-                        <ToggleSwitch checked={settings.widgetShowDiet} onChange={(v) => handleChange('widgetShowDiet', v)} />
-                    </div>
-                    </>
+                            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <div style={{
+                                    width: '96px', height: '96px', borderRadius: '14px', flexShrink: 0,
+                                    // backgroundImage (longhand), not the background shorthand -
+                                    // this div also sets backgroundSize/backgroundPosition below,
+                                    // and mixing the shorthand with a longhand sub-property in the
+                                    // same style object is a real React warning (the shorthand
+                                    // silently resets the longhand as part of applying itself).
+                                    backgroundColor: 'var(--widget-bg)',
+                                    backgroundImage: customWallpaperImage ? `url(${customWallpaperImage})` : 'none',
+                                    backgroundSize: 'cover', backgroundPosition: 'center',
+                                    border: '1px solid var(--border-premium)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                }}>
+                                    {!customWallpaperImage && <ImagePlus size={26} color="var(--text-muted)" />}
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: '1 1 200px' }}>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => customImageInputRef.current?.click()}
+                                            disabled={customImageProcessing}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '6px',
+                                                padding: '9px 16px', borderRadius: '10px', cursor: customImageProcessing ? 'default' : 'pointer',
+                                                background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
+                                                fontFamily: 'inherit', fontSize: '13px', fontWeight: '700',
+                                                opacity: customImageProcessing ? 0.6 : 1,
+                                            }}
+                                        >
+                                            <Upload size={15} /> {customImageProcessing ? 'Processing...' : customWallpaperImage ? 'Replace Photo' : 'Upload Photo'}
+                                        </button>
+
+                                        {customWallpaperImage && settings.wallpaper !== 'custom-image' && (
+                                            <button
+                                                type="button"
+                                                onClick={handleUseCustomImage}
+                                                style={{
+                                                    padding: '9px 16px', borderRadius: '10px', cursor: 'pointer',
+                                                    background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)',
+                                                    fontFamily: 'inherit', fontSize: '13px', fontWeight: '700',
+                                                }}
+                                            >
+                                                Use as Wallpaper
+                                            </button>
+                                        )}
+
+                                        {customWallpaperImage && (
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveCustomImage}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                                    padding: '9px 16px', borderRadius: '10px', cursor: 'pointer',
+                                                    background: 'transparent', color: 'var(--danger)', border: '1px solid var(--border-premium)',
+                                                    fontFamily: 'inherit', fontSize: '13px', fontWeight: '700',
+                                                }}
+                                            >
+                                                <Trash2 size={14} /> Remove
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <input
+                                        ref={customImageInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp"
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => { handleCustomImageFile(e.target.files?.[0]); e.target.value = ''; }}
+                                    />
+
+                                    {customImageError ? (
+                                        <span style={{ fontSize: '12px', color: 'var(--danger)', fontWeight: '600' }}>{customImageError}</span>
+                                    ) : (
+                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                            Resized and compressed automatically before saving.
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </>
                     )}
                 </div>
 
-                </SettingsSection>
+                </SettingCard>
+                </>
+                )}
 
-                <SettingsSection icon={Music} title="Master Audio Mixer & Channels" subtitle="UI sounds, task alerts, and playback volume">
+                {activeCategory === 'typography' && (
+                <SettingCard icon={Type} title="Typography & Styling" subtitle={`App-wide font, chosen from a ${FONT_OPTIONS.length}-font curated library`} defaultOpen>
+                    {/* Live preview - genuinely rendered in the currently
+                        selected font (real --font-primary, not a mockup),
+                        so the effect of a choice is visible immediately. */}
+                    <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Preview - {getFontOption(settings.fontFamily).label}</span>
+                        <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', fontFamily: 'var(--font-primary)' }}>Nexus Life OS</span>
+                        <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontFamily: 'var(--font-primary)' }}>The quick brown fox jumps over the lazy dog - 0123456789</span>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: fontExpanded ? '16px' : 0, marginTop: '14px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setFontExpanded((v) => !v)}
+                            style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%',
+                                borderBottom: fontExpanded ? '1px solid var(--border-premium)' : 'none', paddingBottom: fontExpanded ? '12px' : 0,
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px 10px', flexWrap: 'wrap' }}>
+                                <Type size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
+                                <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Browse Font Library</h3>
+                                <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent)', background: 'rgba(var(--primary-rgb), 0.1)', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>
+                                    {getFontOption(settings.fontFamily).label}
+                                </span>
+                            </div>
+                            <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: fontExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+                        </button>
+
+                        {fontExpanded && (
+                            <>
+                                <div style={{ position: 'relative' }}>
+                                    <Search size={15} style={{ position: 'absolute', top: '50%', left: '12px', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                                    <label htmlFor="font-search-input" style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>Search fonts</label>
+                                    <input
+                                        id="font-search-input" name="fontSearch" type="text" placeholder={`Search ${FONT_OPTIONS.length} fonts...`}
+                                        value={fontSearchQuery} onChange={(e) => setFontSearchQuery(e.target.value)}
+                                        style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                                    />
+                                </div>
+
+                                <div style={{ maxHeight: '440px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px', paddingRight: '4px' }}>
+                                    {filteredFontsByCategory.length === 0 && (
+                                        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No fonts match "{fontSearchQuery}".</span>
+                                    )}
+                                    {filteredFontsByCategory.map((group) => (
+                                        <div key={group.category} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{group.category}</span>
+                                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
+                                                {group.fonts.map((font) => {
+                                                    const active = settings.fontFamily === font.id;
+                                                    return (
+                                                        <button
+                                                            key={font.id} type="button"
+                                                            onClick={() => handleChange('fontFamily', font.id)}
+                                                            style={{
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                                                padding: '12px 14px', borderRadius: '12px', cursor: 'pointer', textAlign: 'left',
+                                                                background: 'var(--widget-bg)',
+                                                                border: active ? '2px solid var(--primary)' : '1px solid var(--border-premium)',
+                                                                boxShadow: active ? '0 0 0 3px rgba(var(--primary-rgb), 0.15)' : 'none',
+                                                                transition: 'border 0.15s ease, box-shadow 0.15s ease',
+                                                            }}
+                                                        >
+                                                            <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', fontFamily: font.stack, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{font.label}</span>
+                                                            {active && (
+                                                                <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                    <Check size={12} color="var(--text-on-primary)" strokeWidth={3} />
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Real, working custom font upload - a genuine
+                        FontFace loaded from the user's own file, not a
+                        preview. Its own separate collapsible box, mirroring
+                        Browse Font Library's own layout, rather than being
+                        squeezed into that grid as a fake extra "font". */}
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: customFontExpanded ? '16px' : 0, marginTop: '14px' }}>
+                        <button
+                            type="button"
+                            onClick={() => setCustomFontExpanded((v) => !v)}
+                            style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%',
+                                borderBottom: customFontExpanded ? '1px solid var(--border-premium)' : 'none', paddingBottom: customFontExpanded ? '12px' : 0,
+                                fontFamily: 'inherit',
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px 10px', flexWrap: 'wrap' }}>
+                                <FileType size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
+                                <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Upload Your Own Font</h3>
+                                {(settings.customFonts || []).length > 0 && (
+                                    <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--accent)', background: 'rgba(var(--primary-rgb), 0.1)', padding: '2px 8px', borderRadius: '10px', whiteSpace: 'nowrap' }}>
+                                        {settings.customFonts.length} uploaded
+                                    </span>
+                                )}
+                            </div>
+                            <ChevronDown size={18} color="var(--text-secondary)" style={{ transform: customFontExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', flexShrink: 0 }} />
+                        </button>
+
+                        {customFontExpanded && (
+                            <>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-4px' }}>
+                                    Bring your own .ttf, .otf, .woff, or .woff2 file (from Google Fonts or anywhere else) - applies instantly, everywhere, just like the curated library above.
+                                </span>
+
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => customFontInputRef.current?.click()}
+                                        disabled={customFontProcessing}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '6px',
+                                            padding: '9px 16px', borderRadius: '10px', cursor: customFontProcessing ? 'default' : 'pointer',
+                                            background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
+                                            fontFamily: 'inherit', fontSize: '13px', fontWeight: '700',
+                                            opacity: customFontProcessing ? 0.6 : 1,
+                                        }}
+                                    >
+                                        <Upload size={15} /> {customFontProcessing ? 'Loading...' : 'Upload Font File'}
+                                    </button>
+                                    <input
+                                        ref={customFontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2"
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => { handleCustomFontFile(e.target.files?.[0]); e.target.value = ''; }}
+                                    />
+                                </div>
+
+                                {customFontError && <span style={{ fontSize: '12px', color: 'var(--danger)', fontWeight: '600' }}>{customFontError}</span>}
+
+                                {(settings.customFonts || []).length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {settings.customFonts.map((font) => {
+                                            const active = settings.fontFamily === font.id;
+                                            return (
+                                                <div
+                                                    key={font.id}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px',
+                                                        padding: '12px 14px', borderRadius: '12px',
+                                                        background: 'var(--widget-bg)',
+                                                        border: active ? '2px solid var(--primary)' : '1px solid var(--border-premium)',
+                                                        boxShadow: active ? '0 0 0 3px rgba(var(--primary-rgb), 0.15)' : 'none',
+                                                    }}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleChange('fontFamily', font.id)}
+                                                        style={{
+                                                            flex: 1, minWidth: 0, textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer',
+                                                            display: 'flex', alignItems: 'center', gap: '10px', padding: 0, fontFamily: 'inherit',
+                                                        }}
+                                                    >
+                                                        <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', fontFamily: `'${font.familyName}', var(--font-primary)`, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {font.label}
+                                                        </span>
+                                                        {active && (
+                                                            <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                <Check size={12} color="var(--text-on-primary)" strokeWidth={3} />
+                                                            </div>
+                                                        )}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveCustomFont(font.id)}
+                                                        title="Remove this font"
+                                                        aria-label={`Remove ${font.label}`}
+                                                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0, display: 'flex' }}
+                                                    >
+                                                        <Trash2 size={15} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </SettingCard>
+                )}
+
+                {activeCategory === 'audio' && (
+                <>
+                <SettingCard icon={Music} title="Master Audio Mixer & Channels" subtitle="UI sounds, task alerts, and playback volume" defaultOpen>
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Live volume and mute per channel - drag applies instantly. Tap the note icon to manage custom sounds.</span>
                     <SoundChannelCard channelKey="uiFeedback" icon={<Sliders size={14} color="var(--accent)" />} onManage={() => setManageSoundsChannel('uiFeedback')} />
                     <SoundChannelCard channelKey="taskAlerts" icon={<Bell size={14} color="var(--accent)" />} onManage={() => setManageSoundsChannel('taskAlerts')} />
@@ -2624,23 +3978,22 @@ const SettingsPage = ({ setActiveTab }) => {
                         </div>
                         <ToggleSwitch checked={crossfadeEnabled} onChange={() => setCrossfadeEnabled((v) => !v)} />
                     </div>
-                </SettingsSection>
+                </SettingCard>
 
-                <SettingsSection icon={Sliders} title="System Defaults" subtitle="Currency, weight, and temperature units">
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '16px' }}>
-                        <div><label htmlFor="currency" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><DollarSign size={14}/> Currency</label>
-                            <select id="currency" name="currency" value={globalSettings.currencySymbol} onChange={(e) => updateGlobalSetting('currencySymbol', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="₹" style={{ background: 'var(--surface-inset)' }}>₹ INR</option><option value="$" style={{ background: 'var(--surface-inset)' }}>$ USD</option><option value="€" style={{ background: 'var(--surface-inset)' }}>€ EUR</option></select>
-                        </div>
-                        <div><label htmlFor="weightUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Activity size={14}/> Weight Unit</label>
-                            <select id="weightUnit" name="weightUnit" value={settings.weightUnit} onChange={(e) => handleChange('weightUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="kg" style={{ background: 'var(--surface-inset)' }}>Kilograms (kg)</option><option value="lbs" style={{ background: 'var(--surface-inset)' }}>Pounds (lbs)</option></select>
-                        </div>
-                        <div><label htmlFor="temperatureUnit" style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}><Thermometer size={14}/> Temperature Unit</label>
-                            <select id="temperatureUnit" name="temperatureUnit" value={settings.temperatureUnit} onChange={(e) => handleChange('temperatureUnit', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer' }}><option value="°C" style={{ background: 'var(--surface-inset)' }}>Celsius (°C)</option><option value="°F" style={{ background: 'var(--surface-inset)' }}>Fahrenheit (°F)</option></select>
-                        </div>
-                    </div>
-                </SettingsSection>
+                {/* The real master ON/OFF for the whole AI Daily Briefing
+                    feature, plus voice/language/rate/auto-play - all real
+                    controls, shared with (and always in sync with) the
+                    equivalent panel inside the AI page's own sidebar
+                    (see AISidebar.jsx) via VoiceAssistantSettings.jsx, so
+                    this section and that one can never drift apart. */}
+                <SettingCard icon={Mic} title="Voice Assistant" subtitle="AI Daily Briefing's on/off switch, voice, and language">
+                    <VoiceAssistantSettings />
+                </SettingCard>
+                </>
+                )}
 
-                <SettingsSection icon={Cloud} title="Automation & Backup" subtitle="Cloud backup schedule, local export, and factory reset">
+                {activeCategory === 'backup' && (
+                <SettingCard icon={Cloud} title="Automation & Backup" subtitle="Cloud backup schedule, local export, and factory reset" defaultOpen>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Auto-Backup Frequency</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Automatically back up to the cloud this often while the app is open</span></div>
                         <select id="autoBackupFreq" name="autoBackupFreq" aria-label="Auto-Backup Frequency" value={settings.autoBackupFreq} onChange={(e) => handleChange('autoBackupFreq', e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: 'border-box' }}>
@@ -2657,6 +4010,26 @@ const SettingsPage = ({ setActiveTab }) => {
                                         ? `Last backed up ${lastSyncedAt.toLocaleString()}.`
                                         : 'Not backed up yet.'}
                         </span>
+                        {/* A failed Backup Now / Restore Data used to be
+                            completely silent here - the button just reverted
+                            to its idle label with zero indication anything
+                            went wrong, so "I restored but my data never
+                            came back" was genuinely undiagnosable (a
+                            Firestore write can fail for real reasons this
+                            app doesn't otherwise guard against, e.g. the
+                            combined backup - avatar image included -
+                            exceeding Firestore's 1MB per-document limit).
+                            Surfacing the real syncError here, matching the
+                            exact error-text convention already used
+                            elsewhere on this page, is what makes a genuine
+                            failure visible instead of indistinguishable
+                            from "nothing changed because everything was
+                            already up to date". */}
+                        {syncStatus === 'error' && syncError && (
+                            <span style={{ fontSize: '12px', color: '#EF4444', fontWeight: '600' }}>
+                                {activeSyncDirection === 'pull' ? 'Restore failed: ' : 'Backup failed: '}{syncError}
+                            </span>
+                        )}
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <button
                                 type="button"
@@ -2746,10 +4119,9 @@ const SettingsPage = ({ setActiveTab }) => {
                         <button type="button" onClick={() => requestHighRiskAction('factoryReset')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: '#EF4444', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: '800', fontSize: '13px', cursor: 'pointer' }}><Trash2 size={16} /> Factory Reset Data</button>
                     </div>
                     </div>
-                </SettingsSection>
-
-
-            </div>
+                </SettingCard>
+                )}
+            </SettingsLayout>
 
             {manageSoundsChannel && (
                 <ManageSoundsModal

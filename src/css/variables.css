@@ -2,10 +2,42 @@
  * NEXUS DESIGN SYSTEM - BULLETPROOF THEME MATRIX
  */
 
+/* Typography - deliberately theme-independent (a font choice isn't a
+   color/theme concept), so this lives outside every data-theme block below
+   and is never redeclared by any of them; the real live value is set as an
+   inline style on <html> by SettingsPage.jsx (same convention as
+   --nexus-user-glass-alpha), which always wins over this stylesheet
+   default regardless of which theme is active. This is only the
+   before-JS-runs / no-preference-saved-yet fallback. */
+:root {
+    --font-primary: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+    /* Category-representative stacks for the .font-* utility classes in
+       style.css - each mirrors the exact `stack` value its font already
+       has in constants/fontOptions.js, so a utility class and picking
+       that same font in Settings render identically. These are fixed,
+       category-level choices (unlike --font-primary above, which is the
+       user's one live, swappable selection) - meant for a component that
+       deliberately wants "a serif" or "a handwriting font" regardless of
+       whatever the user picked as their app-wide font. */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-serif: 'Playfair Display', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+    --font-display: 'Bebas Neue', Impact, sans-serif;
+    --font-handwriting: 'Dancing Script', cursive;
+}
+
 /* 1. NIGHT MODE (Original & Untouched - Zero Changes) */
 :root, :root[data-theme="night"] {
     --bg-main: #0F0F17;
-    --sidebar-bg: #141423;
+    /* Same exact value as --bg-main (was a visibly different #141423) - a
+       real, reported "hard border line" on the sidebar was actually just
+       this flat color contrast against the main content area next to it,
+       not a literal CSS border anywhere (there isn't one). Matches the
+       same technique that already makes the header blend seamlessly
+       (header.jsx's background falls back to var(--bg-main) directly,
+       since this theme never defines its own --header-bg). */
+    --sidebar-bg: #0F0F17;
     --bg-surface: #1B1B2F;
     --bg-surface-hover: #252542;
     --widget-bg: rgba(255, 255, 255, 0.05);
@@ -53,7 +85,9 @@
 /* 2. COMFORT MODE (Original & Untouched - Zero Changes) */
 :root[data-theme="comfort"] {
     --bg-main: #1C1817;
-    --sidebar-bg: #241F1E;
+    /* Same exact value as --bg-main - see the Night theme's own comment on
+       this identical change just above for why. */
+    --sidebar-bg: #1C1817;
     --bg-surface: #2E2725;
     --bg-surface-hover: #3C3330;
     --widget-bg: rgba(245, 158, 11, 0.08);
@@ -85,7 +119,13 @@
 /* 3. LIGHT MODE / DAY MODE (Original & Untouched - Zero Changes) */
 :root[data-theme="day"], :root[data-theme="light"] {
     --bg-main: #F4F4F6;
-    --sidebar-bg: #FFFFFF;
+    /* Same exact value as --bg-main (was a visibly different pure #FFFFFF)
+       - see the Night theme's own comment on this identical change for
+       why; this is the exact reference point that request describes as
+       already smooth ("exactly like the default Light Mode header" -
+       header.jsx's background already falls back to this same --bg-main
+       token, this just makes the sidebar match it too). */
+    --sidebar-bg: #F4F4F6;
     --bg-surface: #FFFFFF;
     --bg-surface-hover: #EAEAEF;
     --widget-bg: #FFFFFF;
@@ -128,22 +168,24 @@
     --bg-surface: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
     --bg-surface-hover: rgba(30, 41, 59, 0.08);
     --widget-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
-    --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03)); /* Brought down to match sidebar/cards per explicit request - the 16px blur (reduced last round) is what actually needs to obscure scrolling content, not extra tint; a header-specific higher value is no longer needed at this blur strength. */
-    /* Mobile bottom nav ONLY (see the [style*="var(--mobile-nav-bg"] rule
-       below and MobileTabBar.jsx's own use of this token) - a real,
-       confirmed-on-device gap: the nav is `position: fixed`, sitting
-       directly on top of this same wallpaper layer, which is ALSO
-       `position: fixed`. Safari/WebKit has a well-documented limitation
-       where backdrop-filter on a fixed element doesn't reliably capture
-       another fixed element behind it, so at the user's own low glass-
-       alpha setting the nav read as near fully see-through on a real
-       iOS device even though backdrop-filter was genuinely applied - the
-       header never hit this because it's `position: sticky`, not fixed.
-       max() only ever RAISES the floor above the user's own slider value,
-       never lowers it, matching the same idiom the dawn/dusk contrast
-       floors below already use for an analogous "genuinely need a floor
-       under this specific real bug" case. */
-    --mobile-nav-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.72));
+    --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03)); /* Brought down to match sidebar/cards per explicit request - the 16px blur (reduced last round) is what actually needs to obscure scrolling content, not extra tint; a header-specific higher value is no longer needed at this blur strength. MobileTabBar.jsx now reuses this exact token too, per explicit request for pixel-parity with the header - see its own comment for the WebKit trade-off that decision carries. */
+    /* Dedicated fill for small anchored header popovers (System
+       Diagnostics, Focus Audio Studio, Notifications) - a real, reported
+       "the card mixes with what's behind it" complaint, and an explicit
+       correction after a first attempt tried a full-viewport dimming
+       backdrop like QuickNotesModal.jsx uses: that's wrong for a small
+       dropdown specifically because it blocks/dims the REST of the page
+       (the user could no longer see or reach the audio mini-player's own
+       other controls while this was open) - these are lightweight
+       anchored popovers, not modals, and must never take over the whole
+       screen. The actual fix has to live entirely in the popover's OWN
+       fill instead: --bg-surface is deliberately near-transparent at the
+       user's own low Transparency settings (correct for cards sitting
+       over page content), which is too transparent for a small popover
+       to read as solid on its own with no assisting backdrop - this
+       token is a fixed, always-solid-ish 0.85 floor, unaffected by the
+       Transparency slider, used only by those three popovers. */
+    --popover-bg: rgba(15, 23, 42, 0.85);
     --border-premium: rgba(255, 255, 255, 0.12); /* Thin, quiet glass border - bumped from 0.1 to 0.12 for sharper separation from the live sky behind it */
     
     --text-primary: #FFFFFF;
@@ -190,10 +232,9 @@
     --bg-surface-hover: rgba(255, 255, 255, 0.09);
     --widget-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
     --header-bg: rgba(255, 255, 255, var(--nexus-user-glass-alpha, 0.03));
-    /* See the base [data-theme="dynamic"] block's own --mobile-nav-bg
-       comment for why this exists - same real fixed-on-fixed WebKit gap,
-       just this phase's own white glass base instead of navy. */
-    --mobile-nav-bg: rgba(255, 255, 255, max(var(--nexus-user-glass-alpha, 0.03), 0.72));
+    /* Same dedicated, always-solid popover fill as the base rule above -
+       see its own comment - matched to this phase's light base hue. */
+    --popover-bg: rgba(255, 255, 255, 0.9);
     --border-premium: rgba(255, 255, 255, 0.24);
 
     --text-primary: #0F172A;
@@ -240,9 +281,9 @@
     --bg-surface-hover: rgba(30, 41, 59, 0.08);
     --widget-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
     --header-bg: rgba(15, 23, 42, var(--nexus-user-glass-alpha, 0.03));
-    /* See the base [data-theme="dynamic"] block's own --mobile-nav-bg
-       comment for why this exists - same real fixed-on-fixed WebKit gap. */
-    --mobile-nav-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.72));
+    /* Same dedicated, always-solid popover fill as the base rule above -
+       see its own comment. */
+    --popover-bg: rgba(15, 23, 42, 0.85);
     --border-premium: rgba(255, 255, 255, 0.12);
 
     --text-primary: #FFFFFF;

@@ -1,0 +1,19 @@
+/* src/css/financeHub.css
+ *
+ * Finance Hub (src/pages/FinancePage.jsx) only - real glassmorphism for
+ * its highest-priority cards (the Balance/Income/Expense/Budget summary
+ * row and bank Account cards, per this pass's own explicit "must maintain
+ * the premium glassmorphism styling (backdrop-filter)" requirement for
+ * linked bank accounts) on every theme, not just Dynamic. Same root cause
+ * already fixed for Calendar Hub this session: style.css's blur trick for
+ * inline background: var(--bg-surface) only ever fires under
+ * [data-theme="dynamic"], so on Night/Comfort/Day these cards would
+ * otherwise render as a flat solid fill with no real blur at all. The
+ * Balance hero card uses its own gradient background (not var(--bg-surface)
+ * at all), so it never matched that theme-scoped rule even on Dynamic -
+ * this class is its only source of blur on any theme.
+ */
+.finance-glass-card {
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+}

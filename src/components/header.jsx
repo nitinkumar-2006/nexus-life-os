@@ -3,12 +3,48 @@ import { useState, useEffect, useRef } from 'react';
 import {
     Search, Bell, Moon, Sun, Cpu, CheckSquare, BookOpen,
     Dumbbell, Apple, Wallet, Calendar, BarChart2, FileText, User,
-    Plus, Headphones, Sparkles, Flame, Zap, Cloud, Settings as SettingsIcon, X, Play, Pause, SkipForward, SkipBack, ListMusic, StickyNote, Menu
+    Plus, Headphones, Sparkles, Flame, Zap, Cloud, Settings as SettingsIcon, X, Play, Pause, SkipForward, SkipBack, ListMusic, StickyNote,
+    Volume2, VolumeX, Volume1, Shuffle, Repeat, Repeat1, Disc,
+    RefreshCw, Database, CloudOff, AlertTriangle, CheckCircle2, PauseCircle, PlayCircle, Activity,
 } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
+import { useStreaming } from '../context/StreamingContext.jsx';
+import { useCloudSync, SYNC_STATUS } from '../context/CloudSyncContext.jsx';
+import { useStorageUsage } from '../hooks/useStorageUsage.js';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 import QuickNotesModal from './QuickNotesModal.jsx';
 import { parseQuickCommand } from '../utils/quickCommandParser.js';
+import { getLocalDateString } from '../utils/dateUtils.js';
+import MobileHeaderSearch from './MobileHeaderSearch.jsx';
+import NotificationDropdown from './NotificationDropdown.jsx';
+import { useNotifications } from '../hooks/useNotifications.js';
+
+// Same "5m ago" / "2h ago" grammar as everywhere else relative time
+// shows up in this app - null/undefined (never synced yet) reads as
+// "Never", not "NaN ago" or an empty string.
+const formatRelativeTime = (date) => {
+    if (!date) return 'Never';
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 10) return 'Just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+};
+
+// Mirrors AudioHubPage.jsx's own formatTime exactly (mm:ss, 0:00 for any
+// non-finite/negative value) - kept as its own small local copy rather
+// than a shared import so this fix stays scoped to this file only.
+const formatTime = (seconds) => {
+    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return '0:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
 const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     const { click: playClickFeedback, modalOpen } = useMicroFeedback();
     // A single, delegated click handler on the header's own root element
@@ -36,10 +72,25 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     const searchInputRef = useRef(null);
     
     const [isNotifOpen, setIsNotifOpen] = useState(false);
-    const [notifications, setNotifications] = useState([]);
+    const { notifications, unreadCount, markRead, markAllRead, clearAll } = useNotifications();
     const [isAudioOpen, setIsAudioOpen] = useState(false);
     const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
     const [isQuickNotesOpen, setIsQuickNotesOpen] = useState(false);
+    // Set only when Quick Notes is opened FROM a Spotlight search result -
+    // tells QuickNotesModal which section/note to land on immediately
+    // instead of its own default (last-viewed) selection. Cleared once
+    // consumed so a later, ordinary click on the header's Quick Notes
+    // icon doesn't keep re-jumping to a stale search result.
+    const [pendingNotesJump, setPendingNotesJump] = useState(null);
+    // The "System Active & Ready" badge's own real diagnostics panel -
+    // isSyncing/syncStatus/syncError/lastSyncedAt/syncPaused all come
+    // straight from the real, already-live CloudSyncContext (the actual
+    // background sync engine this app runs), not invented state.
+    const [isSystemPanelOpen, setIsSystemPanelOpen] = useState(false);
+    const systemPanelRef = useRef(null);
+    const { isSyncing, syncStatus, syncError, lastSyncedAt, syncPaused, setSyncPaused, pushToCloud, pullFromCloud } = useCloudSync();
+    const storageUsage = useStorageUsage();
+    const systemStatusColor = syncStatus === SYNC_STATUS.ERROR ? '#EF4444' : isSyncing ? '#3B82F6' : syncPaused ? '#94A3B8' : '#10B981';
     
     const [quickTitle, setQuickTitle] = useState("");
     const [quickCategory, setQuickCategory] = useState("Planner");
@@ -56,7 +107,33 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     // Play/Pause/Next/Prev here all operate on the one global audio engine
     // (mounted once at the app root), so this dropdown is always showing -
     // and controlling - exactly what's actually playing.
-    const { currentTrack, isPlaying, togglePlay, next, prev, currentTime, duration } = useAudioPlayer();
+    // currentTrack/isPlaying/currentTime/duration/seek here already
+    // transparently reflect Spotify's real Web Playback SDK state when
+    // it's the active source (AudioPlayerContext's own effectiveCurrentTrack
+    // mechanism) - real fix for a real, reported bug: this popup used to go
+    // blank/stale (no progress animation, a dummy-looking play/pause) while
+    // Spotify was audibly playing through its own separate engine.
+    const {
+        currentTrack, isPlaying, togglePlay, next, prev, currentTime, duration, seek, volume, isMuted, setVolume: setLocalVolume, hasEverPlayed,
+        shuffleEnabled, toggleShuffle, repeatMode, cycleRepeatMode,
+    } = useAudioPlayer();
+    // Explicit request: the volume row used to always be visible - now
+    // click-to-reveal on the speaker icon, matching the exact toggle
+    // pattern the Audio Hub's own player already uses.
+    const [isVolumeOpen, setIsVolumeOpen] = useState(false);
+    const RepeatIcon = repeatMode === 'one' ? Repeat1 : Repeat;
+    const repeatActive = repeatMode === 'one' || repeatMode === 'all';
+    // Explicit request: this popup had no volume control at all - added
+    // below, right next to Play/Pause. Also routes to Spotify's own SDK
+    // volume when it's the active source, same real fix as the Settings
+    // page's Master Volume slider and the Audio Hub player's own volume
+    // control (neither of those ever touched Spotify's separate volume
+    // before either).
+    const { activeSource: headerActiveSource, spotifySetVolume } = useStreaming();
+    const setVolume = (v) => {
+        setLocalVolume(v);
+        if (headerActiveSource === 'spotify') spotifySetVolume(v);
+    };
 
     const [theme, setTheme] = useState(() => localStorage.getItem('nexus_theme') || 'night');
     const [currentActivity, setCurrentActivity] = useState('System Active & Ready');
@@ -176,6 +253,13 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
             }
         });
 
+        // Real, cross-module search - a previous version of this only ever
+        // indexed Planner tasks, so a genuinely real "Sleep" entry living
+        // in Quick Notes, Calendar, Finance, or Syllabus/Study was
+        // structurally invisible here regardless of spelling. Each source
+        // gets its own try/catch (not one shared block) so one module's
+        // malformed/missing data can never silently kill results from
+        // every other module.
         try {
             const planner = JSON.parse(localStorage.getItem('nexus_planner_tasks') || '[]');
             planner.forEach(t => {
@@ -185,8 +269,119 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
             });
         } catch (e) {}
 
-        setSearchResults(results);
+        // Quick Notes - a nested {sections:[{title, notes:[{title}]}]}
+        // shape, not a flat list. route: 'quick_notes' is a synthetic
+        // marker (not a real DashboardLayout tab) - handled specially in
+        // handleSelectResult below, which opens the Quick Notes modal
+        // itself (already owned by this header) directly to that
+        // section/note, a real deep-link rather than just a page jump.
+        try {
+            const notesData = JSON.parse(localStorage.getItem('nexus_quick_notes') || '{}');
+            (notesData.sections || []).forEach(sec => {
+                if (sec.title && sec.title.toLowerCase().includes(query)) {
+                    results.push({ title: sec.title, type: 'Note Section', route: 'quick_notes', sectionId: sec.id, icon: <StickyNote size={14} color="#f59e0b" /> });
+                }
+                (sec.notes || []).forEach(note => {
+                    if (note.title && note.title.toLowerCase().includes(query)) {
+                        results.push({ title: note.title, type: 'Note', route: 'quick_notes', sectionId: sec.id, noteId: note.id, icon: <StickyNote size={14} color="#f59e0b" /> });
+                    }
+                });
+            });
+        } catch (e) {}
+
+        try {
+            const events = JSON.parse(localStorage.getItem('nexus_calendar_events') || '[]');
+            events.forEach(ev => {
+                if (ev.title && ev.title.toLowerCase().includes(query)) {
+                    results.push({ title: ev.title, type: 'Event', route: 'Calendar', icon: <Calendar size={14} color="#3b82f6" /> });
+                }
+            });
+        } catch (e) {}
+
+        try {
+            const transactions = JSON.parse(localStorage.getItem('nexus_finance_transactions') || '[]');
+            transactions.forEach(tx => {
+                if (tx.title && tx.title.toLowerCase().includes(query)) {
+                    results.push({ title: tx.title, type: 'Transaction', route: 'Finance', icon: <Wallet size={14} color="#10b981" /> });
+                }
+            });
+        } catch (e) {}
+        try {
+            const bills = JSON.parse(localStorage.getItem('nexus_finance_bills') || '[]');
+            bills.forEach(b => {
+                if (b.title && b.title.toLowerCase().includes(query)) {
+                    results.push({ title: b.title, type: 'Bill', route: 'Finance', icon: <Wallet size={14} color="#10b981" /> });
+                }
+            });
+        } catch (e) {}
+        try {
+            const goals = JSON.parse(localStorage.getItem('nexus_finance_goals') || '[]');
+            goals.forEach(g => {
+                if (g.title && g.title.toLowerCase().includes(query)) {
+                    results.push({ title: g.title, type: 'Goal', route: 'Finance', icon: <Wallet size={14} color="#10b981" /> });
+                }
+            });
+        } catch (e) {}
+
+        // Syllabus - nested two levels deep (subjects -> units -> topics);
+        // all three levels are real, independently-named things a user
+        // would plausibly search for.
+        try {
+            const subjects = JSON.parse(localStorage.getItem('nexus_syllabus_subjects') || '[]');
+            subjects.forEach(sub => {
+                if (sub.name && sub.name.toLowerCase().includes(query)) {
+                    results.push({ title: sub.name, type: 'Subject', route: 'Syllabus', icon: <FileText size={14} color="#f59e0b" /> });
+                }
+                (sub.units || []).forEach(unit => {
+                    if (unit.name && unit.name.toLowerCase().includes(query)) {
+                        results.push({ title: unit.name, type: 'Unit', route: 'Syllabus', icon: <FileText size={14} color="#f59e0b" /> });
+                    }
+                    (unit.topics || []).forEach(topic => {
+                        if (topic.name && topic.name.toLowerCase().includes(query)) {
+                            results.push({ title: topic.name, type: 'Topic', route: 'Syllabus', icon: <FileText size={14} color="#f59e0b" /> });
+                        }
+                    });
+                });
+            });
+        } catch (e) {}
+
+        try {
+            const assignments = JSON.parse(localStorage.getItem('nexus_study_assignments') || '[]');
+            assignments.forEach(a => {
+                if (a.title && a.title.toLowerCase().includes(query)) {
+                    results.push({ title: a.title, type: 'Assignment', route: 'Study', icon: <BookOpen size={14} color="#8b5cf6" /> });
+                }
+            });
+        } catch (e) {}
+
+        // A real, wide index across 8 sources could otherwise return
+        // dozens of matches for a common short query, overflowing the
+        // dropdown's own fixed maxHeight into an unusable wall of results
+        // instead of a focused top-N list - sections (the base navigation)
+        // are kept first since they were already pushed first above.
+        setSearchResults(results.slice(0, 20));
     }, [searchQuery]);
+
+    // Shared by both the Enter-key handler and each result row's onClick -
+    // one real implementation instead of two copies that could drift.
+    // Quick Notes results are a genuine deep-link (opens the actual note/
+    // section in the already-header-owned QuickNotesModal); everything
+    // else deep-links as far as this app's routing model actually goes -
+    // straight to the right page/tab (there's no per-item route beyond
+    // that - see QuickNotesModal's own jump-target props below for the
+    // one case that goes further).
+    const handleSelectResult = (result) => {
+        if (!result) return;
+        if (result.route === 'quick_notes') {
+            setPendingNotesJump({ sectionId: result.sectionId, noteId: result.noteId || null });
+            setIsQuickNotesOpen(true);
+        } else {
+            setActiveTab(result.route);
+        }
+        setIsSearchOpen(false);
+        setSearchQuery('');
+        setSelectedIndex(-1);
+    };
 
     useEffect(() => {
         const updateLiveActivity = () => {
@@ -207,21 +402,59 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
             if (audioRefContainer.current && !audioRefContainer.current.contains(e.target)) setIsAudioOpen(false);
             if (quickAddRef.current && !quickAddRef.current.contains(e.target)) setIsQuickAddOpen(false);
             if (searchRef.current && !searchRef.current.contains(e.target)) setIsSearchOpen(false);
+            if (systemPanelRef.current && !systemPanelRef.current.contains(e.target)) setIsSystemPanelOpen(false);
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    // Real, live storage usage every time the panel is actually opened -
+    // not on every render, since the underlying localStorage.hasOwnProperty
+    // loop is real work not worth repeating on every keystroke elsewhere
+    // in the header.
+    useEffect(() => {
+        if (isSystemPanelOpen) storageUsage.refresh();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSystemPanelOpen]);
+
     useEffect(() => {
         const syncTheme = () => {
             setTheme(localStorage.getItem('nexus_theme') || 'night');
         };
+        // Also listens for 'nexus_settings_updated' and 'storage' (not
+        // just its own 'nexus_theme_changed'), defensively - any write
+        // path that changes nexus_theme in localStorage without
+        // dispatching 'nexus_theme_changed' specifically (CloudSync's
+        // applyCloudData now dispatches it directly too, but this is the
+        // general-case guard for any OTHER path that ever forgets to)
+        // would otherwise leave this icon showing a stale theme while
+        // DashboardLayout's own broader listener correctly re-applies
+        // data-theme to <html> - the exact "icon shows Dynamic while the
+        // real theme is dark" desync this closes. Re-reading the same
+        // localStorage value on an extra, redundant event is a no-op
+        // when nothing actually changed.
         window.addEventListener('nexus_theme_changed', syncTheme);
-        return () => window.removeEventListener('nexus_theme_changed', syncTheme);
+        window.addEventListener('nexus_settings_updated', syncTheme);
+        window.addEventListener('storage', syncTheme);
+        return () => {
+            window.removeEventListener('nexus_theme_changed', syncTheme);
+            window.removeEventListener('nexus_settings_updated', syncTheme);
+            window.removeEventListener('storage', syncTheme);
+        };
     }, []);
 
     const cycleTheme = () => {
-        let nextTheme = theme === 'night' ? 'comfort' : theme === 'comfort' ? 'day' : theme === 'day' ? 'dynamic' : 'night';
+        // Reads the real current value from localStorage (the actual
+        // source of truth every other reader in this app uses), not this
+        // component's own `theme` state closure - defensive hardening
+        // against that local state ever drifting out of sync with what's
+        // genuinely applied (e.g. a theme change from another tab, or a
+        // future write path that updates localStorage without dispatching
+        // 'nexus_theme_changed'). Cycling from a stale local value would
+        // silently jump to the wrong next theme instead of advancing from
+        // whatever is actually showing on screen.
+        const actualCurrent = localStorage.getItem('nexus_theme') || 'night';
+        let nextTheme = actualCurrent === 'night' ? 'comfort' : actualCurrent === 'comfort' ? 'day' : actualCurrent === 'day' ? 'dynamic' : 'night';
         setTheme(nextTheme);
         localStorage.setItem('nexus_theme', nextTheme);
         document.documentElement.setAttribute('data-theme', nextTheme);
@@ -249,7 +482,30 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
 
         if (quickCategory === 'Planner') {
             const tasks = JSON.parse(localStorage.getItem('nexus_planner_tasks') || '[]');
-            tasks.push({ id: Date.now(), title: quickTitle, completed: false, status: 'Queued' });
+            // status must be one of PlannerPage's own three real Kanban
+            // column values ('To Do'/'In Progress'/'Completed') - a task
+            // saved here with any other status string (e.g. the previous
+            // 'Queued') matches none of those columns and simply never
+            // renders in Kanban view, even though it's still sitting in
+            // localStorage and shows fine in List view.
+            //
+            // project/priority/dueDate/estimatedMins are also real fields
+            // PlannerPage.jsx's own List view reads directly (the source
+            // badge, the priority pill, the due-date/mins row) - left
+            // undefined they rendered as blank badges/pills instead of
+            // crashing, but a Quick-Added task should look identical to
+            // one created from Planner's own "+ New Task" form.
+            tasks.push({
+                id: Date.now().toString(),
+                title: quickTitle,
+                description: '',
+                project: 'Planner',
+                priority: 'Medium',
+                status: 'To Do',
+                dueDate: getLocalDateString(),
+                estimatedMins: 60,
+                completed: false,
+            });
             localStorage.setItem('nexus_planner_tasks', JSON.stringify(tasks));
         } else if (quickCategory === 'Study') {
             // Matches the real shape StudyPage.jsx's own handleAddAssignment
@@ -261,7 +517,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
                 title: quickTitle,
                 subject: 'General',
-                dueDate: new Date().toISOString().split('T')[0],
+                dueDate: getLocalDateString(),
                 status: 'Pending',
             });
             localStorage.setItem('nexus_study_assignments', JSON.stringify(assignments));
@@ -296,7 +552,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 id: `qc_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
                 title: title.charAt(0).toUpperCase() + title.slice(1),
                 type, amount, category: 'Others', account: targetAccount.name,
-                date: new Date().toISOString().split('T')[0],
+                date: getLocalDateString(),
             };
             localStorage.setItem('nexus_finance_transactions', JSON.stringify([txItem, ...transactions]));
             const updatedAccounts = accounts.map((acc) => acc.name === targetAccount.name
@@ -336,7 +592,9 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                tallest element (the 36px avatar below) plus modest
                breathing room, not a large block with wasted vertical
                space above the home page's own content. */
-            padding: isMobile ? '10px 12px' : '18px 28px', borderBottom: 'none',
+            // Desktop padding tightened 18px 28px -> 12px 22px - explicit
+            // later feedback that the header read as "too fat"/tall.
+            padding: isMobile ? '10px 12px' : '12px 22px', borderBottom: 'none',
             /* Real device status bar (notch/clock/battery) clearance - this
                header is position:sticky/top:0, the very first element in
                .nexus-app-shell, with no other chrome above it. index.html's
@@ -350,7 +608,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                desktop/laptop browser tab always resolves it to 0, so this
                is a no-op there and the existing 10px/18px padding is
                unchanged. */
-            paddingTop: isMobile ? 'calc(10px + env(safe-area-inset-top, 0px))' : '18px',
+            paddingTop: isMobile ? 'calc(10px + env(safe-area-inset-top, 0px))' : '12px',
             position: 'sticky', top: 0, zIndex: 1000,
             /* backdrop-filter intentionally not set inline - see the note on
                the Sidebar for why: the external stylesheet rule matching
@@ -365,7 +623,16 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                (e.g. ~47-59px on an iPhone with a Dynamic Island). Letting
                the bar grow keeps every icon fully visible and correctly
                centered below the status bar instead of cramped against it. */
-            minHeight: isMobile ? '60px' : '84px', width: '100%',
+            // Desktop minHeight cut 84px -> 64px, matching the tighter
+            // padding above - explicit "Header is too fat" feedback.
+            minHeight: isMobile ? '60px' : '64px', width: '100%', boxSizing: 'border-box',
+            // "Floating Island" card treatment on desktop, matching the
+            // main Sidebar's own identical rounded-card + shadow look
+            // (DashboardLayout.jsx's shell padding/gap provides the real
+            // surrounding margin - this is just the card's own visual
+            // identity). Mobile keeps its existing flush, un-rounded bar -
+            // this request was specifically about the desktop shell.
+            ...(isMobile ? {} : { borderRadius: '16px', boxShadow: '0 8px 28px rgba(0,0,0,0.18)' }),
             transition: 'background 0.3s ease, color 0.3s ease'
         }}>
             {/* Real, 20px custom draggable strip - the actual mechanism
@@ -388,24 +655,25 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 }}
             />
 
-            {/* Mobile: hamburger trigger (opens the compact icon-only
-                MobileSidebarDrawer for every secondary module) + wordmark
-                on the left - no separate logo icon here (that's already
-                the hamburger's own visual identity; a second app icon
-                right next to it was redundant), so the NEXUS wordmark
-                sits right after the hamburger. Primary day-to-day
-                navigation still lives in MobileTabBar's fixed bottom bar -
-                this hamburger is the second, "everything else" entry
-                point. */}
+            {/* Mobile: the real app logo (same /nexus-logo.svg mark
+                desktop's own sidebar.jsx uses for its collapsed toggle,
+                not a generic hamburger glyph) doubles as the menu trigger
+                - tapping it calls the exact same onOpenMenu toggle
+                DashboardLayout.jsx already wires up (setIsMobileNavOpen
+                flips true/false), so tapping it again while the drawer is
+                open closes it right back, no separate close affordance
+                needed here. No hover/pressed-state chrome around it on
+                purpose - a plain logo mark, not a boxed icon button, per
+                explicit request; the wordmark sits right after it. */}
             {isMobile && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, WebkitAppRegion: 'no-drag' }}>
                     <button
                         onClick={onOpenMenu}
-                        title="Open menu"
+                        title="Menu"
                         aria-label="Open menu"
-                        style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', cursor: 'pointer', flexShrink: 0 }}
+                        style={{ background: 'transparent', border: 'none', borderRadius: '10px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}
                     >
-                        <Menu size={18} />
+                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
                     </button>
                     <span style={{ fontSize: '15px', fontWeight: '900', letterSpacing: '0.6px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>NEXUS</span>
                 </div>
@@ -418,9 +686,9 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 crowding/overlap this fix addresses. */}
             {!isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, WebkitAppRegion: 'no-drag' }}>
-                
+
                 {/* Mac OS Spotlight Search Bar */}
-                <div ref={searchRef} style={{ position: 'relative', width: 'clamp(130px, 12vw, 220px)', flexShrink: 0, minWidth: 0 }}>
+                <div ref={searchRef} data-tour-id="home-search" style={{ position: 'relative', width: 'clamp(130px, 12vw, 220px)', flexShrink: 0, minWidth: 0 }}>
                     <div style={{ 
                         display: 'flex', alignItems: 'center', gap: '8px', 
                         background: 'var(--widget-bg)', padding: '8px 14px', 
@@ -439,6 +707,17 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                             onChange={(e) => { setSearchQuery(e.target.value); setIsSearchOpen(true); setSelectedIndex(-1); }}
                             onFocus={() => setIsSearchOpen(true)}
                             onKeyDown={(e) => {
+                                // Escape must work even with zero results (e.g. a
+                                // query matching nothing) - the guard below only
+                                // gates the list-navigation keys, which have
+                                // nothing to act on in that case.
+                                if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setIsSearchOpen(false);
+                                    setSelectedIndex(-1);
+                                    searchInputRef.current?.blur();
+                                    return;
+                                }
                                 if (!isSearchOpen || searchResults.length === 0) return;
                                 if (e.key === 'ArrowDown') {
                                     e.preventDefault();
@@ -451,17 +730,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                                     // No explicit arrow-key selection yet defaults to the
                                     // first result, matching standard search-box convention.
                                     const target = searchResults[selectedIndex >= 0 ? selectedIndex : 0];
-                                    if (target) {
-                                        setActiveTab(target.route);
-                                        setIsSearchOpen(false);
-                                        setSearchQuery('');
-                                        setSelectedIndex(-1);
-                                    }
-                                } else if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    setIsSearchOpen(false);
-                                    setSelectedIndex(-1);
-                                    searchInputRef.current?.blur();
+                                    handleSelectResult(target);
                                 }
                             }}
                             placeholder="Spotlight Search..." 
@@ -480,7 +749,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                             {searchResults.map((res, idx) => (
                                 <div 
                                     key={idx} 
-                                    onClick={() => { setActiveTab(res.route); setIsSearchOpen(false); setSearchQuery(''); setSelectedIndex(-1); }}
+                                    onClick={() => handleSelectResult(res)}
                                     onMouseEnter={() => setSelectedIndex(idx)}
                                     style={{
                                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -540,13 +809,40 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 either side of it), and minWidth: 0 lets it shrink below its
                 own content size if the header is genuinely tight, so it
                 can never force an overlap or overflow.
-                Hidden on mobile - the real available center space there is
-                too narrow for this badge to coexist with the hamburger
-                button and right-side icon cluster at all. */}
-            {!isMobile && (
-            <div style={{ flex: '1 1 0px', display: 'flex', justifyContent: 'center', minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', padding: '8px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0, minWidth: 0, WebkitAppRegion: 'no-drag' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10B981', boxShadow: '0 0 8px #10B981', animation: 'pulse 2s infinite', flexShrink: 0 }}></div>
+                On mobile, this exact same middle slot is just a plain
+                flexible spacer instead - MobileHeaderSearch used to live
+                centered here, but a real, reported bug was that centering
+                a single icon in "whatever space happens to be left"
+                produced visibly uneven gaps to its neighbors (sometimes
+                hugging the wordmark, sometimes hugging Quick Notes,
+                depending on how much room the two side groups left) -
+                it's now a normal member of the right-hand icon row below
+                instead, sharing that row's own uniform gap like every
+                other icon there. */}
+            {isMobile ? (
+                <div style={{ flex: '1 1 0px', minWidth: 0 }} />
+            ) : (
+            <div ref={systemPanelRef} style={{ flex: '1 1 0px', display: 'flex', justifyContent: 'center', minWidth: 0, position: 'relative' }}>
+                {/* Real, functional system-health indicator, not a static
+                    decoration - the dot color/pulse and the panel it opens
+                    both reflect the actual, already-live CloudSyncContext
+                    engine (real Firestore sync, not invented state). Kept
+                    as a <button> (not a plain div) specifically so it's a
+                    genuine, keyboard-reachable, screen-reader-announced
+                    control, matching every other icon button in this
+                    header. */}
+                <button
+                    type="button"
+                    onClick={() => setIsSystemPanelOpen((v) => !v)}
+                    aria-label="System diagnostics"
+                    aria-expanded={isSystemPanelOpen}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', padding: '8px 18px', borderRadius: '20px', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0, minWidth: 0, WebkitAppRegion: 'no-drag', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                    <div style={{
+                        width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                        background: systemStatusColor, boxShadow: `0 0 8px ${systemStatusColor}`,
+                        animation: isSyncing ? 'pulse 1s infinite' : 'pulse 2s infinite',
+                    }}></div>
                     {/* Real max-width + ellipsis strategy for the text
                         itself (Requirement 2's own explicit ask) - the
                         badge container above stays a fixed, never-squashed
@@ -555,21 +851,138 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                         fixed label) truncates gracefully here instead of
                         expanding the badge past a reasonable width. */}
                     <span style={{ maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentActivity}</span>
-                </div>
+                </button>
+
+                {isSystemPanelOpen && (
+                    <div style={{
+                        position: 'absolute', top: 'calc(100% + 10px)', left: '50%', transform: 'translateX(-50%)',
+                        width: '320px', border: '1px solid var(--border-premium)',
+                        borderRadius: '16px', padding: '16px', zIndex: 1100, boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                        display: 'flex', flexDirection: 'column', gap: '14px',
+                        /* A real, reported "mixing with what's behind it"
+                           complaint - this panel sits directly over the
+                           header's own audio mini-player. A first attempt
+                           tried a full-viewport dimming backdrop (like
+                           QuickNotesModal.jsx's own full-screen modal), but
+                           that's wrong here: it blocked/dimmed the REST of
+                           the page too, so the audio player's own other
+                           controls became unreachable while this was open -
+                           this is meant to stay a lightweight anchored
+                           popover, not a modal. The real, correct fix lives
+                           entirely in the popover's OWN fill instead.
+                           Explicit request (a later round): this specific
+                           panel must stay premium dark glassmorphism
+                           ALWAYS, not flip to a near-solid white fill with
+                           dark text the way --popover-bg/--text-primary do
+                           during the Dynamic theme's own Dawn/Day sky
+                           phases (a real, deliberate, earlier choice for
+                           every OTHER popover in this app - just not the
+                           right look for this one specifically, per this
+                           explicit correction). A local CSS-custom-property
+                           override right here - not a global variables.css
+                           change - means every var(--text-primary)/
+                           var(--border-premium)/etc. reference already
+                           used throughout this panel's own JSX below
+                           resolves to a fixed dark-glass palette
+                           regardless of sky phase, without needing to
+                           touch each one individually. */
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                        '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                        '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
+                        backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                            <Activity size={15} color="var(--primary)" /> System Diagnostics
+                        </div>
+
+                        {/* Cloud sync - real state from CloudSyncContext */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                                    {syncStatus === SYNC_STATUS.ERROR ? <AlertTriangle size={13} color="#EF4444" />
+                                        : isSyncing ? <RefreshCw size={13} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
+                                        : syncPaused ? <PauseCircle size={13} color="#94A3B8" />
+                                        : <CheckCircle2 size={13} color="#10B981" />}
+                                    Cloud Sync
+                                </div>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    {syncStatus === SYNC_STATUS.ERROR ? 'Error' : isSyncing ? 'Syncing…' : syncPaused ? 'Paused' : 'Idle'}
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Last synced: {formatRelativeTime(lastSyncedAt)}</div>
+                            {syncStatus === SYNC_STATUS.ERROR && syncError && (
+                                <div style={{ fontSize: '11px', color: '#EF4444', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '6px 8px' }}>{syncError}</div>
+                            )}
+                        </div>
+
+                        {/* Local storage - real usage from useStorageUsage */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={13} color="var(--text-muted)" /> Local Storage</div>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>{storageUsage.usedKB.toFixed(2)} KB / {(storageUsage.capKB / 1024).toFixed(0)} MB</span>
+                            </div>
+                            <div style={{ height: '5px', borderRadius: '3px', background: 'var(--bg-main)', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${storageUsage.percent}%`, background: 'var(--primary)', borderRadius: '3px', transition: 'width 0.3s ease' }} />
+                            </div>
+                        </div>
+
+                        {/* Background activity - honest labels for what's
+                            actually running (the CloudSyncContext debounced
+                            auto-push + scheduled backup, plus audio if it's
+                            genuinely playing) - never a fabricated "queue". */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                            <div style={{ fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '2px' }}>Background Activity</div>
+                            <div>• Auto-sync on change: {syncPaused ? 'paused' : 'active'}</div>
+                            <div>• Scheduled backup: {syncPaused ? 'paused' : 'active'}</div>
+                            {isPlaying && <div>• Audio playing: {currentTrack?.title || 'Untitled'}</div>}
+                        </div>
+
+                        {/* Quick controls - all real actions against the
+                            live CloudSyncContext, not cosmetic buttons. */}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={() => pushToCloud()}
+                                disabled={isSyncing}
+                                style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '11px', fontWeight: '700', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1, fontFamily: 'inherit' }}
+                            >
+                                <RefreshCw size={12} /> Sync Now
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSyncPaused((v) => !v)}
+                                style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '11px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}
+                            >
+                                {syncPaused ? <><PlayCircle size={12} /> Resume Sync</> : <><PauseCircle size={12} /> Pause Sync</>}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
             )}
 
             {/* Right Actions & Profile */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, minWidth: 0, WebkitAppRegion: 'no-drag' }}>
-                
-                {/* Quick Add, Quick Notes, Focus Audio Studio, and the AI
-                    Assistant shortcut are real, desktop-convenience icons -
-                    hidden on mobile, since their own real functionality
-                    remains fully reachable elsewhere (the Planner page for
-                    tasks, the Audio Hub page for playback, the hamburger
-                    menu for AI), and hiding them is what actually makes
-                    room for the header to fit a real narrow screen without
-                    the reported collision. */}
+
+                {/* Mobile-only search trigger - moved here from the old
+                    centered middle slot (see the comment above) so it
+                    shares this row's own uniform 10px gap with Quick
+                    Notes/Notifications/Theme/Avatar instead of floating in
+                    a separately-centered flex:1 box with an inconsistent
+                    gap to its neighbors. */}
+                {isMobile && <MobileHeaderSearch setActiveTab={setActiveTab} />}
+
+                {/* Quick Add, Focus Audio Studio, and the AI Assistant
+                    shortcut are real, desktop-convenience icons - hidden on
+                    mobile, since their own real functionality remains fully
+                    reachable elsewhere (the Planner page for tasks, the
+                    Audio Hub page for playback, the hamburger menu for AI),
+                    and hiding them is what actually makes room for the
+                    header to fit a real narrow screen without the reported
+                    collision. Quick Notes is deliberately NOT in this list
+                    (see its own button below, outside this block) - it has
+                    no such alternate path anywhere else in the app. */}
                 {!isMobile && (
                 <>
                 {/* Quick Add Modal */}
@@ -629,46 +1042,131 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                     )}
                 </div>
 
-                {/* Headphones - Focus Audio Studio */}
-                <button title="Quick Notes" onClick={() => setIsQuickNotesOpen(true)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><StickyNote size={18} /></button>
-
                 <div ref={audioRefContainer} style={{ position: 'relative' }}>
                     <button title="Focus Audio Studio" onClick={() => setIsAudioOpen(!isAudioOpen)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: isPlaying ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Headphones size={18} /></button>
                     {isAudioOpen && (
                         <div style={{
                             position: 'absolute', top: '120%', right: 0, width: '260px',
-                            /* Matches the Quick Add pop-up's exact glass treatment for
-                               consistency across every header dropdown - same background
-                               variable, border, radius, and shadow. Text/button colors
-                               below now use theme variables instead of hardcoded light
-                               hex values, since --bg-surface can be light during the
-                               bright dawn/day phases, not just dark. */
-                            background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
+                            border: '1px solid var(--border-premium)',
                             borderRadius: '14px', padding: '16px', zIndex: 1100,
                             boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
                             display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                            /* Same real, reported "mixing with what's behind it" fix as
+                               the System Diagnostics panel above (see its own comment
+                               for why this became a dedicated --popover-bg token
+                               instead of a full-page dimming backdrop) - this dropdown
+                               sits directly over the persistent mini-player bar, so it
+                               needed the exact same treatment. Explicit later correction:
+                               this one must stay premium dark glassmorphism always,
+                               not follow --popover-bg's own near-white Dawn/Day fill -
+                               same local CSS-custom-property override as the System
+                               Diagnostics panel above, see its own comment for why. */
+                            background: 'rgba(15, 23, 42, 0.6)',
+                            '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                            '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                            '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
+                            backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
                         }}>
-                            <h4 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '4px' }}>Focus Audio Studio</h4>
-                            <p style={{ fontSize: '12px', color: 'var(--accent)', marginBottom: '14px', fontWeight: '600', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.title}</p>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%' }}>
+                            {/* Real artwork - a genuine circular "profile
+                                picture" for the track (real cover image
+                                when available, same gradient fallback
+                                convention used everywhere else in Audio
+                                Hub) - replaces the plain "Focus Audio
+                                Studio" title text entirely, per explicit
+                                request. Artist line underneath instead of
+                                a bare title, matching every other player
+                                surface in this app. */}
+                            <div style={{
+                                width: '56px', height: '56px', borderRadius: '50%', marginBottom: '10px', flexShrink: 0,
+                                background: hasEverPlayed && currentTrack.artworkUrl ? `url(${currentTrack.artworkUrl}) center/cover` : `linear-gradient(135deg, var(--primary), var(--accent))`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(0,0,0,0.3)',
+                            }}>
+                                {!(hasEverPlayed && currentTrack.artworkUrl) && <Disc size={22} color="rgba(255,255,255,0.85)" />}
+                            </div>
+                            {/* Real fix for a real, reported bug: the
+                                fresh-session default queue entry ("Lofi
+                                Focus Beats") used to show here as if it
+                                were genuinely queued even before the user
+                                ever pressed Play - now honestly says
+                                "Nothing playing" until hasEverPlayed flips
+                                true. */}
+                            <p style={{ fontSize: '13px', color: hasEverPlayed ? 'var(--text-primary)' : 'var(--text-muted)', margin: 0, fontWeight: '700', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hasEverPlayed ? currentTrack.title : 'Nothing playing'}</p>
+                            {hasEverPlayed && currentTrack.artist && (
+                                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 14px 0', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.artist}</p>
+                            )}
+                            {!hasEverPlayed && <div style={{ marginBottom: '14px' }} />}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}>
+                                <button onClick={toggleShuffle} title="Shuffle" style={{ background: 'transparent', border: 'none', color: shuffleEnabled ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}><Shuffle size={14} /></button>
                                 <button onClick={prev} title="Previous" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><SkipBack size={14} /></button>
-                                <button onClick={togglePlay} style={{ flex: 1, padding: '10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                    {isPlaying ? <><Pause size={14} /> Pause</> : <><Play size={14} /> Play</>}
+                                <button onClick={togglePlay} style={{ padding: '10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '50%', width: '38px', height: '38px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
                                 </button>
                                 <button onClick={next} title="Next" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><SkipForward size={14} /></button>
+                                <button onClick={cycleRepeatMode} title={`Repeat: ${repeatMode}`} style={{ background: 'transparent', border: 'none', color: repeatActive ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}><RepeatIcon size={14} /></button>
                             </div>
 
-                            {/* Subtle mini progress line - fills smoothly as the track plays */}
-                            <div style={{ width: '100%', height: '3px', borderRadius: '2px', background: 'var(--surface-inset)', marginTop: '12px', overflow: 'hidden' }}>
-                                <div
-                                    style={{
-                                        height: '100%',
-                                        width: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
-                                        background: 'var(--accent)',
-                                        borderRadius: '2px',
-                                        transition: 'width 0.4s linear',
-                                    }}
-                                />
+                            {/* Progress line - now a real, manually seekable scrubber
+                                (was a purely decorative width-filled div with no pointer
+                                handling at all) plus elapsed/remaining timers, mirroring
+                                the bottom Audio Hub player's own exact track+fill+
+                                invisible-range technique: a visible thin track/fill pair
+                                for the look, overlaid by a fully transparent native
+                                <input type="range"> that does the actual drag/click
+                                seeking via the browser's own native range behavior - no
+                                manual click-position math needed. */}
+                            {(() => {
+                                const safeDuration = duration && isFinite(duration) ? duration : 0;
+                                const clampedTime = Math.min(currentTime, safeDuration);
+                                const progressPct = safeDuration > 0 ? (clampedTime / safeDuration) * 100 : 0;
+                                return (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', marginTop: '12px' }}>
+                                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0, fontVariantNumeric: 'tabular-nums', width: '26px' }}>{formatTime(clampedTime)}</span>
+                                        <div style={{ flex: 1, minWidth: 0, position: 'relative', height: '12px', display: 'flex', alignItems: 'center' }}>
+                                            <div style={{ position: 'absolute', left: 0, right: 0, height: '3px', borderRadius: '2px', background: 'var(--surface-inset)', overflow: 'hidden' }}>
+                                                <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '2px', transition: 'width 1s linear' }} />
+                                            </div>
+                                            <input
+                                                type="range" min={0} max={safeDuration} step="0.1"
+                                                value={clampedTime}
+                                                onChange={(e) => seek(parseFloat(e.target.value))}
+                                                aria-label="Seek"
+                                                style={{
+                                                    position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0,
+                                                    opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none',
+                                                }}
+                                            />
+                                        </div>
+                                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0, fontVariantNumeric: 'tabular-nums', width: '26px', textAlign: 'right' }}>{safeDuration > 0 ? formatTime(safeDuration) : '--:--'}</span>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Explicit request: the volume row used to
+                                always be visible - now click-to-reveal:
+                                the speaker icon is a persistent toggle
+                                (matching Apple Music's own real mechanism,
+                                confirmed by live-inspecting music.apple.com
+                                earlier this session), and the slider only
+                                mounts once isVolumeOpen is true. */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', marginTop: '10px' }}>
+                                <button
+                                    onClick={() => setIsVolumeOpen((v) => !v)} title={isMuted ? 'Unmute' : 'Volume'}
+                                    style={{ background: 'transparent', border: 'none', color: isVolumeOpen ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                                >
+                                    {isMuted || volume === 0 ? <VolumeX size={14} /> : volume < 0.5 ? <Volume1 size={14} /> : <Volume2 size={14} />}
+                                </button>
+                                {isVolumeOpen && (
+                                    <>
+                                        <input
+                                            type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume}
+                                            onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                            aria-label="Volume"
+                                            className="nexus-volume-range"
+                                            style={{ flex: 1, minWidth: 0, accentColor: 'var(--primary)' }}
+                                        />
+                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', width: '28px', textAlign: 'right', flexShrink: 0 }}>{isMuted ? '--' : `${Math.round(volume * 100)}%`}</span>
+                                    </>
+                                )}
                             </div>
 
                             <button
@@ -686,46 +1184,58 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 </>
                 )}
 
-                {/* Notifications Dropdown */}
+                {/* Quick Notes - deliberately OUTSIDE the !isMobile block
+                    above (unlike Quick Add/Focus Audio/AI Assistant): those
+                    three each have a real, reachable alternate path on
+                    mobile (Planner page, Audio Hub page, the hamburger
+                    menu), but Quick Notes has none - QuickNotesModal is
+                    only ever rendered from here, so hiding this button on
+                    mobile made the entire feature permanently unreachable
+                    on a phone, not just relocated. Kept as its own
+                    unconditional icon (same treatment already given to
+                    Notifications/Theme below) rather than folded into
+                    MobileSidebarDrawer's nav list, since that list is
+                    real page navigation and this opens a modal, not a page. */}
+                <button title="Quick Notes" onClick={() => setIsQuickNotesOpen(true)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><StickyNote size={18} /></button>
+
+                {/* Notification Center (Point 11) - real data derived in
+                    useNotifications.js from severe weather, upcoming
+                    Calendar events, and overdue/due-soon Finance bills &
+                    Planner tasks. The panel itself is always mounted (see
+                    NotificationDropdown.jsx) so its CSS entrance/exit
+                    transitions actually play; this wrapping notifRef div
+                    is what the existing header-wide click-outside effect
+                    above already targets, unchanged from before. */}
                 <div ref={notifRef} style={{ position: 'relative' }}>
                     <button
-                        title="System Notifications"
-                        onClick={() => {
-                            const next = !isNotifOpen;
-                            setIsNotifOpen(next);
-                            if (next) {
-                                try {
-                                    const plannerTasks = JSON.parse(localStorage.getItem('nexus_planner_tasks') || '[]');
-                                    const pending = plannerTasks.filter(t => !t.completed).slice(-5).reverse();
-                                    setNotifications(pending.map(t => ({ id: t.id, title: t.title, status: t.status || 'Queued' })));
-                                } catch (e) {
-                                    setNotifications([]);
-                                }
-                            }
+                        title="Notifications"
+                        aria-expanded={isNotifOpen}
+                        onClick={() => setIsNotifOpen((v) => !v)}
+                        style={{
+                            position: 'relative',
+                            background: isNotifOpen ? 'var(--primary-muted, rgba(99,102,241,0.15))' : 'var(--widget-bg)',
+                            border: `1px solid ${isNotifOpen ? 'var(--primary, #6366f1)' : 'var(--border-premium)'}`,
+                            borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0,
+                            color: isNotifOpen ? 'var(--primary, #6366f1)' : 'var(--text-primary)',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease',
                         }}
-                        style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    ><Bell size={18} /></button>
-                    {isNotifOpen && (
-                        <div style={{ position: 'absolute', top: '120%', right: 0, width: '270px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px', zIndex: 1100, boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
-                            <h4 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>System Notifications</h4>
-                            {notifications.length === 0 ? (
-                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '10px', background: 'var(--widget-bg)', borderRadius: '8px' }}>No pending tasks. All operational.</div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
-                                    {notifications.map((n) => (
-                                        <div
-                                            key={n.id}
-                                            onClick={() => { setIsNotifOpen(false); setActiveTab('Planner'); }}
-                                            style={{ fontSize: '12px', color: 'var(--text-primary)', padding: '8px 10px', background: 'var(--widget-bg)', borderRadius: '8px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}
-                                        >
-                                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</span>
-                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>{n.status}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
+                    >
+                        <Bell size={18} />
+                        {unreadCount > 0 && (
+                            <span className="nexus-notif-bell-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                        )}
+                    </button>
+                    <NotificationDropdown
+                        isOpen={isNotifOpen}
+                        onClose={() => setIsNotifOpen(false)}
+                        notifications={notifications}
+                        unreadCount={unreadCount}
+                        onMarkRead={markRead}
+                        onMarkAllRead={markAllRead}
+                        onClearAll={clearAll}
+                        setActiveTab={setActiveTab}
+                    />
                 </div>
                 
                 {/* Theme Toggle - now shown on mobile too, sitting right
@@ -783,7 +1293,13 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
 
             </div>
         </header>
-        {isQuickNotesOpen && <QuickNotesModal onClose={() => setIsQuickNotesOpen(false)} />}
+        {isQuickNotesOpen && (
+            <QuickNotesModal
+                onClose={() => setIsQuickNotesOpen(false)}
+                jumpTarget={pendingNotesJump}
+                onJumpConsumed={() => setPendingNotesJump(null)}
+            />
+        )}
         </>
     );
 };

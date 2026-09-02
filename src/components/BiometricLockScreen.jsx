@@ -75,7 +75,7 @@ const BiometricLockScreen = ({ onUnlock }) => {
                         disabled={status === 'checking'}
                         style={{
                             width: '96px', height: '96px', borderRadius: '50%',
-                            background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)',
+                            background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
                             border: '1px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                             cursor: status === 'checking' ? 'default' : 'pointer', color: '#818CF8',
                         }}
@@ -121,7 +121,7 @@ const BiometricLockScreen = ({ onUnlock }) => {
                 <div style={{ width: '280px', maxWidth: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
                     <div style={{
                         width: '72px', height: '72px', borderRadius: '50%',
-                        background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)',
+                        background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
                         border: '1px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818CF8',
                     }}>
                         <KeyRound size={32} />

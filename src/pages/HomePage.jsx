@@ -10,138 +10,16 @@
 // rather than introducing any new colors, classes, or glass treatments of
 // its own. GreetingCard, the sidebar, the header, and every global CSS
 // class (dashboard-grid/col-12) are untouched.
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import GreetingCard from '../components/GreetingCard';
 import AIDailyBriefingCard from '../components/AIDailyBriefingCard.jsx';
-import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical, Search, X } from 'lucide-react';
+import { Clock, PlayCircle, CheckCircle2, Circle, ChevronDown, ArrowUpRight, StickyNote, CheckSquare, Timer, GripVertical } from 'lucide-react';
 import { useTaskRegistry } from '../context/TaskRegistryContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import TourGuide from '../components/TourGuide.jsx';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
 import { TOUR_STEPS } from '../constants/tourSteps.js';
-
-// ---------------------------------------------------------------------------
-// Mobile-only Spotlight-style search bar, placed at the very top of the
-// Home page content. Desktop already has this exact search experience
-// in the global Header (hidden on mobile there since its own real width
-// doesn't fit next to the hamburger + logo + right-side icon cluster) -
-// this is the mobile-visible equivalent, same section list + live
-// Planner task search, just embedded in the page instead of the header.
-// ---------------------------------------------------------------------------
-const SPOTLIGHT_SECTIONS = [
-    { name: 'Home Dashboard', route: 'Home' },
-    { name: 'Planner Matrix', route: 'Planner' },
-    { name: 'Study Hub', route: 'Study' },
-    { name: 'Syllabus', route: 'Syllabus' },
-    { name: 'Gym & Fitness', route: 'Gym' },
-    { name: 'Diet & Nutrition', route: 'Diet' },
-    { name: 'Finance Wallet', route: 'Finance' },
-    { name: 'Calendar', route: 'Calendar' },
-    { name: 'Analytics', route: 'Analytics' },
-    { name: 'AI Intelligence Hub', route: 'AI' },
-    { name: 'User Profile', route: 'Profile' },
-    { name: 'System Settings', route: 'Settings' },
-];
-
-const HomeSpotlightSearch = ({ setActiveTab }) => {
-    const [query, setQuery] = useState('');
-    const [isOpen, setIsOpen] = useState(false);
-    const wrapRef = useRef(null);
-
-    useEffect(() => {
-        const handleClickOutside = (e) => {
-            if (wrapRef.current && !wrapRef.current.contains(e.target)) setIsOpen(false);
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const results = useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return SPOTLIGHT_SECTIONS.map((s) => ({ title: s.name, route: s.route, type: 'Section' }));
-        const matches = SPOTLIGHT_SECTIONS.filter((s) => s.name.toLowerCase().includes(q)).map((s) => ({ title: s.name, route: s.route, type: 'Section' }));
-        try {
-            const planner = JSON.parse(localStorage.getItem('nexus_planner_tasks') || '[]');
-            planner.forEach((t) => {
-                if (t.title && t.title.toLowerCase().includes(q)) matches.push({ title: t.title, route: 'Planner', type: 'Task' });
-            });
-        } catch (e) { /* malformed planner data - section matches above still work */ }
-        return matches;
-    }, [query]);
-
-    const handleSelect = (route) => {
-        if (typeof setActiveTab === 'function') setActiveTab(route);
-        setIsOpen(false);
-        setQuery('');
-    };
-
-    return (
-        <div ref={wrapRef} style={{ position: 'relative', width: '100%' }}>
-            {/* True capsule/pill shape (borderRadius: 9999px) and a
-                slimmer vertical padding - matches a macOS Spotlight
-                pop-up's own clean, thin, fully-rounded silhouette rather
-                than the app's usual 16px "rounded rectangle" card
-                language. */}
-            <div data-tour-id="home-search" style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
-                background: 'var(--widget-bg)', padding: '12px 18px',
-                borderRadius: '9999px', border: '1px solid var(--border-premium)',
-                boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-            }}>
-                <Search size={17} color="var(--text-muted)" style={{ flexShrink: 0 }} />
-                <input
-                    id="home-spotlight-search" name="homeSpotlightSearch"
-                    type="text" aria-label="Search Nexus"
-                    value={query}
-                    onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
-                    onFocus={() => setIsOpen(true)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && results[0]) { e.preventDefault(); handleSelect(results[0].route); }
-                        else if (e.key === 'Escape') { setIsOpen(false); e.currentTarget.blur(); }
-                    }}
-                    placeholder="Search Nexus..."
-                    // A real fix for the reported blurry/cramped text, not
-                    // a cosmetic tweak: with no explicit line-height, this
-                    // input's line box computed to a genuinely fractional
-                    // 16.66px (verified live) - at a 2x device pixel ratio
-                    // that lands the text baseline on a half-pixel, which
-                    // is exactly what reads as soft/anti-aliased "blur" on
-                    // real screens. A whole-number line-height keeps every
-                    // dimension in this bar landing on clean device pixels.
-                    style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '15px', lineHeight: '20px', fontWeight: '500', outline: 'none' }}
-                />
-                {query && (
-                    <button onClick={() => { setQuery(''); setIsOpen(false); }} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', flexShrink: 0 }}>
-                        <X size={15} />
-                    </button>
-                )}
-            </div>
-
-            {isOpen && results.length > 0 && (
-                <div style={{
-                    position: 'absolute', top: 'calc(100% + 8px)', left: 0, right: 0, maxHeight: '300px', overflowY: 'auto',
-                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '8px', zIndex: 60,
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.25)',
-                }}>
-                    {results.slice(0, 8).map((res, idx) => (
-                        <div
-                            key={`${res.route}_${idx}`}
-                            onClick={() => handleSelect(res.route)}
-                            style={{
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                padding: '11px 12px', borderRadius: '12px', background: 'var(--widget-bg)',
-                                color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginBottom: '4px',
-                            }}
-                        >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{res.title}</span>
-                            <span style={{ fontSize: '10px', padding: '2px 6px', background: 'var(--bg-main)', borderRadius: '4px', color: 'var(--accent)', flexShrink: 0, marginLeft: '8px' }}>{res.type}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
+import { getLocalDateString } from '../utils/dateUtils.js';
 
 // ---------------------------------------------------------------------------
 // Category -> destination page + accent color + priority tag. Mock/curated
@@ -267,13 +145,17 @@ const isWithinTimeRange = (currentHour, startHour, endHour) => {
     return currentHour >= startHour || currentHour < endHour;
 };
 
+// No "left" in the value itself - the adjacent countdown-label span
+// already says "Remaining"/"Starts In", so the two together read as
+// "4h 45m REMAINING" / "20h 45m STARTS IN" rather than the redundant
+// "4h 45m left" + "Remaining" this used to produce side by side.
 const formatCountdown = (hoursRemaining, zeroLabel = 'Ending now') => {
     if (hoursRemaining <= 0) return zeroLabel;
     const totalMinutes = Math.max(1, Math.round(hoursRemaining * 60));
     const h = Math.floor(totalMinutes / 60);
     const m = totalMinutes % 60;
-    if (h <= 0) return `${m}m left`;
-    return `${h}h ${m}m left`;
+    if (h <= 0) return `${m}m`;
+    return `${h}h ${m}m`;
 };
 
 // ---------------------------------------------------------------------------
@@ -288,23 +170,28 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
     const [noteDraft, setNoteDraft] = useState(cardState.note || '');
     const [now, setNow] = useState(() => new Date());
 
-    // Active AND upcoming (isNext) cards tick - active needs a live
-    // "time remaining until end" countdown, upcoming needs a live "time
-    // until start" one. Queued cards further back have no live
-    // countdown to show (only the very next item's own start time is
-    // meaningfully imminent), so there's no reason to run a timer for
-    // them.
+    // Every card ticks now - a real, reported gap was that only the
+    // active card (time remaining) and the single "Up Next" card (time
+    // until start) ever got a live countdown; every other queued card
+    // further back showed nothing at all in that same slot, reading as
+    // inconsistent/incomplete next to a sibling card that did. The queue
+    // is capped at MAX_QUEUE_SIZE (8) items total, so 8 lightweight
+    // 1-second intervals is a non-issue.
     useEffect(() => {
-        if (!isActive && !isNext) return undefined;
         const id = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(id);
-    }, [isActive, isNext]);
+    }, []);
 
     const style = resolveCategoryStyle(item.category);
     const completed = !!cardState.completed;
 
     const remainingLabel = useMemo(() => {
-        if (!isActive) return null;
+        // An all-day item (a festival/holiday with no clock time) has no
+        // genuine "time remaining" to count down - endHour is honestly
+        // null for it, and without this guard that null would coerce to
+        // 0 below and falsely show "Ending now" for something that's
+        // actually live all day.
+        if (!isActive || item.endHour === null || item.endHour === undefined) return null;
         const nowHours = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
         // Real overnight adjustment - when this active item's own end
         // time has already wrapped past midnight (endHour is numerically
@@ -324,19 +211,22 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
     // the countdown it's describing.
     const isEndingNow = isActive && remainingLabel === 'Ending now';
 
-    // Real "time until start" countdown for the upcoming (isNext) card -
-    // the other half of this request's own "until the task ends or
-    // starts" ask. Mirrors remainingLabel's own overnight-aware
-    // adjustment: this app's own queue reordering only ever places an
-    // item with a numerically-smaller startHour after the active/
-    // reference item when it genuinely starts on the next calendar day,
-    // so that same day-wraparound adjustment applies here too.
+    // Real "time until start" countdown for every non-active card, not
+    // just the immediate "Up Next" one - a real, reported gap: a further-
+    // back queued card ("Queue #2", "Queue #3", ...) used to show nothing
+    // at all in this slot, leaving it looking emptier/less finished than
+    // the Up Next card right above it, which has real time info here.
+    // Mirrors remainingLabel's own overnight-aware adjustment: this app's
+    // own queue reordering only ever places an item with a numerically-
+    // smaller startHour after the active/reference item when it genuinely
+    // starts on the next calendar day, so that same day-wraparound
+    // adjustment applies here too.
     const startsInLabel = useMemo(() => {
-        if (!isNext || item.startHour === null || item.startHour === undefined) return null;
+        if (isActive || item.startHour === null || item.startHour === undefined) return null;
         const nowHours = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
         const effectiveStartHour = item.startHour <= nowHours ? item.startHour + 24 : item.startHour;
         return formatCountdown(effectiveStartHour - nowHours, 'Starting now');
-    }, [isNext, now, item.startHour]);
+    }, [isActive, now, item.startHour]);
 
     const handleCardClick = () => setExpanded((v) => !v);
     const stop = (e) => e.stopPropagation();
@@ -412,9 +302,10 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                         </div>
 
                         <div className="schedule-card__info-row">
-                            {item.hasRealTime && (
+                            {(item.hasRealTime || item.isAllDayToday) && (
                                 <span className="schedule-card__time">
-                                    <Clock size={11} /> {item.time}
+                                    <Clock size={11} />
+                                    <span className="schedule-card__time-text">{item.time}</span>
                                 </span>
                             )}
                             {/* Clickable source badge - navigates straight to the
@@ -427,12 +318,12 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                     </div>
                 </div>
 
-                {/* Genuinely prominent center countdown - covers both the
-                    active card (time remaining until it ends) and the
-                    upcoming card (time until it starts). Queued cards
-                    further back show nothing here - only the very next
-                    item's own start time is meaningfully imminent enough
-                    to warrant a live countdown. */}
+                {/* Genuinely prominent center countdown - covers the
+                    active card (time remaining until it ends) and EVERY
+                    other card (time until it starts), not just the
+                    immediate "Up Next" one - a real, reported gap was a
+                    further-back queued card leaving this slot empty next
+                    to a sibling card that had real time info in it. */}
                 {isActive && remainingLabel && (
                     <div className="schedule-card__countdown">
                         <span className="schedule-card__countdown-value schedule-card__countdown-value--active">
@@ -442,7 +333,7 @@ const QueueCard = React.memo(({ item, index, isActive, isNext, opacityLevel, set
                         <span className="schedule-card__countdown-label">Remaining</span>
                     </div>
                 )}
-                {isNext && startsInLabel && (
+                {!isActive && startsInLabel && (
                     <div className="schedule-card__countdown">
                         <span className="schedule-card__countdown-value schedule-card__countdown-value--next">
                             <Clock size={20} />
@@ -576,6 +467,22 @@ const HomePage = ({ setActiveTab }) => {
         setDraggedWidget(null);
     };
 
+    // Real, reported gap fixed: the drag-to-reorder above uses native HTML5
+    // drag-and-drop (`draggable`/onDragStart/onDrop), which has NO touch
+    // support at all in any mobile browser - the grip handle was genuinely
+    // inert on mobile, not just awkward, even though "fix होना चाहिए mobile
+    // में भी" was explicit. With only ever these two widgets, a full
+    // touch-drag simulation would be real complexity for a result that's
+    // identical to just swapping the two - so the grip handle's tap target
+    // calls this directly, persisted the exact same way (same localStorage
+    // key handleWidgetDrop already writes), giving mobile a real, working,
+    // one-tap equivalent instead of a silently-dead drag gesture.
+    const swapWidgetOrder = () => {
+        const next = [...widgetOrder].reverse();
+        setWidgetOrder(next);
+        localStorage.setItem('nexus_home_widget_order', JSON.stringify(next));
+    };
+
     // Productivity Widget Customization - which of the three named
     // dashboard categories (Study Tracker, Gym Split, Finance Overview)
     // the user has chosen to show. Read from the same real settings blob
@@ -648,7 +555,7 @@ const HomePage = ({ setActiveTab }) => {
     // reschedule updates cardStateMap, instead of only picking up the
     // change on the next scheduled 60-second refresh.
     const loadMasterData = useCallback(() => {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         const queueItems = [];
 
         // Timetable is a weekly-recurring template, not date-specific -
@@ -673,6 +580,15 @@ const HomePage = ({ setActiveTab }) => {
                 id: e.id, startHour: e.startHour, endHour: e.endHour,
                 time: e.raw.time || 'Scheduled', title: e.title, category: e.category,
                 hasRealTime: e.startHour !== null, preCompleted: e.status === 'completed', widgetGroup: 'calendar',
+                // A dated calendar event with no parseable clock time (an
+                // "All Day" festival/holiday, e.g. Raksha Bandhan) is
+                // genuinely happening right now, all day today - the
+                // opposite of a flexible, timeless queue item. Marked here
+                // so it gets the same live treatment as a currently-active
+                // timed task below, instead of falling into the generic
+                // "Up Next" bucket alongside Planner/Gym/Study tasks that
+                // carry no "happening today" claim at all.
+                isAllDayToday: e.startHour === null,
             });
         });
 
@@ -788,10 +704,17 @@ const HomePage = ({ setActiveTab }) => {
         // genuinely time-based question, so it can only ever be answered
         // using items that actually have a real clock time.
         const timed = visibleItems.filter((i) => i.hasRealTime).sort((a, b) => a.startHour - b.startHour);
-        const untimed = visibleItems.filter((i) => !i.hasRealTime);
+        const untimedAll = visibleItems.filter((i) => !i.hasRealTime);
+        // All-day calendar events dated today are split out here and
+        // pre-marked live - see the isAllDayToday comment above where
+        // they're tagged. Everything left in `untimed` after this is
+        // genuinely timeless (a Planner due-date, a Gym split, etc.),
+        // not merely missing a clock time for today specifically.
+        const liveAllDay = untimedAll.filter((i) => i.isAllDayToday).map((i) => ({ ...i, isCurrentlyActive: true }));
+        const untimed = untimedAll.filter((i) => !i.isAllDayToday);
 
         if (timed.length === 0) {
-            setMasterQueue(untimed.slice(0, MAX_QUEUE_SIZE));
+            setMasterQueue([...liveAllDay, ...untimed].slice(0, MAX_QUEUE_SIZE));
             return;
         }
 
@@ -809,16 +732,23 @@ const HomePage = ({ setActiveTab }) => {
         const wasGenuinelyActive = activeIndex !== -1;
         if (activeIndex === -1) activeIndex = 0;
 
-        const reorderedQueue = [
-            // isCurrentlyActive rides along on the item itself, so
-            // HomePage's own render logic (and QueueCard) can read a
-            // real, honest signal instead of re-inferring "active" from
-            // queue position alone.
-            { ...timed[activeIndex], isCurrentlyActive: wasGenuinelyActive },
-            ...timed.slice(activeIndex + 1),
-            ...timed.slice(0, activeIndex),
-            ...untimed,
-        ];
+        // isCurrentlyActive rides along on the item itself, so HomePage's
+        // own render logic (and QueueCard) can read a real, honest signal
+        // instead of re-inferring "active" from queue position alone.
+        const timedHead = { ...timed[activeIndex], isCurrentlyActive: wasGenuinelyActive };
+        const restTimed = [...timed.slice(activeIndex + 1), ...timed.slice(0, activeIndex)];
+
+        // Multiple genuinely live things can exist at once now - a
+        // festival running all day alongside a class currently in
+        // session, say - so every live item leads the queue together
+        // rather than only one position ever being allowed to be
+        // "active". Order between them doesn't matter (both render with
+        // the identical live treatment below); only whether the timed
+        // item is genuinely active decides whether it joins that leading
+        // group at all.
+        const reorderedQueue = wasGenuinelyActive
+            ? [timedHead, ...liveAllDay, ...restTimed, ...untimed]
+            : [...liveAllDay, timedHead, ...restTimed, ...untimed];
 
         // Strict 8-task cap on the queue as a whole - the active task (if
         // any) is already first in this same array, so it counts as one
@@ -857,24 +787,6 @@ const HomePage = ({ setActiveTab }) => {
 
             {showTour && <TourGuide tourId="home" steps={TOUR_STEPS.home} onFinish={() => setShowTour(false)} />}
 
-            {/* Mobile-only Spotlight search - desktop already has this
-                exact experience in the Header (hidden on mobile there).
-                Ordered first, always, regardless of the greeting/schedule
-                drag-reorder below - a search entry point genuinely
-                belongs fixed at the very top, not something a widget
-                drag should be able to bury. */}
-            {isMobile && (
-                // Negative margins pull the bar right up against the header
-                // above (down to a few px of real breathing room, not the
-                // page's full 16px top padding) and tighten the grid's
-                // usual 24px gap before the greeting card below - scoped to
-                // just this one instance, not the shared dashboard-grid/
-                // page-padding rules other pages still rely on.
-                <div className="col-12" style={{ order: -1, marginTop: '-13px', marginBottom: '-12px' }}>
-                    <HomeSpotlightSearch setActiveTab={setActiveTab} />
-                </div>
-            )}
-
             <div
                 className="col-12"
                 draggable
@@ -885,8 +797,9 @@ const HomePage = ({ setActiveTab }) => {
                 style={{ order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1, position: 'relative' }}
             >
                 <div
-                    title="Drag to reorder"
-                    style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5, cursor: 'grab', color: 'var(--text-muted)', opacity: 0.5, padding: '4px' }}
+                    title="Drag to reorder (desktop) or tap to swap order (mobile)"
+                    onClick={(e) => { e.stopPropagation(); swapWidgetOrder(); }}
+                    style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5, cursor: 'grab', color: 'var(--text-muted)', opacity: 0.5, padding: '8px' }}
                 >
                     <GripVertical size={16} />
                 </div>
@@ -897,7 +810,7 @@ const HomePage = ({ setActiveTab }) => {
                 desktop's card is completely unaffected. */}
             {!isMobile && (
                 <div className="col-12">
-                    <AIDailyBriefingCard isMobile={isMobile} />
+                    <AIDailyBriefingCard isMobile={isMobile} setActiveTab={setActiveTab} />
                 </div>
             )}
 
@@ -911,17 +824,35 @@ const HomePage = ({ setActiveTab }) => {
                 data-tour-id="home-schedule"
                 style={{ order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
             >
-                <div title="Drag to reorder" className="master-schedule__drag-handle">
+                <div
+                    title="Drag to reorder (desktop) or tap to swap order (mobile)"
+                    className="master-schedule__drag-handle"
+                    onClick={(e) => { e.stopPropagation(); swapWidgetOrder(); }}
+                >
                     <GripVertical size={16} />
                 </div>
                 <div className="master-schedule__header">
                     <div className="master-schedule__header-left">
                         <Clock size={18} color="var(--accent)" />
-                        <h2 className="master-schedule__title">Master Schedule Flow &amp; Active Timeline</h2>
+                        {/* Shortened on mobile - the full title reliably
+                            wrapped to 2 lines there (a real, reported "make
+                            it one line" ask), and the subtitle right below
+                            it ("N Master Queue Blocks Active") already
+                            covers the "active"/"timeline" half of the
+                            meaning, so nothing real is lost by trimming it
+                            for the narrower width. Desktop keeps the full
+                            title unchanged - real room to spare there. */}
+                        <h2 className="master-schedule__title">{isMobile ? 'Master Schedule' : 'Master Schedule Flow & Active Timeline'}</h2>
                     </div>
                     <span className="master-schedule__count">{masterQueue.length} Master Queue Blocks Active</span>
                 </div>
 
+                {/* master-schedule__queue is a plain passthrough wrapper on
+                    desktop - it only becomes a capped, internally-scrolling
+                    region on mobile (see the max-width:768px rule), so a
+                    long queue never pushes the rest of the dashboard down
+                    and off-screen on a small viewport. */}
+                <div className="master-schedule__queue">
                 {masterQueue.length === 0 ? (
                     <div className="master-schedule__empty">
                         <Clock size={28} color="var(--text-muted)" style={{ opacity: 0.5 }} />
@@ -930,23 +861,25 @@ const HomePage = ({ setActiveTab }) => {
                     </div>
                 ) : (
                     (() => {
-                        // Only a genuinely time-based item can ever be
-                        // "Active Now" - reads the real, honest
-                        // isCurrentlyActive flag set above (true only
-                        // when the current clock time is genuinely
-                        // within that item's own start/end range),
-                        // rather than inferring activity from queue
-                        // position alone. If the queue has no timed
-                        // items at all (e.g. only flexible Planner
-                        // tasks today), or the first timed item merely
-                        // fell back to position 0 without a real match,
-                        // nothing is time-active, and the first item is
-                        // labeled "Up Next" instead rather than
-                        // misleadingly "Active Now".
-                        const hasTimedActiveItem = !!masterQueue[0]?.isCurrentlyActive;
+                        // "Active Now" reads the real, honest
+                        // isCurrentlyActive flag set above - true for a
+                        // timed item only when the current clock time is
+                        // genuinely within its own start/end range, and
+                        // true for every all-day calendar event dated
+                        // today regardless of clock time. It's a
+                        // per-item fact now, not a single queue-position
+                        // check - any number of items can be live at
+                        // once (e.g. a festival running all day plus a
+                        // class currently in session), and every one of
+                        // them gets the identical live card treatment
+                        // below. "Up Next" is simply the first item after
+                        // however many live ones lead the list; if
+                        // nothing is live at all, that's index 0, same
+                        // as before.
+                        const firstNonLiveIndex = masterQueue.findIndex((i) => !i.isCurrentlyActive);
                         return masterQueue.map((item, index) => {
-                            const isActive = hasTimedActiveItem && index === 0;
-                            const isNext = hasTimedActiveItem ? index === 1 : index === 0;
+                            const isActive = !!item.isCurrentlyActive;
+                            const isNext = !isActive && index === firstNonLiveIndex;
                             const opacityLevel = Math.max(0.4, 1 - (index * 0.08));
                             const storedCardState = cardStateMap[item.id] || {};
 
@@ -976,6 +909,7 @@ const HomePage = ({ setActiveTab }) => {
                         });
                     })()
                 )}
+                </div>
             </div>
         </div>
     );

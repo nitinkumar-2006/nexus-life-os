@@ -48,7 +48,12 @@ const MOON_WINDOW = PHASE_BOUNDS.night; // 7:00 PM -> 5:00 AM (automatically fol
 const PHASE_PALETTE = {
     night: { bottom: '#1e2749', mid: '#131b33', top: '#05070f' },
     dawn: { bottom: '#fbbf24', mid: '#f97316', top: '#1e3a8a' },
-    day: { bottom: '#b8dff5', mid: '#6fb3e0', top: '#2e6da4' },
+    // Desaturated from the original, more vividly-blue palette
+    // (#b8dff5/#6fb3e0/#2e6da4) - explicit later feedback that it read
+    // as an "unwanted blue tint" clashing with the glass cards sitting
+    // over it. Still a recognizably pale, clear-sky gradient (not
+    // colorless/grey), just meaningfully less saturated.
+    day: { bottom: '#d3e7ee', mid: '#a3c3d3', top: '#5c7f93' },
     dusk: { bottom: '#fb7185', mid: '#7c2d5c', top: '#141a33' },
 };
 
@@ -426,7 +431,7 @@ const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
     // offset with a percentage of the remaining width, guaranteeing the
     // peak (progress=50, celestialFraction=0.5 exactly) always lands dead
     // center in the content area regardless of actual viewport width.
-    const sidebarWidthPx = isSidebarCollapsed ? 76 : 224;
+    const sidebarWidthPx = isSidebarCollapsed ? 62 : 224;
     // --- ORIGINAL, PRISTINE ARC MATH - reverted back to the exact formula
     // from when this feature was first implemented. All later curve
     // experiments (calc()-string peaks, piecewise ramps, bell curves,

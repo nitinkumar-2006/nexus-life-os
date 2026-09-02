@@ -22,6 +22,7 @@ import {
     getSpotifyClientId, SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES,
     getAppleMusicToken, APPLE_MUSICKIT_APP_NAME, APPLE_MUSICKIT_APP_BUILD,
     isSpotifyConfigured, isAppleMusicConfigured,
+    isYoutubeConfigured, isSaavnConfigured,
 } from '../config/streamingConfig.js';
 
 const SPOTIFY_TOKEN_KEY = 'nexus_spotify_tokens'; // isolated storage key - Apple's state never touches this
@@ -68,12 +69,63 @@ export const StreamingProvider = ({ children }) => {
     const spotifyRefreshTimeoutRef = useRef(null);
     const spotifyPlayerRef = useRef(null); // Spotify.Player instance (Web Playback SDK) - separate from the auth tokens above
     const [spotifyDeviceId, setSpotifyDeviceId] = useState(null);
+    // Live playback state from the SDK's own 'player_state_changed' event -
+    // a real, reported gap this closes: FloatingBottomPlayer previously had
+    // NO way to know what Spotify was actually playing (title/artist/
+    // artwork/progress/paused-or-not), since Spotify's SDK plays audio
+    // through its own internal context, entirely separate from this app's
+    // local <audio> elements - the bottom card looked "disconnected" (blank/
+    // stale) even while real Spotify audio was audibly playing. Mirrors the
+    // exact same shape/pattern already used for YouTube's
+    // youtubeNowPlaying/youtubeIsPlaying/youtubeCurrentTime/youtubeDuration
+    // below, for the same reason (a second, genuinely separate playback
+    // engine the UI needs to reflect).
+    const [spotifyNowPlaying, setSpotifyNowPlaying] = useState(null); // { title, artist, artworkUrl, uri } | null
+    const [spotifyIsPlaying, setSpotifyIsPlaying] = useState(false);
+    const [spotifyCurrentTime, setSpotifyCurrentTime] = useState(0);
+    const [spotifyDuration, setSpotifyDuration] = useState(0);
+
+    // Real, reported bug fixed: spotifyCurrentTime only ever updated from
+    // the SDK's own 'player_state_changed' event, which fires on
+    // play/pause/seek/track-change - NOT once a second while a track is
+    // simply playing. The bottom player's timer/progress bar looked
+    // "stuck"/broken between those events even though the actual audio was
+    // advancing fine ("song toh chalta rehta hai but timer... properly
+    // kaam nahi kar raha"). This ticks the DISPLAYED position locally once
+    // a second while playing, clamped to the known duration - the SDK's
+    // own event still remains the real resync point on every actual state
+    // change, this just fills the visual gap between them.
+    useEffect(() => {
+        if (!spotifyIsPlaying) return undefined;
+        const id = setInterval(() => {
+            setSpotifyCurrentTime((prev) => Math.min(prev + 1, spotifyDuration || prev + 1));
+        }, 1000);
+        return () => clearInterval(id);
+    }, [spotifyIsPlaying, spotifyDuration]);
 
     // --- Apple Music: fully isolated state ---
     const [appleMusicAuth, setAppleMusicAuth] = useState(() => loadJson(APPLE_MUSIC_KEY, {
         connected: false, musicUserToken: null, error: null,
     }));
     const musicKitRef = useRef(null);
+
+    // --- YouTube: key-based (Data API v3), no per-user OAuth - a
+    // confirmed key (Settings > API Integrations, shared with the
+    // Syllabus Hub) IS the connection, there's no separate handshake.
+    // "Connected" therefore just mirrors isYoutubeConfigured() rather
+    // than being its own independently-earned state. ---
+    const [youtubeAuth, setYoutubeAuth] = useState(() => ({ connected: isYoutubeConfigured(), error: null }));
+    const youtubePlayerRef = useRef(null); // YT.Player instance (hidden IFrame)
+    const [youtubePlayerReady, setYoutubePlayerReady] = useState(false);
+
+    // --- Saavn: no credentials at all (every public mirror of this
+    // unofficial API is unauthenticated) - "connected" is purely the
+    // user's own on/off preference (saavnEnabled in Settings), not a real
+    // auth state. Saavn tracks resolve to a normal, direct, playable URL
+    // (see saavnClient.js), so they play through the SAME <audio>
+    // elements every local/imported track already uses - Saavn never
+    // becomes an activeSource value the way Spotify/Apple/YouTube do. ---
+    const [saavnAuth, setSaavnAuth] = useState(() => ({ connected: isSaavnConfigured(), error: null }));
 
     // --- Master active-source selector ---
     const [activeSource, setActiveSourceState] = useState(() => {
@@ -89,7 +141,18 @@ export const StreamingProvider = ({ children }) => {
     // this provider happened to render for an unrelated reason.
     const [, forceCredentialRecheck] = useState(0);
     useEffect(() => {
-        const handleSettingsUpdated = () => forceCredentialRecheck((n) => n + 1);
+        const handleSettingsUpdated = () => {
+            forceCredentialRecheck((n) => n + 1);
+            // YouTube/Saavn have no OAuth callback of their own to update
+            // their `connected` flag from (unlike Spotify/Apple, which set
+            // it inside exchangeSpotifyCode/connectAppleMusic) - it's
+            // derived straight from Settings, so it has to be re-derived
+            // here whenever Settings changes, including a change made
+            // directly on the Settings page rather than via the Audio Hub
+            // connect button.
+            setYoutubeAuth((prev) => ({ ...prev, connected: isYoutubeConfigured() }));
+            setSaavnAuth((prev) => ({ ...prev, connected: isSaavnConfigured() }));
+        };
         window.addEventListener('nexus_settings_updated', handleSettingsUpdated);
         return () => window.removeEventListener('nexus_settings_updated', handleSettingsUpdated);
     }, []);
@@ -114,8 +177,13 @@ export const StreamingProvider = ({ children }) => {
     const setActiveSource = useCallback((source) => {
         if (source === 'spotify' && !spotifyAuth.connected) return;
         if (source === 'apple' && !appleMusicAuth.connected) return;
+        if (source === 'youtube' && !youtubeAuth.connected) return;
+        // Saavn is deliberately never a valid activeSource value - see the
+        // comment on saavnAuth above; its tracks play through the normal
+        // 'local' <audio> pathway, so there's nothing for this switch to
+        // steer for it.
         setActiveSourceState(source);
-    }, [spotifyAuth.connected, appleMusicAuth.connected]);
+    }, [spotifyAuth.connected, appleMusicAuth.connected, youtubeAuth.connected]);
 
     // ========================================================================
     // SPOTIFY: Authorization Code + PKCE
@@ -307,6 +375,39 @@ export const StreamingProvider = ({ children }) => {
                 });
                 player.addListener('ready', ({ device_id }) => { if (!cancelled) setSpotifyDeviceId(device_id); });
                 player.addListener('not_ready', () => { if (!cancelled) setSpotifyDeviceId(null); });
+                // The real source of truth for "what is Spotify actually
+                // doing right now" - fires on every play/pause/seek/track
+                // change. A null state (nothing loaded on this device yet)
+                // is handled explicitly rather than crashing on
+                // state.track_window.
+                player.addListener('player_state_changed', (state) => {
+                    if (cancelled) return;
+                    if (!state) {
+                        setSpotifyNowPlaying(null);
+                        setSpotifyIsPlaying(false);
+                        return;
+                    }
+                    const track = state.track_window?.current_track;
+                    if (track) {
+                        setSpotifyNowPlaying({
+                            title: track.name || 'Unknown Title',
+                            artist: Array.isArray(track.artists) ? track.artists.map((a) => a.name).filter(Boolean).join(', ') : '',
+                            artworkUrl: track.album?.images?.[0]?.url || '',
+                            // Real fix for a real, reported gap: without this,
+                            // a Spotify track that reached Recently Played
+                            // had no stable identifier at all to replay it
+                            // from that list later - clicking it did
+                            // nothing, honestly shown as "not replayable"
+                            // rather than a dead click, but that's a real
+                            // gap, not the actual desired behavior. The SDK's
+                            // own track object always carries this.
+                            uri: track.uri || '',
+                        });
+                    }
+                    setSpotifyIsPlaying(!state.paused);
+                    setSpotifyCurrentTime((state.position || 0) / 1000);
+                    setSpotifyDuration((state.duration || 0) / 1000);
+                });
                 // All three failure paths below stop Spotify from actually
                 // being able to play - each falls activeSource back to
                 // 'local' if it was pointing at spotify, so the app can
@@ -353,6 +454,19 @@ export const StreamingProvider = ({ children }) => {
     const spotifyTogglePlay = useCallback(() => { spotifyPlayerRef.current?.togglePlay?.(); }, []);
     const spotifyNext = useCallback(() => { spotifyPlayerRef.current?.nextTrack?.(); }, []);
     const spotifyPrevious = useCallback(() => { spotifyPlayerRef.current?.previousTrack?.(); }, []);
+    // seek() takes milliseconds - callers (FloatingBottomPlayer's scrubber)
+    // work in seconds like every other source here, so the conversion
+    // happens at this one boundary rather than leaking ms into the UI.
+    const spotifySeek = useCallback((seconds) => { spotifyPlayerRef.current?.seek?.(Math.max(0, seconds) * 1000); }, []);
+    // Real, reported bug: the Master Volume slider (Settings) and the
+    // player's own volume slider both only ever touched the local <audio>
+    // element's volume - Spotify's Web Playback SDK has its own, entirely
+    // separate volume (the player instance was created with a fixed
+    // `volume: 0.8` above and never updated again), so neither slider had
+    // any effect while Spotify was the active, playing source. `v` is a
+    // 0-1 float, matching every other volume value already used in this
+    // app - the SDK's own setVolume() takes the exact same range.
+    const spotifySetVolume = useCallback((v) => { spotifyPlayerRef.current?.setVolume?.(Math.min(1, Math.max(0, v))); }, []);
     // Starts a specific track by Spotify URI on this device - requires
     // transferring playback to our Web Playback SDK device_id first via
     // the regular Web API (the SDK player itself has no "play this URI"
@@ -435,6 +549,213 @@ export const StreamingProvider = ({ children }) => {
         }
     }, []);
 
+    // ========================================================================
+    // YOUTUBE: hidden IFrame Player. There is no direct, playable audio URL
+    // for a YouTube video (that's specifically why this needs a real player
+    // instance instead of just handing a URL to an <audio> element) - the
+    // IFrame Player API is the standard, Google-documented way to get
+    // programmatic play/pause/seek/getCurrentTime control over a video
+    // without showing its player chrome; a 1x1, off-screen, pointer-events:
+    // none container is enough, visibility has no effect on audio output.
+    // ========================================================================
+    const [youtubeNowPlaying, setYoutubeNowPlaying] = useState(null); // { videoId, title, artist, artworkUrl } | null
+    const [youtubeIsPlaying, setYoutubeIsPlaying] = useState(false);
+    const [youtubeCurrentTime, setYoutubeCurrentTime] = useState(0);
+    const [youtubeDuration, setYoutubeDuration] = useState(0);
+    // Plain refs, not state - a linear browsable queue for next/prev over a
+    // set of search results, same idea as AudioPlayerContext's own
+    // playlist/currentSongIndex but intentionally separate (YouTube's queue
+    // is its own thing, not spliced into the local <audio> playlist).
+    const youtubeQueueRef = useRef([]);
+    const youtubeQueueIndexRef = useRef(-1);
+
+    const loadYoutubeIframeApi = () =>
+        new Promise((resolve) => {
+            if (window.YT?.Player) { resolve(window.YT); return; }
+            const previousCallback = window.onYouTubeIframeAPIReady;
+            window.onYouTubeIframeAPIReady = () => { previousCallback?.(); resolve(window.YT); };
+            if (document.getElementById('youtube-iframe-api')) return; // script already loading, the callback above will still fire
+            const script = document.createElement('script');
+            script.id = 'youtube-iframe-api';
+            script.src = 'https://www.youtube.com/iframe_api';
+            script.async = true;
+            document.head.appendChild(script);
+        });
+
+    const ensureYoutubePlayer = useCallback(async () => {
+        if (youtubePlayerRef.current) return youtubePlayerRef.current;
+        let container = document.getElementById('nexus-youtube-hidden-player');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'nexus-youtube-hidden-player';
+            // Genuinely hidden, not just visually - 1x1 off-screen and
+            // non-interactive, so it can never intercept a click meant for
+            // real UI underneath/around it.
+            container.style.cssText = 'position:fixed; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; left:-9999px; top:-9999px;';
+            document.body.appendChild(container);
+        }
+        const YT = await loadYoutubeIframeApi();
+        return new Promise((resolve) => {
+            const player = new YT.Player(container.id, {
+                height: '1', width: '1',
+                playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0, modestbranding: 1 },
+                events: {
+                    onReady: () => { setYoutubePlayerReady(true); resolve(player); },
+                    onStateChange: (e) => {
+                        if (e.data === YT.PlayerState.PLAYING) setYoutubeIsPlaying(true);
+                        else if (e.data === YT.PlayerState.PAUSED) setYoutubeIsPlaying(false);
+                        else if (e.data === YT.PlayerState.ENDED) {
+                            setYoutubeIsPlaying(false);
+                            // Mirrors the local <audio> elements' own onEnded
+                            // -> next() behavior, so "track finishes ->
+                            // advance the queue" works identically
+                            // regardless of which source is playing.
+                            youtubeNext();
+                        }
+                    },
+                    onError: () => {
+                        setYoutubeAuth((prev) => ({ ...prev, error: 'This YouTube video is unavailable, region-blocked, or the uploader has disabled embedding.' }));
+                        setYoutubeIsPlaying(false);
+                    },
+                },
+            });
+            youtubePlayerRef.current = player;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const playYoutubeTrack = useCallback(async (track) => {
+        if (!isYoutubeConfigured()) {
+            setYoutubeAuth({ connected: false, error: 'YouTube Data API key not configured or not confirmed - add it in Settings > API Integrations.' });
+            return;
+        }
+        try {
+            const player = await ensureYoutubePlayer();
+            player.loadVideoById(track.videoId);
+            setYoutubeNowPlaying({ videoId: track.videoId, title: track.title, artist: track.artist || '', artworkUrl: track.artworkUrl || '' });
+            setYoutubeCurrentTime(0);
+            setYoutubeDuration(0);
+            setYoutubeAuth({ connected: true, error: null });
+            setActiveSourceState('youtube');
+        } catch (e) {
+            setYoutubeAuth((prev) => ({ ...prev, error: 'Could not start YouTube playback (network issue loading the player, or an ad-blocker is blocking youtube.com).' }));
+        }
+    }, [ensureYoutubePlayer]);
+
+    // Loads a full result list as a browsable queue and starts playing the
+    // given index - the YouTube equivalent of AudioPlayerContext's own
+    // queuePlaylistTracks, kept deliberately separate from it (see the
+    // queue-ref comment above).
+    const setYoutubeQueue = useCallback((tracks, startIndex = 0) => {
+        youtubeQueueRef.current = Array.isArray(tracks) ? tracks : [];
+        youtubeQueueIndexRef.current = startIndex;
+        const track = youtubeQueueRef.current[startIndex];
+        if (track) playYoutubeTrack(track);
+    }, [playYoutubeTrack]);
+
+    const youtubeTogglePlay = useCallback(() => {
+        const player = youtubePlayerRef.current;
+        if (!player) return;
+        if (youtubeIsPlaying) player.pauseVideo(); else player.playVideo();
+        // No optimistic setYoutubeIsPlaying here, deliberately - onStateChange
+        // above is the single source of truth, same reasoning as the local
+        // <audio> elements' own onPlay/onPause (see togglePlay's comment in
+        // AudioPlayerContext.jsx): this guarantees the UI can never drift
+        // out of sync with what the player is actually doing.
+    }, [youtubeIsPlaying]);
+
+    const youtubeNext = useCallback(() => {
+        const queue = youtubeQueueRef.current;
+        const nextIndex = youtubeQueueIndexRef.current + 1;
+        if (!queue.length || nextIndex >= queue.length) return; // end of queue - nothing to advance to
+        youtubeQueueIndexRef.current = nextIndex;
+        playYoutubeTrack(queue[nextIndex]);
+    }, [playYoutubeTrack]);
+
+    const youtubePrevious = useCallback(() => {
+        const queue = youtubeQueueRef.current;
+        const prevIndex = youtubeQueueIndexRef.current - 1;
+        if (!queue.length || prevIndex < 0) return;
+        youtubeQueueIndexRef.current = prevIndex;
+        playYoutubeTrack(queue[prevIndex]);
+    }, [playYoutubeTrack]);
+
+    const youtubeSeek = useCallback((time) => {
+        youtubePlayerRef.current?.seekTo(time, true);
+        setYoutubeCurrentTime(time);
+    }, []);
+
+    // Polls getCurrentTime()/getDuration() while YouTube is the active
+    // source - the IFrame Player API has no native "timeupdate" event the
+    // way HTML5 <audio> does, so polling is the standard, documented way
+    // every YouTube-as-audio-backend integration surfaces live progress.
+    useEffect(() => {
+        if (activeSource !== 'youtube' || !youtubePlayerReady) return undefined;
+        const interval = setInterval(() => {
+            const player = youtubePlayerRef.current;
+            if (!player?.getCurrentTime) return;
+            setYoutubeCurrentTime(player.getCurrentTime() || 0);
+            const d = player.getDuration ? player.getDuration() || 0 : 0;
+            if (d > 0) setYoutubeDuration(d);
+        }, 500);
+        return () => clearInterval(interval);
+    }, [activeSource, youtubePlayerReady]);
+
+    const connectYoutube = useCallback(() => {
+        if (!isYoutubeConfigured()) {
+            setYoutubeAuth({ connected: false, error: 'YouTube Data API key not configured or not confirmed - add it in Settings > API Integrations.' });
+            return;
+        }
+        setYoutubeAuth({ connected: true, error: null });
+        // "Connecting" here just means "make YouTube the active playback
+        // source" - unlike Spotify/Apple there's no separate OAuth step to
+        // complete first, a confirmed API key already IS the connection.
+        setActiveSourceState('youtube');
+    }, []);
+
+    const disconnectYoutube = useCallback(() => {
+        try { youtubePlayerRef.current?.stopVideo?.(); } catch (e) { /* best-effort */ }
+        setYoutubeIsPlaying(false);
+        setYoutubeNowPlaying(null);
+        setYoutubeAuth((prev) => ({ ...prev, connected: false }));
+        setActiveSourceState((prev) => (prev === 'youtube' ? 'local' : prev));
+        // Deliberately does NOT clear youtubeApiKey/youtubeApiKeyConfirmed
+        // in Settings - that field is shared with the Syllabus Hub's own
+        // video search, "disconnecting" here only stops using it for Audio
+        // Hub playback, exactly like disconnectSpotify/disconnectAppleMusic
+        // only ever touch their own isolated auth state, never credentials.
+    }, []);
+
+    // ========================================================================
+    // SAAVN: no credentials at all (see streamingConfig.js), but exactly
+    // like YouTube, "connected" here mirrors isSaavnConfigured() rather
+    // than being its own independently-earned state - it's just held to a
+    // stricter bar (both saavnEnabled AND a real, test-search-verified
+    // saavnApiBaseUrlConfirmed, not merely "the toggle is on") after an
+    // earlier version of this let the badge show "Connected" the instant
+    // the toggle flipped, with no check that the configured mirror
+    // actually responds. Saavn tracks resolve to a normal, direct,
+    // playable URL, so playback itself goes through AudioPlayerContext's
+    // existing playTrackNow(), NOT a dedicated activeSource branch the
+    // way Spotify/Apple/YouTube need - there's nothing here to steer.
+    // ========================================================================
+    const connectSaavn = useCallback(() => {
+        if (!isSaavnConfigured()) {
+            setSaavnAuth({ connected: false, error: 'Saavn is not verified yet - turn it on and confirm a working API mirror in Settings > API Integrations first.' });
+            return;
+        }
+        setSaavnAuth({ connected: true, error: null });
+    }, []);
+
+    const disconnectSaavn = useCallback(() => {
+        // Only turns Saavn off for search/playback in THIS session - does
+        // NOT touch saavnEnabled/saavnApiBaseUrlConfirmed in Settings, the
+        // same way disconnectYoutube never touches the YouTube API key it
+        // reads. Re-enabling reconnects instantly without re-verifying,
+        // since the mirror's own reachability hasn't changed.
+        setSaavnAuth({ connected: false, error: null });
+    }, []);
+
     const value = {
         spotifyAuth,
         connectSpotify,
@@ -444,6 +765,12 @@ export const StreamingProvider = ({ children }) => {
         spotifyNext,
         spotifyPrevious,
         spotifyPlayUri,
+        spotifySeek,
+        spotifySetVolume,
+        spotifyNowPlaying,
+        spotifyIsPlaying,
+        spotifyCurrentTime,
+        spotifyDuration,
         appleMusicAuth,
         connectAppleMusic,
         disconnectAppleMusic,
@@ -451,10 +778,28 @@ export const StreamingProvider = ({ children }) => {
         appleMusicNext,
         appleMusicPrevious,
         appleMusicPlayTrack,
+        youtubeAuth,
+        connectYoutube,
+        disconnectYoutube,
+        youtubeNowPlaying,
+        youtubeIsPlaying,
+        youtubeCurrentTime,
+        youtubeDuration,
+        youtubeTogglePlay,
+        youtubeNext,
+        youtubePrevious,
+        youtubeSeek,
+        playYoutubeTrack,
+        setYoutubeQueue,
+        saavnAuth,
+        connectSaavn,
+        disconnectSaavn,
         activeSource,
         setActiveSource,
         isSpotifyConfigured: isSpotifyConfigured(),
         isAppleMusicConfigured: isAppleMusicConfigured(),
+        isYoutubeConfigured: isYoutubeConfigured(),
+        isSaavnConfigured: isSaavnConfigured(),
     };
 
     return <StreamingContext.Provider value={value}>{children}</StreamingContext.Provider>;
@@ -469,12 +814,20 @@ export const useStreaming = () => {
         return {
             spotifyAuth: { connected: false, accessToken: null, refreshToken: null, expiresAt: null, profileName: null, error: null },
             connectSpotify: () => {}, disconnectSpotify: () => {},
-            spotifyDeviceId: null, spotifyTogglePlay: () => {}, spotifyNext: () => {}, spotifyPrevious: () => {}, spotifyPlayUri: () => {},
+            spotifyDeviceId: null, spotifyTogglePlay: () => {}, spotifyNext: () => {}, spotifyPrevious: () => {}, spotifyPlayUri: () => {}, spotifySeek: () => {}, spotifySetVolume: () => {},
+            spotifyNowPlaying: null, spotifyIsPlaying: false, spotifyCurrentTime: 0, spotifyDuration: 0,
             appleMusicAuth: { connected: false, musicUserToken: null, error: null },
             connectAppleMusic: () => {}, disconnectAppleMusic: () => {},
             appleMusicTogglePlay: () => {}, appleMusicNext: () => {}, appleMusicPrevious: () => {}, appleMusicPlayTrack: () => {},
+            youtubeAuth: { connected: false, error: null },
+            connectYoutube: () => {}, disconnectYoutube: () => {},
+            youtubeNowPlaying: null, youtubeIsPlaying: false, youtubeCurrentTime: 0, youtubeDuration: 0,
+            youtubeTogglePlay: () => {}, youtubeNext: () => {}, youtubePrevious: () => {}, youtubeSeek: () => {},
+            playYoutubeTrack: () => {}, setYoutubeQueue: () => {},
+            saavnAuth: { connected: false, error: null },
+            connectSaavn: () => {}, disconnectSaavn: () => {},
             activeSource: 'local', setActiveSource: () => {},
-            isSpotifyConfigured: false, isAppleMusicConfigured: false,
+            isSpotifyConfigured: false, isAppleMusicConfigured: false, isYoutubeConfigured: false, isSaavnConfigured: false,
         };
     }
     return ctx;

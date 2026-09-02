@@ -15,6 +15,7 @@
 // personal/sideloaded APK, not Play Store distribution - see the same
 // note in AndroidManifest.xml.
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { getLocalDateString } from './dateUtils.js';
 
 const SmsFinance = registerPlugin('SmsFinance');
 
@@ -55,7 +56,7 @@ const mapToImportRow = (raw) => ({
     type: raw.type,
     amount: raw.amount,
     category: 'Others',
-    date: new Date(raw.timestampMs).toISOString().split('T')[0],
+    date: getLocalDateString(new Date(raw.timestampMs)),
 });
 
 // Drains every transaction SmsReceiver has queued since the last drain

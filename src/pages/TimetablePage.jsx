@@ -1,6 +1,6 @@
 // src/pages/TimetablePage.jsx
 import { useState, useEffect, useRef } from 'react';
-import { Clock, BookOpen, Dumbbell, Apple, Cpu, CheckCircle, Calendar, Plus, Trash2, DollarSign, Copy, X, Circle, GraduationCap, FileText, CheckSquare, Activity, BarChart3, Sparkles, RotateCcw } from 'lucide-react';
+import { Clock, BookOpen, Dumbbell, Apple, Cpu, CheckCircle, Calendar, Plus, Trash2, DollarSign, Copy, X, Circle, GraduationCap, FileText, CheckSquare, Activity, BarChart3, Sparkles, RotateCcw, ClipboardList, Hourglass, Eraser, Pencil, Save } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 
@@ -25,6 +25,41 @@ const CATEGORY_COLORS = {
 const getCategoryColor = (cat) => CATEGORY_COLORS[cat] || 'var(--accent)';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+// Real duration in minutes for a slot's own stored "08:00 AM - 09:30 AM"
+// string - used for the new Scheduled Hours stat below. Handles a real,
+// already-supported case elsewhere on this page (an overnight slot like
+// "10:00 PM - 12:30 AM" crossing midnight, where the raw end-minutes
+// value is numerically smaller than start) by adding a full day back in
+// exactly when that happens, rather than returning a nonsensical
+// negative duration.
+const slotDurationMinutes = (timeString) => {
+    if (!timeString || typeof timeString !== 'string') return 0;
+    const parts = timeString.split('-').map((p) => p.trim());
+    if (parts.length !== 2) return 0;
+    const toMinutes = (raw) => {
+        const match = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+        if (!match) return null;
+        let hour = parseInt(match[1], 10);
+        const minute = parseInt(match[2], 10);
+        const period = match[3].toUpperCase();
+        if (period === 'PM' && hour !== 12) hour += 12;
+        if (period === 'AM' && hour === 12) hour = 0;
+        return hour * 60 + minute;
+    };
+    const startMin = toMinutes(parts[0]);
+    const endMin = toMinutes(parts[1]);
+    if (startMin === null || endMin === null) return 0;
+    return endMin >= startMin ? endMin - startMin : (1440 - startMin) + endMin;
+};
+
+const formatDurationLabel = (totalMinutes) => {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+};
 
 const TimetablePage = () => {
     const isMobile = useIsMobile();
@@ -55,6 +90,18 @@ const TimetablePage = () => {
     const [categoryInput, setCategoryInput] = useState('Study');
     const [isCustomCategory, setIsCustomCategory] = useState(false);
     const [customCategory, setCustomCategory] = useState('');
+    // A real, focused modal (matching Planner Hub's own "+ New Task"
+    // pattern) instead of the add-entry form sitting permanently open
+    // and expanded on the page at all times - a real, reported
+    // complaint that this page read as "wide open" next to Planner's
+    // own compact trigger-button-then-modal flow.
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isClearDayConfirmOpen, setIsClearDayConfirmOpen] = useState(false);
+    // null while adding a fresh entry; the entry's own index within
+    // currentSchedule while editing an existing one - the single flag the
+    // shared modal below branches on for its title/submit label and for
+    // whether handleAddSlot appends a new slot or updates one in place.
+    const [editingIndex, setEditingIndex] = useState(null);
 
     useEffect(() => {
         localStorage.setItem('nexus_timetable_data', JSON.stringify(timetableData));
@@ -112,22 +159,94 @@ const TimetablePage = () => {
 
         const timeString = `${startHour}:${startMinute} ${startPeriod} - ${endHour}:${endMinute} ${endPeriod}`;
         const resolvedCategory = toTitleCase(isCustomCategory ? (customCategory.trim() || 'Custom') : categoryInput);
+        const resolvedTitle = toTitleCase(titleInput.trim());
 
-        const newSlot = {
-            time: timeString,
-            title: toTitleCase(titleInput.trim()),
-            category: resolvedCategory,
-            completed: false,
-        };
-
-        setTimetableData(prev => ({
-            ...prev,
-            [selectedDay]: [...(prev[selectedDay] || []), newSlot]
-        }));
+        if (editingIndex !== null) {
+            // Editing an existing slot in place - keeps its own `completed`
+            // flag untouched, only the fields the form actually exposes
+            // (time/title/category) are overwritten.
+            setTimetableData(prev => ({
+                ...prev,
+                [selectedDay]: prev[selectedDay].map((slot, idx) =>
+                    idx === editingIndex ? { ...slot, time: timeString, title: resolvedTitle, category: resolvedCategory } : slot
+                )
+            }));
+        } else {
+            const newSlot = {
+                time: timeString,
+                title: resolvedTitle,
+                category: resolvedCategory,
+                completed: false,
+            };
+            setTimetableData(prev => ({
+                ...prev,
+                [selectedDay]: [...(prev[selectedDay] || []), newSlot]
+            }));
+        }
 
         setTitleInput('');
         setIsCustomCategory(false);
         setCustomCategory('');
+        setEditingIndex(null);
+        setIsAddModalOpen(false);
+    };
+
+    // Opens the shared Add/Edit modal fresh for a brand-new entry - resets
+    // every field to its default so a previous Add or a cancelled Edit
+    // never leaves stale values behind for the next "New Entry" click.
+    const openAddModal = () => {
+        setEditingIndex(null);
+        setStartHour('08'); setStartMinute('00'); setStartPeriod('AM');
+        setEndHour('09'); setEndMinute('00'); setEndPeriod('AM');
+        setTitleInput(''); setCategoryInput('Study'); setIsCustomCategory(false); setCustomCategory('');
+        setTimeError('');
+        setIsAddModalOpen(true);
+    };
+
+    const KNOWN_CATEGORIES = ['Study', 'College', 'Syllabus', 'Planner', 'Fitness', 'Gym', 'Diet', 'Finance', 'Calendar', 'Analytics', 'AI', 'Development', 'Review'];
+
+    // Opens the same modal pre-filled with an existing slot's own real
+    // values - parses its stored "08:00 AM - 09:00 AM" time string back
+    // into the individual hour/minute/period selects it was originally
+    // built from, so editing round-trips exactly rather than resetting to
+    // defaults.
+    const openEditModal = (index) => {
+        const slot = currentSchedule[index];
+        if (!slot) return;
+        const match = (slot.time || '').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)\s*-\s*(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+        if (match) {
+            setStartHour(match[1].padStart(2, '0'));
+            setStartMinute(match[2]);
+            setStartPeriod(match[3].toUpperCase());
+            setEndHour(match[4].padStart(2, '0'));
+            setEndMinute(match[5]);
+            setEndPeriod(match[6].toUpperCase());
+        }
+        if (KNOWN_CATEGORIES.includes(slot.category)) {
+            setIsCustomCategory(false);
+            setCategoryInput(slot.category);
+        } else {
+            setIsCustomCategory(true);
+            setCustomCategory(slot.category || '');
+        }
+        setTitleInput(slot.title || '');
+        setTimeError('');
+        setEditingIndex(index);
+        setIsAddModalOpen(true);
+    };
+
+    const closeAddModal = () => {
+        setIsAddModalOpen(false);
+        setEditingIndex(null);
+        setTimeError('');
+    };
+
+    // Real bulk-clear for the selected day - previously the only way to
+    // empty a day was deleting every entry one at a time, a real gap
+    // once a day actually has several slots in it.
+    const handleClearDay = () => {
+        setTimetableData((prev) => ({ ...prev, [selectedDay]: [] }));
+        setIsClearDayConfirmOpen(false);
     };
 
     const handleDeleteSlot = (indexToDelete) => {
@@ -214,6 +333,12 @@ const TimetablePage = () => {
     };
 
     const currentSchedule = timetableData[selectedDay] || [];
+    // Real, computed stats for the selected day - genuinely derived from
+    // this same schedule data, not decorative placeholders (matching
+    // Planner Hub's own real Total Tasks/Completion Rate/High Priority
+    // stat row, per explicit request for something similar here).
+    const completedCount = currentSchedule.filter((s) => s.completed).length;
+    const totalScheduledMinutes = currentSchedule.reduce((sum, s) => sum + slotDurationMinutes(s.time), 0);
 
     const getCategoryIcon = (cat) => {
         switch(cat) {
@@ -237,6 +362,32 @@ const TimetablePage = () => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
             <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>Daily Table & Manual Planner</h1>
+
+            {/* Real, computed stats for the selected day - mirrors Planner
+                Hub's own stat row (Total Tasks/Completion Rate/High
+                Priority), genuinely derived from this same schedule data. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(3, 1fr)', gap: isMobile ? '10px' : '16px' }}>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <ClipboardList size={13} /> {isMobile ? 'Entries' : `${selectedDay} Entries`}
+                    </span>
+                    <span style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{currentSchedule.length}</span>
+                </div>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <CheckCircle size={13} /> Completed
+                    </span>
+                    <span style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '800', color: 'var(--success)' }}>
+                        {completedCount}<span style={{ fontSize: isMobile ? '13px' : '15px', color: 'var(--text-muted)', fontWeight: '700' }}>/{currentSchedule.length}</span>
+                    </span>
+                </div>
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Hourglass size={13} /> Scheduled
+                    </span>
+                    <span style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalScheduledMinutes > 0 ? formatDurationLabel(totalScheduledMinutes) : '--'}</span>
+                </div>
+            </div>
 
             {/* Day Selector Tabs - single, always-scrollable row. "Copy to
                 Other Days" used to share this row and forced mobile into a
@@ -265,14 +416,36 @@ const TimetablePage = () => {
                 ))}
             </div>
 
-            {/* Manual Add Form */}
-            <form onSubmit={handleAddSlot} style={{
-                background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
-                borderRadius: '16px', padding: isMobile ? '16px' : '24px', display: 'flex', flexDirection: 'column',
-                gap: isMobile ? '14px' : '16px', boxShadow: 'var(--premium-shadow)'
-            }}>
+            {/* Add-entry form - now a real, focused modal (matching Planner
+                Hub's own "+ New Task" flow) triggered from the schedule-
+                list header below, instead of sitting permanently open and
+                expanded on the page - a real, reported complaint that this
+                page read as "wide open" next to Planner's own compact
+                trigger-button-then-modal pattern. Same mobile bottom-sheet/
+                desktop centered-dialog treatment as Planner's modal. */}
+            {isAddModalOpen && (
+            <div
+                style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', zIndex: 1000 }}
+                onClick={closeAddModal}
+            >
+            <form
+                onSubmit={handleAddSlot} onClick={(e) => e.stopPropagation()} className="nexus-glass-modal"
+                style={{
+                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
+                    borderRadius: isMobile ? '24px 24px 0 0' : '24px',
+                    padding: isMobile ? '20px 16px calc(20px + env(safe-area-inset-bottom, 0px)) 16px' : '24px',
+                    width: '100%', maxWidth: isMobile ? '100%' : '520px',
+                    maxHeight: isMobile ? '88vh' : 'none', overflowY: isMobile ? 'auto' : 'visible',
+                    boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+                    gap: isMobile ? '14px' : '16px', boxShadow: 'var(--premium-shadow)',
+                    animation: isMobile ? 'nexusSheetSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+                }}
+            >
+                {isMobile && (
+                    <div style={{ width: '40px', height: '4px', borderRadius: '4px', background: 'var(--border-premium)', margin: '-8px auto 0 auto', flexShrink: 0 }} />
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>New Entry for {selectedDay}</span>
+                    <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>{editingIndex !== null ? `Edit Entry for ${selectedDay}` : `New Entry for ${selectedDay}`}</span>
 
                     <div ref={duplicateRef} style={{ position: 'relative', flexShrink: 0 }}>
                         <button
@@ -438,29 +611,66 @@ const TimetablePage = () => {
                     </div>
                 </div>
 
-                {/* Prominent pill submit button, its own row below every field */}
-                <button
-                    type="submit"
-                    style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                        padding: '14px 28px', width: isMobile ? '100%' : 'fit-content', alignSelf: isMobile ? 'stretch' : 'flex-start',
-                        background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
-                        borderRadius: '9999px', fontWeight: '800', fontSize: '14px', cursor: 'pointer',
-                        transition: 'opacity 0.2s', boxSizing: 'border-box',
-                    }}
-                >
-                    <Plus size={18} /> Add Entry
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '4px' }}>
+                    <button
+                        type="button"
+                        onClick={closeAddModal}
+                        style={{ padding: '12px 20px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                            padding: '12px 24px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
+                            borderRadius: '12px', fontWeight: '800', fontSize: '14px', cursor: 'pointer',
+                        }}
+                    >
+                        {editingIndex !== null ? <><Save size={18} /> Save Changes</> : <><Plus size={18} /> Add Entry</>}
+                    </button>
+                </div>
             </form>
+            </div>
+            )}
 
             {/* Timetable Slots List - one continuous divided list instead of
                 separately shadowed/rounded cards per entry, so consecutive
                 slots read as a single elegant schedule with zero wasted
                 spacing between them. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '4px' }}>
-                    Schedule for {selectedDay} ({currentSchedule.length} {currentSchedule.length === 1 ? 'Entry' : 'Entries'})
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '4px', margin: 0 }}>
+                        Schedule for {selectedDay} ({currentSchedule.length} {currentSchedule.length === 1 ? 'Entry' : 'Entries'})
+                    </h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                        {currentSchedule.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => setIsClearDayConfirmOpen(true)}
+                                title={`Clear all of ${selectedDay}'s entries`}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', borderRadius: '9999px',
+                                    background: 'var(--widget-bg)', color: '#EF4444', border: '1px solid var(--border-premium)',
+                                    fontWeight: '700', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
+                                }}
+                            >
+                                <Eraser size={13} /> {isMobile ? 'Clear' : 'Clear Day'}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={openAddModal}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', borderRadius: '9999px',
+                                background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
+                                fontWeight: '800', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}
+                        >
+                            <Plus size={14} /> New Entry
+                        </button>
+                    </div>
+                </div>
 
                 {currentSchedule.length > 0 ? (
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', boxShadow: 'var(--premium-shadow)', overflow: 'hidden' }}>
@@ -513,6 +723,18 @@ const TimetablePage = () => {
                                         </div>
 
                                         <button
+                                            onClick={() => openEditModal(index)}
+                                            title="Edit Entry"
+                                            style={{
+                                                background: 'transparent', border: 'none', borderRadius: '8px',
+                                                padding: '6px', color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.85,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'opacity 0.2s',
+                                            }}
+                                        >
+                                            <Pencil size={16} />
+                                        </button>
+
+                                        <button
                                             onClick={() => handleDeleteSlot(index)}
                                             title="Delete Entry"
                                             style={{
@@ -530,10 +752,36 @@ const TimetablePage = () => {
                     </div>
                 ) : (
                     <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-surface)', borderRadius: '16px', border: '1px solid var(--border-premium)', fontSize: '13px' }}>
-                        No timetable entries added for {selectedDay} yet. Use the form above to add your tasks manually!
+                        No timetable entries added for {selectedDay} yet. Tap "New Entry" above to add your first one.
                     </div>
                 )}
             </div>
+
+            {/* Clear Day confirmation - a real, custom glass modal instead
+                of a native window.confirm(), matching every other
+                destructive confirmation in this app (Planner's own task
+                delete, the AI page's Clear Chat). */}
+            {isClearDayConfirmOpen && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setIsClearDayConfirmOpen(false)}>
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', width: '100%', maxWidth: '360px', boxShadow: 'var(--premium-shadow)', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '18px', textAlign: 'center' }}
+                    >
+                        <div>
+                            <h3 style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', margin: '0 0 6px 0' }}>Clear {selectedDay}'s Schedule?</h3>
+                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>This removes all {currentSchedule.length} {currentSchedule.length === 1 ? 'entry' : 'entries'} for {selectedDay}. This can't be undone.</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                            <button type="button" onClick={() => setIsClearDayConfirmOpen(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                                Cancel
+                            </button>
+                            <button type="button" onClick={handleClearDay} style={{ flex: 1, padding: '12px', background: '#EF4444', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

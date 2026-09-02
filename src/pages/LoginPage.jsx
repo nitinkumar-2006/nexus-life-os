@@ -142,7 +142,7 @@ const LoginPage = () => {
                 await login(linked?.authEmail || legacyDerivedEmail, password);
             }
         } catch (err) {
-            setError(getAuthErrorMessage(err));
+            setError(getAuthErrorMessage(err, identifierType));
         } finally {
             // Always clears, on every path (success falls through to
             // AppRoot's Gate swapping this page out entirely; failure
@@ -192,7 +192,7 @@ const LoginPage = () => {
             >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
                     <div style={{ width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img src="/nexus-logo.png" alt="Nexus" style={{ width: '56px', height: '56px', objectFit: 'contain', background: 'transparent', borderRadius: '14px' }} />
+                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '56px', height: '56px', objectFit: 'contain', background: 'transparent' }} />
                     </div>
                     <h1 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', margin: 0 }}>Nexus Life OS</h1>
                     <p style={{ fontSize: '13px', color: '#94A3B8', margin: 0, textAlign: 'center' }}>
@@ -329,7 +329,7 @@ const LoginPage = () => {
                     <div
                         onClick={(e) => e.stopPropagation()}
                         style={{
-                            width: 'min(360px, 100%)', background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)',
+                            width: 'min(360px, 100%)', background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
                             border: '1px solid rgba(255,255,255,0.1)', borderRadius: '20px', padding: '28px',
                             boxShadow: '0 20px 60px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: '16px',
                             boxSizing: 'border-box',

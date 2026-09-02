@@ -13,6 +13,17 @@
 import { useEffect, useState } from 'react';
 import { MapPin, Radar } from 'lucide-react';
 
+// Matches WeatherContext's own poll cadence - a real, confirmed bug this
+// fixes: the fetch below used to only ever run once, the instant coords
+// first resolved (its old effect dependency was just [coords.lat,
+// coords.lon], which essentially never changes again in a real session -
+// a device doesn't move). That meant every cell's "0.3mm"-style reading
+// was a genuine, real number, but a single permanent snapshot from
+// whenever the page first loaded - never refreshing again even though
+// the rest of this page's own weather data visibly polls every 10
+// minutes, which is exactly what read as "this doesn't actually work".
+const POLL_MS = 10 * 60 * 1000;
+
 const DEG_OFFSET = 0.45; // roughly 45-50km - close enough to read as "regional"
 const DIRECTIONS = [
     { label: 'NW', dLat: DEG_OFFSET * 0.7, dLon: -DEG_OFFSET * 0.7 },
@@ -36,7 +47,7 @@ const intensityColor = (mm) => {
     return 'rgba(29,78,216,0.95)';
 };
 
-const WeatherPrecipRadar = ({ coords, locationLabel, textPrimary, textMuted, glassBorder }) => {
+const WeatherPrecipRadar = ({ coords, locationLabel, textPrimary, textMuted, glassBorder, isMobile }) => {
     const [byDirection, setByDirection] = useState(null); // { N: mm, NE: mm, ... }
     const [centerPrecip, setCenterPrecip] = useState(null);
     const [failed, setFailed] = useState(false);
@@ -44,25 +55,31 @@ const WeatherPrecipRadar = ({ coords, locationLabel, textPrimary, textMuted, gla
     useEffect(() => {
         if (!coords) return undefined;
         let cancelled = false;
-        setFailed(false);
-        const lats = [coords.lat, ...DIRECTIONS.map((d) => coords.lat + d.dLat)].join(',');
-        const lons = [coords.lon, ...DIRECTIONS.map((d) => coords.lon + d.dLon)].join(',');
-        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=precipitation&timezone=auto`)
-            .then((res) => res.json())
-            .then((data) => {
-                if (cancelled) return;
-                const rows = Array.isArray(data) ? data : [data];
-                const centerRow = rows[0];
-                setCenterPrecip(typeof centerRow?.current?.precipitation === 'number' ? centerRow.current.precipitation : 0);
-                const map = {};
-                DIRECTIONS.forEach((d, i) => {
-                    const row = rows[i + 1];
-                    map[d.label] = typeof row?.current?.precipitation === 'number' ? row.current.precipitation : 0;
-                });
-                setByDirection(map);
-            })
-            .catch(() => { if (!cancelled) setFailed(true); });
-        return () => { cancelled = true; };
+
+        const fetchGrid = () => {
+            setFailed(false);
+            const lats = [coords.lat, ...DIRECTIONS.map((d) => coords.lat + d.dLat)].join(',');
+            const lons = [coords.lon, ...DIRECTIONS.map((d) => coords.lon + d.dLon)].join(',');
+            fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=precipitation&timezone=auto`)
+                .then((res) => res.json())
+                .then((data) => {
+                    if (cancelled) return;
+                    const rows = Array.isArray(data) ? data : [data];
+                    const centerRow = rows[0];
+                    setCenterPrecip(typeof centerRow?.current?.precipitation === 'number' ? centerRow.current.precipitation : 0);
+                    const map = {};
+                    DIRECTIONS.forEach((d, i) => {
+                        const row = rows[i + 1];
+                        map[d.label] = typeof row?.current?.precipitation === 'number' ? row.current.precipitation : 0;
+                    });
+                    setByDirection(map);
+                })
+                .catch(() => { if (!cancelled) setFailed(true); });
+        };
+
+        fetchGrid();
+        const interval = setInterval(fetchGrid, POLL_MS);
+        return () => { cancelled = true; clearInterval(interval); };
     }, [coords?.lat, coords?.lon]);
 
     if (!coords || failed) {
@@ -76,24 +93,34 @@ const WeatherPrecipRadar = ({ coords, locationLabel, textPrimary, textMuted, gla
 
     const loading = byDirection === null;
 
+    // A fixed, compact cell height (not aspect-ratio-driven off the
+    // grid's own column width) plus a capped, centered max-width on the
+    // whole grid - a wide desktop weather card would otherwise stretch
+    // each aspect-ratio:1 cell to match its own wide column, ballooning
+    // the whole 3x3 grid into an oversized square block. This is what
+    // actually keeps it reading as the compact, modular "mini map"
+    // preview real weather apps use, regardless of how wide the
+    // surrounding card is.
+    const cellHeight = isMobile ? 58 : 64;
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '380px', width: '100%', margin: '0 auto' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                 {GRID_ORDER.map((key) => {
                     const isCenter = key === 'YOU';
                     const mm = isCenter ? centerPrecip : byDirection?.[key];
                     return (
                         <div key={key} style={{
-                            position: 'relative', aspectRatio: '1', borderRadius: '12px',
+                            position: 'relative', height: `${cellHeight}px`, borderRadius: '10px',
                             background: loading ? 'rgba(255,255,255,0.05)' : intensityColor(mm || 0),
                             border: isCenter ? `1.5px solid ${textPrimary}` : `1px solid ${glassBorder}`,
                             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px',
                             transition: 'background 0.6s ease',
                         }}>
                             {isCenter ? (
-                                <MapPin size={16} color={textPrimary} />
+                                <MapPin size={14} color={textPrimary} />
                             ) : (
-                                <span style={{ fontSize: '10px', fontWeight: '700', color: textMuted }}>{key}</span>
+                                <span style={{ fontSize: '9px', fontWeight: '700', color: textMuted }}>{key}</span>
                             )}
                             {!loading && (
                                 <span style={{ fontSize: '9px', fontWeight: '700', color: textPrimary, opacity: 0.85 }}>
@@ -108,7 +135,7 @@ const WeatherPrecipRadar = ({ coords, locationLabel, textPrimary, textMuted, gla
                 <span style={{ fontSize: '11px', color: textMuted, display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     <MapPin size={11} /> {locationLabel || 'Your location'}
                 </span>
-                <span style={{ fontSize: '10px', color: textMuted, flexShrink: 0 }}>Live precipitation, ~50km grid</span>
+                <span style={{ fontSize: '10px', color: textMuted, flexShrink: 0, whiteSpace: 'nowrap' }}>~50km grid</span>
             </div>
         </div>
     );

@@ -1,0 +1,78 @@
+<svg width="2732" height="2732" viewBox="0 0 2732 2732" xmlns="http://www.w3.org/2000/svg">
+  <!-- Native launch-screen background - solid #0F0F17, pixel-matched to
+       AppSplashScreen.jsx's own background so the hand-off from this
+       static native screen to the React splash (and then the app itself)
+       has no visible color seam. Logo centered at 600x600 on this 2732
+       canvas (~22% of the shorter dimension), the same relative size as
+       the 64px-in-a-390px-wide-phone treatment the web splash already uses. -->
+  <defs>
+    <radialGradient id="tileGrad" cx="32%" cy="24%" r="85%">
+      <stop offset="0%" stop-color="#1B1B29"/>
+      <stop offset="55%" stop-color="#131320"/>
+      <stop offset="100%" stop-color="#0D0D14"/>
+    </radialGradient>
+
+    <linearGradient id="markGrad" x1="120" y1="372" x2="392" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#38BDF8"/>
+    </linearGradient>
+
+    <radialGradient id="nodeGrad" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#EAF3FF"/>
+      <stop offset="45%" stop-color="#8FA6FF"/>
+      <stop offset="100%" stop-color="#5B6EF5"/>
+    </radialGradient>
+
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="0 0 0 0 0.35  0 0 0 0 0.55  0 0 0 0 0.98  0 0 0 0.55 0"/>
+    </filter>
+
+    <linearGradient id="rimLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <clipPath id="tileClip">
+      <rect x="52" y="52" width="408" height="408" rx="96"/>
+    </clipPath>
+  </defs>
+
+  <rect x="0" y="0" width="2732" height="2732" fill="#0F0F17"/>
+
+  <g transform="translate(1066,1066) scale(1.171875)">
+    <rect x="52" y="52" width="408" height="408" rx="96" fill="url(#tileGrad)"/>
+    <rect x="52.5" y="52.5" width="407" height="407" rx="95.5" fill="none" stroke="#2A2A3D" stroke-width="1"/>
+
+    <g clip-path="url(#tileClip)">
+      <ellipse cx="230" cy="10" rx="230" ry="90" fill="url(#rimLight)"/>
+    </g>
+
+    <g stroke="url(#markGrad)" stroke-opacity="0.55" stroke-width="5" stroke-linecap="round">
+      <line x1="160" y1="172" x2="112" y2="126"/>
+      <line x1="352" y1="340" x2="400" y2="386"/>
+    </g>
+    <circle cx="112" cy="126" r="12" fill="url(#nodeGrad)"/>
+    <circle cx="400" cy="386" r="12" fill="url(#nodeGrad)"/>
+
+    <g filter="url(#softGlow)">
+      <path d="M160 340 L160 172 L352 340 L352 172"
+        fill="none" stroke="url(#markGrad)" stroke-width="34"
+        stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <path d="M160 340 L160 172 L352 340 L352 172"
+      fill="none" stroke="url(#markGrad)" stroke-width="34"
+      stroke-linecap="round" stroke-linejoin="round"/>
+
+    <circle cx="160" cy="340" r="24" fill="url(#nodeGrad)"/>
+    <circle cx="160" cy="172" r="24" fill="url(#nodeGrad)"/>
+    <circle cx="352" cy="340" r="24" fill="url(#nodeGrad)"/>
+    <circle cx="352" cy="172" r="24" fill="url(#nodeGrad)"/>
+
+    <circle cx="153" cy="333" r="6" fill="#F5F9FF"/>
+    <circle cx="153" cy="165" r="6" fill="#F5F9FF"/>
+    <circle cx="345" cy="333" r="6" fill="#F5F9FF"/>
+    <circle cx="345" cy="165" r="6" fill="#F5F9FF"/>
+  </g>
+</svg>

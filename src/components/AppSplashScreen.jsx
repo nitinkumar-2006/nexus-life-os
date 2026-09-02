@@ -19,7 +19,7 @@ const AppSplashScreen = () => (
                 background: 'radial-gradient(circle, rgba(99,102,241,0.35) 0%, rgba(99,102,241,0) 70%)',
                 animation: 'nexusSplashGlow 1.8s ease-in-out infinite',
             }} />
-            <img src="/nexus-logo.png" alt="Nexus" style={{ width: '64px', height: '64px', objectFit: 'contain', position: 'relative', borderRadius: '14px' }} />
+            <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '64px', height: '64px', objectFit: 'contain', position: 'relative' }} />
         </div>
         <div style={{ textAlign: 'center' }}>
             <h1 style={{ fontSize: '22px', fontWeight: '900', letterSpacing: '1.2px', color: '#fff', margin: 0 }}>NEXUS</h1>

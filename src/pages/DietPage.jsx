@@ -1,6 +1,6 @@
 // src/pages/DietPage.jsx
 import { useState, useEffect } from 'react';
-import { Utensils, Flame, Droplet, Target, User, Plus, CheckCircle, Award, Search, Check, Trash2, Clock, Sparkles, ShoppingCart, Cpu } from 'lucide-react';
+import { Utensils, Flame, Droplet, Target, User, Plus, CheckCircle, Award, Search, Check, Trash2, Pencil, Clock, Sparkles, ShoppingCart, Cpu } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -79,12 +79,22 @@ const DietPage = () => {
     const [tempWaterGoal, setTempWaterGoal] = useState(settings.dailyHydrationGoal);
     const [isAddFoodModalOpen, setIsAddFoodModalOpen] = useState(false);
     const [newFood, setNewFood] = useState({ name: '', category: 'Grains', serving: '100 g', calories: '', protein: '', carbs: '', fat: '' });
-    
+    // null while adding a fresh food; the food's own id while editing an
+    // existing one - the flag handleAddFood branches on to update in
+    // place instead of always appending, matching the same editingIndex
+    // pattern TimetablePage's own Add/Edit modal already established.
+    const [editingFoodId, setEditingFoodId] = useState(null);
+
     // NEW: Add Meal Modal State
     const [isAddMealModalOpen, setIsAddMealModalOpen] = useState(false);
     const [newMeal, setNewMeal] = useState({ title: 'Breakfast', time: '', foodName: '', calories: '', protein: '', carbs: '', fat: '' });
+    const [editingMealId, setEditingMealId] = useState(null);
 
     const [newGroceryItem, setNewGroceryItem] = useState('');
+    // Grocery has no separate modal - editing reuses the same always-
+    // visible add form, pre-filled with the item's name, so this flag
+    // just switches that one form between "+ Add" and "Save" in place.
+    const [editingGroceryId, setEditingGroceryId] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     // Persistence Effects - all five keys now consistently dispatch the
@@ -136,29 +146,87 @@ const DietPage = () => {
     const handleAddFood = (e) => {
         e.preventDefault();
         if (!newFood.name.trim()) return;
-        const foodItem = {
-            id: Date.now().toString(),
+        const resolvedFood = {
             name: toTitleCase(newFood.name.trim()), category: newFood.category, serving: newFood.serving.trim() || '100 g',
             calories: parseInt(newFood.calories) || 0, protein: parseFloat(newFood.protein) || 0, carbs: parseFloat(newFood.carbs) || 0, fat: parseFloat(newFood.fat) || 0
         };
-        setFoods([foodItem, ...foods]);
+        if (editingFoodId) {
+            setFoods(foods.map(f => f.id === editingFoodId ? { ...f, ...resolvedFood } : f));
+        } else {
+            setFoods([{ id: Date.now().toString(), ...resolvedFood }, ...foods]);
+        }
         setIsAddFoodModalOpen(false);
+        setEditingFoodId(null);
         setNewFood({ name: '', category: 'Grains', serving: '100 g', calories: '', protein: '', carbs: '', fat: '' });
+    };
+
+    // Opens the shared Add/Edit Food modal fresh for a brand-new item.
+    const openAddFoodModal = () => {
+        setNewFood({ name: '', category: 'Grains', serving: '100 g', calories: '', protein: '', carbs: '', fat: '' });
+        setEditingFoodId(null);
+        setIsAddFoodModalOpen(true);
+    };
+
+    // Pre-fills the same modal with an existing food's own real values.
+    const openEditFoodModal = (item) => {
+        setNewFood({ name: item.name, category: item.category, serving: item.serving, calories: item.calories, protein: item.protein, carbs: item.carbs, fat: item.fat });
+        setEditingFoodId(item.id);
+        setIsAddFoodModalOpen(true);
+    };
+
+    const closeAddFoodModal = () => {
+        setIsAddFoodModalOpen(false);
+        setEditingFoodId(null);
     };
 
     // NEW: Add Meal Handler
     const handleAddMeal = (e) => {
         e.preventDefault();
         if (!newMeal.title.trim()) return;
-        const mealItem = {
-            id: Date.now().toString(),
+        const resolvedMeal = {
             title: toTitleCase(newMeal.title), time: newMeal.time || '12:00 PM', foodName: newMeal.foodName,
             calories: parseInt(newMeal.calories) || 0, protein: parseFloat(newMeal.protein) || 0, carbs: parseFloat(newMeal.carbs) || 0, fat: parseFloat(newMeal.fat) || 0,
-            completed: false
         };
-        setMeals([...meals, mealItem]);
+        if (editingMealId) {
+            const previousMeal = meals.find(m => m.id === editingMealId);
+            setMeals(meals.map(m => m.id === editingMealId ? { ...m, ...resolvedMeal } : m));
+            if (previousMeal && previousMeal.completed) {
+                // This meal's old macros were already added into today's
+                // log while it was marked done - swap in the delta so the
+                // log stays accurate instead of going stale after an edit.
+                setDailyLog(prev => ({
+                    ...prev,
+                    caloriesConsumed: Math.max(0, prev.caloriesConsumed - previousMeal.calories + resolvedMeal.calories),
+                    proteinConsumed: Math.max(0, prev.proteinConsumed - previousMeal.protein + resolvedMeal.protein),
+                    carbsConsumed: Math.max(0, prev.carbsConsumed - previousMeal.carbs + resolvedMeal.carbs),
+                    fatConsumed: Math.max(0, prev.fatConsumed - previousMeal.fat + resolvedMeal.fat)
+                }));
+            }
+        } else {
+            setMeals([...meals, { id: Date.now().toString(), ...resolvedMeal, completed: false }]);
+        }
         setIsAddMealModalOpen(false);
+        setEditingMealId(null);
         setNewMeal({ title: 'Breakfast', time: '', foodName: '', calories: '', protein: '', carbs: '', fat: '' });
+    };
+
+    // Opens the shared Add/Edit Meal modal fresh for a brand-new entry.
+    const openAddMealModal = () => {
+        setNewMeal({ title: 'Breakfast', time: '', foodName: '', calories: '', protein: '', carbs: '', fat: '' });
+        setEditingMealId(null);
+        setIsAddMealModalOpen(true);
+    };
+
+    // Pre-fills the same modal with an existing meal's own real values.
+    const openEditMealModal = (meal) => {
+        setNewMeal({ title: meal.title, time: meal.time || '', foodName: meal.foodName || '', calories: meal.calories, protein: meal.protein, carbs: meal.carbs, fat: meal.fat });
+        setEditingMealId(meal.id);
+        setIsAddMealModalOpen(true);
+    };
+
+    const closeAddMealModal = () => {
+        setIsAddMealModalOpen(false);
+        setEditingMealId(null);
     };
 
     // Real keyword-based auto-categorization for the Smart Grocery List -
@@ -190,16 +258,37 @@ const DietPage = () => {
         e.preventDefault();
         if (!newGroceryItem.trim()) return;
         const trimmedName = newGroceryItem.trim();
-        setGroceryList([{ id: Date.now().toString(), name: trimmedName, category: categorizeGroceryItem(trimmedName), purchased: false }, ...groceryList]);
+        if (editingGroceryId) {
+            setGroceryList(groceryList.map(g => g.id === editingGroceryId ? { ...g, name: trimmedName, category: categorizeGroceryItem(trimmedName) } : g));
+            setEditingGroceryId(null);
+        } else {
+            setGroceryList([{ id: Date.now().toString(), name: trimmedName, category: categorizeGroceryItem(trimmedName), purchased: false }, ...groceryList]);
+        }
+        setNewGroceryItem('');
+    };
+
+    // Pre-fills the same add-item input with an existing item's own real
+    // name, so submitting updates it in place instead of appending a new
+    // one. stopPropagation matches deleteGrocery below - both sit inside
+    // the row's own onClick-to-toggle-purchased handler.
+    const openEditGrocery = (item, e) => {
+        e.stopPropagation();
+        setNewGroceryItem(item.name);
+        setEditingGroceryId(item.id);
+    };
+
+    const closeGroceryEdit = () => {
+        setEditingGroceryId(null);
         setNewGroceryItem('');
     };
 
     // NEW: Delete Handlers
     const deleteFood = (id) => setFoods(foods.filter(f => f.id !== id));
-    
+
     const deleteGrocery = (id, e) => {
         e.stopPropagation(); // Prevents toggling the purchase status when clicking delete
         setGroceryList(groceryList.filter(g => g.id !== id));
+        if (editingGroceryId === id) closeGroceryEdit();
     };
 
     const deleteMeal = (id) => {
@@ -282,12 +371,12 @@ const DietPage = () => {
                 
                 <div style={{ display: 'flex', gap: '10px' }}>
                     {activeTab === 'FoodDatabase' && (
-                        <button onClick={() => setIsAddFoodModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
+                        <button onClick={openAddFoodModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
                             <Plus size={18} /> Add Custom Food
                         </button>
                     )}
                     {activeTab === 'DailyLog' && (
-                        <button onClick={() => setIsAddMealModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
+                        <button onClick={openAddMealModal} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
                             <Plus size={18} /> Add Meal
                         </button>
                     )}
@@ -434,7 +523,8 @@ const DietPage = () => {
                                             <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{meal.calories} kcal</span>
                                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>P: {meal.protein}g | C: {meal.carbs}g | F: {meal.fat}g</div>
                                         </div>
-                                        <button onClick={() => deleteMeal(meal.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
+                                        <button onClick={() => openEditMealModal(meal)} title="Edit Meal" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Pencil size={16} /></button>
+                                        <button onClick={() => deleteMeal(meal.id)} title="Delete Meal" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
                                     </div>
                                 </div>
                             )) : (
@@ -468,7 +558,8 @@ const DietPage = () => {
                                     </span>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)' }}>Serving: {item.serving}</span>
-                                        <button onClick={() => deleteFood(item.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                        <button onClick={() => openEditFoodModal(item)} title="Edit Food" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Pencil size={16} /></button>
+                                        <button onClick={() => deleteFood(item.id)} title="Delete Food" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
                                     </div>
                                 </div>
                                 <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)' }}>{item.name}</h4>
@@ -517,7 +608,10 @@ const DietPage = () => {
                                 value={newGroceryItem} onChange={(e) => setNewGroceryItem(e.target.value)}
                                 style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }}
                             />
-                            <button type="submit" style={{ padding: '12px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>+ Add</button>
+                            {editingGroceryId && (
+                                <button type="button" onClick={closeGroceryEdit} style={{ padding: '12px 16px', background: 'var(--widget-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Cancel</button>
+                            )}
+                            <button type="submit" style={{ padding: '12px 20px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>{editingGroceryId ? 'Save' : '+ Add'}</button>
                         </form>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
@@ -531,7 +625,8 @@ const DietPage = () => {
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '12px' }}>
                                         <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', background: 'var(--surface-inset)', color: 'var(--primary)', borderRadius: '6px', flexShrink: 0 }}>{item.category}</span>
-                                        <button onClick={(e) => deleteGrocery(item.id, e)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
+                                        <button onClick={(e) => openEditGrocery(item, e)} title="Edit Grocery Item" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Pencil size={16} /></button>
+                                        <button onClick={(e) => deleteGrocery(item.id, e)} title="Delete Grocery Item" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
                                     </div>
                                 </div>
                             )) : <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>Your grocery list is empty.</div>}
@@ -553,9 +648,9 @@ const DietPage = () => {
             
             {/* Add Meal Modal */}
             {isAddMealModalOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%', boxShadow: 'var(--premium-shadow)' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Meal to Log</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingMealId ? 'Edit Meal' : 'Add Meal to Log'}</h2>
                         <form onSubmit={handleAddMeal} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -585,8 +680,8 @@ const DietPage = () => {
                                 <div style={{ flex: 1, minWidth: 0 }}><label htmlFor="dietMealFat" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Fat (g)</label><input id="dietMealFat" name="mealFat" type="number" required value={newMeal.fat} onChange={(e) => setNewMeal({...newMeal, fat: sanitizeNumberInput(e.target.value, newMeal.fat)})} onBlur={(e) => setNewMeal({...newMeal, fat: normalizeNumberOnBlur(e.target.value, true)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', outline: 'none' }} /></div>
                             </div>
                             <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
-                                <button type="button" onClick={() => setIsAddMealModalOpen(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save Meal</button>
+                                <button type="button" onClick={closeAddMealModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>{editingMealId ? 'Save Changes' : 'Save Meal'}</button>
                             </div>
                         </form>
                     </div>
@@ -595,7 +690,7 @@ const DietPage = () => {
 
             {/* Edit Profile Modal */}
             {isEditingProfile && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%', boxShadow: 'var(--premium-shadow)' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Edit Nutrition Profile</h2>
                         
@@ -660,9 +755,9 @@ const DietPage = () => {
 
             {/* Add Custom Food Modal */}
             {isAddFoodModalOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%', boxShadow: 'var(--premium-shadow)' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Custom Food Item</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingFoodId ? 'Edit Food Item' : 'Add Custom Food Item'}</h2>
                         
                         <form onSubmit={handleAddFood} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
@@ -697,8 +792,8 @@ const DietPage = () => {
                                 <div style={{ flex: 1, minWidth: 0 }}><label htmlFor="dietFoodFat" style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '6px' }}>Fat (g)</label><input id="dietFoodFat" name="foodFat" type="number" step="0.1" required value={newFood.fat} onChange={(e) => setNewFood({...newFood, fat: sanitizeNumberInput(e.target.value, newFood.fat)})} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '14px', outline: 'none' }} /></div>
                             </div>
                             <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
-                                <button type="button" onClick={() => setIsAddFoodModalOpen(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save Food</button>
+                                <button type="button" onClick={closeAddFoodModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>{editingFoodId ? 'Save Changes' : 'Save Food'}</button>
                             </div>
                         </form>
                     </div>

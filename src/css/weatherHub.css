@@ -1,0 +1,491 @@
+/* src/css/weatherHub.css
+ *
+ * Weather Hub (src/pages/WeatherPage.jsx) only. cardStyle in
+ * WeatherPage.jsx now uses the app's own real theme tokens (var(--bg-
+ * surface), var(--glass-blur), var(--premium-shadow)) exactly like
+ * Calendar/Finance Hub's own cards - the previous hardcoded-dark-navy,
+ * always-white-text version was replaced entirely, not just patched
+ * (confirmed via a screen recording that even a technically-correct
+ * blur on that old hardcoded background could never show the app's real
+ * wallpaper through it, only its own page-local sky). background and
+ * box-shadow are already set inline on cardStyle, so this file only owns
+ * what genuinely can't be inline: the hover lift transition. It carries
+ * !important specifically to win over that same inline box-shadow on
+ * :hover - the same already-proven pattern .profile-glass-card:hover
+ * uses elsewhere in this app for an identical reason.
+ */
+.weather-glass-card {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+}
+
+.weather-glass-card:hover {
+    transform: translateY(-2px) translateZ(0) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px color-mix(in srgb, var(--primary) 25%, transparent) !important;
+}
+
+@media (hover: none) {
+    .weather-glass-card:hover {
+        transform: translateZ(0) !important;
+    }
+}
+
+/* Purely informational cards (the UV/Sunrise/Moon/Wind/Humidity/
+   Visibility/Pressure/Feels Like/Precipitation/Averages/AQI grid) get
+   the exact same glass background/blur as weather-glass-card, but
+   deliberately NOT the hover-lift above - none of them have a real
+   onClick, and the lift (a "this responds to you" signal every other
+   interactive card in this app genuinely backs up) was reported as
+   making them read as broken/decorative buttons instead of what they
+   actually are: live data readouts. */
+.weather-glass-card-static {
+    transition: none;
+}
+
+/* Current Weather hero card - real side-by-side layout using the empty
+   space that used to sit to the right of the temperature. Row on
+   desktop (Weather Details grid at the right, vertically centered
+   against the temperature block); column on mobile so the grid doesn't
+   get squeezed against the big temperature number. */
+.weather-hero-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+}
+
+.weather-hero-details-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(96px, 1fr));
+    gap: 10px 20px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .weather-hero-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .weather-hero-details-grid {
+        width: 100%;
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .weather-glass-card {
+        transition: none;
+    }
+
+    .weather-glass-card:hover {
+        transform: translateZ(0) !important;
+    }
+}
+
+/* =========================================================================
+   Point 10 - Advanced Weather Hub expansion: Severe Alerts, Health &
+   Lifestyle grid, Live Radar visualization, Seasonal Trends chart.
+
+   Every new card below uses the SAME var(--bg-surface)/var(--glass-blur)/
+   var(--border-premium) tokens weather-glass-card already established
+   above, not fixed rgba(20,20,20,...) values - this file's own header
+   comment documents WHY hardcoded dark backgrounds were deliberately
+   replaced app-wide (they silently block the user's real, live wallpaper/
+   Light theme from ever showing through a "glass" card, which is the
+   entire point of glassmorphism). Reintroducing a hardcoded background
+   here would undo that already-shipped fix for these five new sections
+   specifically. The one deliberate exception is the alert banner's own
+   red glow/border below - a warning's color is a universal, theme-
+   independent "danger" signal (the same way a phone's own low-battery or
+   OS alert stays red regardless of dark/light mode), not something that
+   should shift with the user's accent tint.
+   ========================================================================= */
+
+/* ---- 1. Severe Weather Alert Banner ---- */
+@keyframes weatherAlertSlideDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes weatherAlertPulse {
+    0%, 100% { box-shadow: 0 0 15px rgba(255, 60, 60, 0.4); border-color: rgba(255, 60, 60, 0.6); }
+    50% { box-shadow: 0 0 28px rgba(255, 60, 60, 0.7); border-color: rgba(255, 60, 60, 0.9); }
+}
+
+.weather-alert-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 18px 22px;
+    border-radius: 16px;
+    background: rgba(255, 20, 20, 0.1);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(120%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(120%);
+    border: 1px solid rgba(255, 60, 60, 0.6);
+    animation: weatherAlertSlideDown 0.45s cubic-bezier(0.16, 1, 0.3, 1), weatherAlertPulse 2.4s ease-in-out infinite 0.45s;
+}
+
+/* A softer amber "watch" variant (heavy rain / high wind) vs. the full
+   red "severe" variant (active thunderstorm) - same structure, a
+   genuinely different urgency color so the two levels read as visually
+   distinct, not just different text on an identical red box. */
+.weather-alert-banner.is-watch {
+    background: rgba(255, 160, 20, 0.1);
+    border-color: rgba(255, 170, 40, 0.55);
+    animation: weatherAlertSlideDown 0.45s cubic-bezier(0.16, 1, 0.3, 1), weatherAlertPulseAmber 2.4s ease-in-out infinite 0.45s;
+}
+
+@keyframes weatherAlertPulseAmber {
+    0%, 100% { box-shadow: 0 0 15px rgba(255, 170, 40, 0.35); border-color: rgba(255, 170, 40, 0.55); }
+    50% { box-shadow: 0 0 26px rgba(255, 170, 40, 0.6); border-color: rgba(255, 170, 40, 0.85); }
+}
+
+.weather-alert-icon {
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 60, 60, 0.18);
+    color: #FF6B6B;
+}
+
+.weather-alert-banner.is-watch .weather-alert-icon {
+    background: rgba(255, 170, 40, 0.18);
+    color: #FFB020;
+}
+
+.weather-alert-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.weather-alert-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.weather-alert-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+/* ---- 2. Health & Lifestyle Grid (Pollen / UV / AQI) ---- */
+.weather-health-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+}
+
+.weather-health-pill {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 9999px;
+    background: var(--bg-surface);
+    backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    min-width: 0;
+}
+
+.weather-health-dot {
+    flex-shrink: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+}
+
+.weather-health-dot.is-good { color: #22C55E; background: #22C55E; }
+.weather-health-dot.is-moderate { color: #F59E0B; background: #F59E0B; }
+.weather-health-dot.is-high { color: #EF4444; background: #EF4444; }
+.weather-health-dot.is-unknown { color: var(--text-muted); background: var(--text-muted); box-shadow: none; }
+
+.weather-health-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.weather-health-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.weather-health-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---- 3. Live Weather Radar (CSS visual sweep + real data overlay) ---- */
+.weather-radar-card {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.weather-radar-map {
+    position: relative;
+    overflow: hidden;
+    border-radius: 14px;
+    min-height: 260px;
+    background:
+        radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.08) 0%, transparent 60%),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 1px, transparent 1px, transparent 32px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 1px, transparent 1px, transparent 32px),
+        linear-gradient(160deg, #05070d 0%, #0a0f1c 55%, #060810 100%);
+    border: 1px solid var(--border-premium);
+}
+
+/* Real sweeping radar beam - a conic-gradient wedge on a pseudo-element,
+   rotated via @keyframes. Paused (not removed) when the toggle is off,
+   so resuming picks back up smoothly instead of snapping to a fresh
+   start. */
+.weather-radar-sweep::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: conic-gradient(from 0deg, rgba(56, 189, 248, 0.35) 0deg, rgba(56, 189, 248, 0.12) 25deg, transparent 70deg, transparent 360deg);
+    animation: weatherRadarSweep 4s linear infinite;
+    transform-origin: 50% 50%;
+}
+
+.weather-radar-sweep.is-paused::before {
+    animation-play-state: paused;
+}
+
+@keyframes weatherRadarSweep {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.weather-radar-rings {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.weather-radar-ring {
+    position: absolute;
+    border: 1px solid rgba(56, 189, 248, 0.18);
+    border-radius: 50%;
+}
+
+.weather-radar-ring:nth-child(1) { width: 30%; height: 30%; }
+.weather-radar-ring:nth-child(2) { width: 60%; height: 60%; }
+.weather-radar-ring:nth-child(3) { width: 90%; height: 90%; }
+
+.weather-radar-toggle {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(15, 15, 26, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.weather-radar-toggle:hover {
+    background: rgba(56, 189, 248, 0.25);
+    transform: scale(1.06);
+}
+
+.weather-radar-caption {
+    position: absolute;
+    bottom: 14px;
+    left: 14px;
+    z-index: 2;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(0, 0, 0, 0.35);
+    padding: 4px 10px;
+    border-radius: 999px;
+}
+
+/* The real, honest per-direction precipitation grid (WeatherPrecipRadar.jsx)
+   sits inside this same card, visually docked under the animated map so
+   the decorative sweep and the genuine fetched numbers read as one
+   connected radar feature rather than two unrelated widgets stacked on
+   top of each other. */
+.weather-radar-data-dock {
+    border-top: 1px solid var(--border-premium);
+    padding-top: 14px;
+}
+
+/* ---- 4. Seasonal Trends chart ---- */
+.weather-seasonal-legend {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.weather-seasonal-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.weather-seasonal-legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+}
+
+.weather-seasonal-legend-swatch.is-current {
+    background: linear-gradient(180deg, #38BDF8, #6366F1);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.7);
+}
+
+.weather-seasonal-legend-swatch.is-historical {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.weather-seasonal-chart {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    align-items: end;
+    gap: 10px;
+    height: 200px;
+    padding: 0 4px;
+}
+
+.weather-seasonal-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    gap: 8px;
+}
+
+.weather-seasonal-bars {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+    height: 100%;
+}
+
+/* Rounded glass "tube" - both series share this shape, differentiated by
+   the glowing-neon current-week fill vs. the muted, flat historical
+   fill, rather than two different shapes competing for attention. */
+.weather-seasonal-bar {
+    width: 40%;
+    max-width: 16px;
+    border-radius: 999px;
+    transition: height 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    min-height: 6px;
+}
+
+.weather-seasonal-bar.is-current {
+    background: linear-gradient(180deg, #38BDF8, #6366F1);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.65), 0 0 4px rgba(99, 102, 241, 0.5);
+}
+
+.weather-seasonal-bar.is-historical {
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.weather-seasonal-day-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.weather-seasonal-unavailable {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 30px 0;
+}
+
+/* ---- Mobile responsiveness (< 768px): everything stacks, generous
+   padding/gap so touch targets stay large and text stays readable. ---- */
+@media (max-width: 768px) {
+    .weather-alert-banner {
+        padding: 16px 18px;
+        gap: 12px;
+    }
+
+    .weather-health-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .weather-health-pill {
+        padding: 14px 16px;
+    }
+
+    .weather-radar-map {
+        min-height: 200px;
+    }
+
+    .weather-seasonal-chart {
+        gap: 6px;
+        height: 160px;
+    }
+
+    .weather-seasonal-bar {
+        max-width: 12px;
+    }
+
+    .weather-seasonal-legend {
+        gap: 14px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .weather-alert-banner,
+    .weather-alert-banner.is-watch {
+        animation: none;
+    }
+
+    .weather-radar-sweep::before {
+        animation: none;
+    }
+}

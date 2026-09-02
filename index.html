@@ -4,7 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>NEXUS — Personal Operating System</title>
-    <link rel="icon" type="image/png" href="/nexus-logo.png" />
+    <!-- SVG first for every modern browser (crisp at any tab/bookmark
+         size, zero raster artifacts); the 32px PNG right after is only a
+         fallback for the handful of browsers that don't support SVG
+         favicons at all, not a duplicate of the same asset. -->
+    <link rel="icon" type="image/svg+xml" href="/nexus-logo.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0F0F17" />
     <!-- Apple's own PWA meta tags - iOS Safari's "Add to Home Screen" does
@@ -18,7 +23,9 @@
          itself reads for the same "launch with no browser chrome" signal;
          Apple's own tags above only cover iOS Safari. -->
     <meta name="mobile-web-app-capable" content="yes" />
-    <link rel="apple-touch-icon" href="/nexus-logo.png" />
+    <!-- iOS "Add to Home Screen" - Safari never accepts SVG here, needs a
+         real PNG at this exact conventional size. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <style>
         /* The very first thing painted - before React (or even the bundled
            app CSS) has loaded at all. Pixel-matched to
@@ -42,7 +49,7 @@
             background: radial-gradient(circle, rgba(99,102,241,0.35) 0%, rgba(99,102,241,0) 70%);
             animation: nexusBootGlow 1.8s ease-in-out infinite;
         }
-        #nexus-boot-splash img { width: 64px; height: 64px; object-fit: contain; position: relative; border-radius: 14px; }
+        #nexus-boot-splash img { width: 64px; height: 64px; object-fit: contain; position: relative; }
         #nexus-boot-splash h1 { font-size: 22px; font-weight: 900; letter-spacing: 1.2px; color: #fff; margin: 0; text-align: center; }
         #nexus-boot-splash p { font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin: 4px 0 0; text-align: center; }
         #nexus-boot-splash .nexus-boot-dots { display: flex; gap: 6px; margin-top: 4px; }
@@ -164,7 +171,7 @@
     <div id="nexus-boot-splash">
         <div class="nexus-boot-mark">
             <div class="nexus-boot-glow"></div>
-            <img src="/nexus-logo.png" alt="Nexus" />
+            <img src="/nexus-logo.svg" alt="Nexus" />
         </div>
         <div>
             <h1>NEXUS</h1>

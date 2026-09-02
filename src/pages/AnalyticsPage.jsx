@@ -1,125 +1,53 @@
 // src/pages/AnalyticsPage.jsx
-import { useState, useEffect, useMemo } from 'react';
-import { Activity, DollarSign, Flame, Zap, Award, Sparkles, ShieldCheck, Clock, Database } from 'lucide-react';
-import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
+import { useMemo, useState } from 'react';
+import { Activity, DollarSign, Flame, Zap, Award, Sparkles, ShieldCheck, Clock, Database, AlertTriangle } from 'lucide-react';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useAnalyticsData } from '../hooks/useAnalyticsData.js';
+import AnalyticsTrendChart from '../components/AnalyticsTrendChart.jsx';
+import AnalyticsEmptyState from '../components/AnalyticsEmptyState.jsx';
+import AnalyticsDrillDownModal from '../components/AnalyticsDrillDownModal.jsx';
 
-const AnalyticsPage = () => {
+const AnalyticsPage = ({ setActiveTab }) => {
     const isMobile = useIsMobile();
-    // 1. Pull EXACT data from all Nexus modules via localStorage
-    const [plannerTasks, setPlannerTasks] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nexus_planner_tasks')) || []; } catch (e) { return []; }
-    });
+    const analytics = useAnalyticsData();
+    const [openDomain, setOpenDomain] = useState(null);
 
-    // Study assignments - the request explicitly groups "Planner/Study"
-    // together as one domain, but Productivity previously only ever read
-    // Planner data, completely ignoring Study assignments.
-    const [studyAssignments, setStudyAssignments] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nexus_study_assignments')) || []; } catch (e) { return []; }
-    });
+    const goTo = (tab) => { if (typeof setActiveTab === 'function') setActiveTab(tab); };
 
-    const [workoutHistory, setWorkoutHistory] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nexus_gym_history')) || []; } catch (e) { return []; }
-    });
+    // One config object per domain - drives the card, the empty state, the
+    // AI feed insight, and the drill-down modal, so all four stay
+    // consistent instead of re-declaring icon/color/copy four separate times.
+    const DOMAIN_CONFIG = useMemo(() => ({
+        productivity: {
+            label: 'Productivity & Study', icon: <Zap size={18} />, color: 'var(--primary)', rgb: 'var(--primary-rgb)',
+            emptyTitle: 'No tasks logged yet', emptySubtitle: 'Add a task in Planner or an assignment in Study Hub to start tracking your productivity score.', emptyCta: 'Go to Planner', tab: 'Planner',
+        },
+        gym: {
+            label: 'Gym & Fitness', icon: <Flame size={18} />, color: '#EF4444', rgb: '239,68,68',
+            emptyTitle: 'No workouts logged yet', emptySubtitle: 'Log a session in Gym & Fitness to start building your fitness streak and trend.', emptyCta: 'Go to Gym', tab: 'Gym',
+        },
+        finance: {
+            label: 'Financial Health', icon: <DollarSign size={18} />, color: '#10B981', rgb: '16,185,129',
+            emptyTitle: 'No transactions logged yet', emptySubtitle: 'Record an expense or income in the Finance Hub to activate budget tracking here.', emptyCta: 'Go to Finance', tab: 'Finance',
+        },
+        schedule: {
+            label: 'Schedule Discipline', icon: <Clock size={18} />, color: '#3B82F6', rgb: '59,130,246',
+            emptyTitle: 'No schedule activity yet', emptySubtitle: 'Add an event in Calendar or fill in your Daily Timetable to track schedule discipline.', emptyCta: 'Go to Calendar', tab: 'Calendar',
+        },
+    }), []);
 
-    const [rawFinanceProfile, setRawFinanceProfile] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nexus_finance_profile')) || { monthlyBudget: 0 }; } catch (e) { return { monthlyBudget: 0 }; }
-    });
-    const { settings: globalSettings } = useGlobalSettings();
-    const financeProfile = useMemo(() => ({ ...rawFinanceProfile, monthlyBudget: globalSettings.monthlyBudgetCap }), [rawFinanceProfile, globalSettings.monthlyBudgetCap]);
-
-    const [transactions, setTransactions] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nexus_finance_transactions')) || []; } catch (e) { return []; }
-    });
-
-    const [calendarEvents, setCalendarEvents] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('nexus_calendar_events')) || []; } catch (e) { return []; }
-    });
-
-    // BUG FIXED: useEffect was imported but never used anywhere in this
-    // file - all six data sources above were read exactly once on
-    // mount and never updated again for the rest of this page's mounted
-    // lifetime. A workout logged in GymPage, a task completed in
-    // Planner, or a cloud restore would never be reflected here while
-    // this page happened to stay open, directly contradicting this
-    // request's own "updating instantly as activities are completed"
-    // requirement. Each equality guard prevents redundant re-renders
-    // when the underlying data hasn't actually changed.
-    useEffect(() => {
-        const handleExternalChange = () => {
-            try {
-                const latest = JSON.parse(localStorage.getItem('nexus_planner_tasks') || '[]');
-                setPlannerTasks((prev) => (JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest));
-            } catch (e) { /* malformed data elsewhere - keep current state rather than clearing it */ }
-            try {
-                const latest = JSON.parse(localStorage.getItem('nexus_study_assignments') || '[]');
-                setStudyAssignments((prev) => (JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest));
-            } catch (e) { /* malformed data elsewhere - keep current state rather than clearing it */ }
-            try {
-                const latest = JSON.parse(localStorage.getItem('nexus_gym_history') || '[]');
-                setWorkoutHistory((prev) => (JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest));
-            } catch (e) { /* malformed data elsewhere - keep current state rather than clearing it */ }
-            try {
-                const latest = JSON.parse(localStorage.getItem('nexus_finance_profile') || 'null');
-                if (latest) setRawFinanceProfile((prev) => (JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest));
-            } catch (e) { /* malformed data elsewhere - keep current state rather than clearing it */ }
-            try {
-                const latest = JSON.parse(localStorage.getItem('nexus_finance_transactions') || '[]');
-                setTransactions((prev) => (JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest));
-            } catch (e) { /* malformed data elsewhere - keep current state rather than clearing it */ }
-            try {
-                const latest = JSON.parse(localStorage.getItem('nexus_calendar_events') || '[]');
-                setCalendarEvents((prev) => (JSON.stringify(prev) === JSON.stringify(latest) ? prev : latest));
-            } catch (e) { /* malformed data elsewhere - keep current state rather than clearing it */ }
-        };
-        window.addEventListener('storage', handleExternalChange);
-        return () => window.removeEventListener('storage', handleExternalChange);
-    }, []);
-
-    // 2. Calculated Unified Metrics (FIXED: Zero-state handling so reset actually shows 00%)
-    
-    // Productivity - genuinely combines Planner tasks AND Study
-    // assignments, matching this request's explicit "Planner/Study"
-    // grouping. Previously this only ever reflected Planner tasks alone,
-    // completely ignoring Study assignments despite them tracking the
-    // exact same kind of real, comparable completion data.
-    const totalPlannerTasks = plannerTasks.length;
-    const completedPlannerTasks = plannerTasks.filter(t => t.completed).length;
-    const totalStudyAssignments = studyAssignments.length;
-    const completedStudyAssignments = studyAssignments.filter(a => a.status === 'Completed').length;
-    const totalTasks = totalPlannerTasks + totalStudyAssignments;
-    const completedTasks = completedPlannerTasks + completedStudyAssignments;
-    const productivityRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-    // Fitness
-    const completedWorkouts = workoutHistory.length;
-    // Cap at 100% max. Each workout adds 15% to the score (just a logical metric for active users)
-    const fitnessRate = completedWorkouts > 0 ? Math.min(100, completedWorkouts * 15) : 0; 
-
-    // Finance
-    const totalSpent = transactions.filter(t => t.type === 'Expense').reduce((acc, curr) => acc + curr.amount, 0);
-    const budget = financeProfile.monthlyBudget > 0 ? financeProfile.monthlyBudget : 0;
-    const budgetUtilization = budget > 0 ? Math.min(100, Math.round((totalSpent / budget) * 100)) : 0;
-    const financeScore = budget > 0 ? Math.max(0, 100 - budgetUtilization) : 0;
-
-    // Schedule
-    const completedCalendarEvents = calendarEvents.filter(e => e.completed).length;
-    const totalCalendarEvents = calendarEvents.length;
-    const calendarRate = totalCalendarEvents > 0 ? Math.round((completedCalendarEvents / totalCalendarEvents) * 100) : 0;
-
-    // Overall Holistic Life Performance Score
-    const hasAnyData = totalTasks > 0 || completedWorkouts > 0 || budget > 0 || totalCalendarEvents > 0;
-    const holisticScore = hasAnyData ? Math.round((productivityRate + fitnessRate + financeScore + calendarRate) / 4) : 0;
+    const { productivity, gym, finance, schedule, holisticScore, hasAnyData, missedTaskSuggestion } = analytics;
+    const domainData = { productivity, gym, finance, schedule };
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
-            
+
             {/* Header Section */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
                     <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Analytics Hub</h1>
                 </div>
-                
+
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px' }}>
                     <Sparkles size={18} color="var(--primary)" />
                     <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>System Synced Across Modules</span>
@@ -136,9 +64,9 @@ const AnalyticsPage = () => {
                         {holisticScore} / 100 — {holisticScore > 80 ? 'Excellent Balance' : holisticScore > 50 ? 'Good Progress' : holisticScore > 0 ? 'Needs Focus' : 'System Ready'}
                     </h2>
                     <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                        {holisticScore > 0 
-                            ? "Your activity across productivity, fitness, nutrition, and finance shows strong synergy. Keep maintaining your execution consistency."
-                            : "No activity data found. Start logging your tasks, workouts, and finances to generate your holistic performance score."}
+                        {holisticScore > 0
+                            ? 'Your activity across productivity, fitness, schedule, and finance shows real, connected progress. Click any domain below for the full history.'
+                            : 'No activity data found. Start logging your tasks, workouts, and finances to generate your holistic performance score.'}
                     </p>
                 </div>
 
@@ -147,61 +75,53 @@ const AnalyticsPage = () => {
                 </div>
             </div>
 
-            {/* Core Domain Breakdown Cards */}
+            {/* Core Domain Breakdown Cards - each clickable, opening its own
+                drill-down (real historical data, streak, 30-day trend) - and
+                each renders a real empty state with a way to go log
+                something instead of a static "0%" when it has no data yet. */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
-                
-                {/* Productivity Domain */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>PRODUCTIVITY & STUDY</span>
-                        <Zap size={18} color={totalTasks > 0 ? "var(--primary)" : "var(--text-muted)"} />
-                    </div>
-                    <h3 style={{ fontSize: '24px', fontWeight: '800', color: totalTasks > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{productivityRate}%</h3>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${productivityRate}%`, height: '100%', background: 'var(--primary)', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
-                    </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{completedTasks} of {totalTasks} tasks completed</span>
-                </div>
+                {Object.entries(DOMAIN_CONFIG).map(([key, config]) => {
+                    const d = domainData[key];
+                    return (
+                        <div
+                            key={key}
+                            onClick={() => setOpenDomain(key)}
+                            role="button" tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter') setOpenDomain(key); }}
+                            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)', cursor: 'pointer', transition: 'transform 0.2s ease, border-color 0.2s ease' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = config.color; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.borderColor = 'var(--border-premium)'; }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{config.label}</span>
+                                <span style={{ color: d.hasData ? config.color : 'var(--text-muted)' }}>{config.icon}</span>
+                            </div>
 
-                {/* Fitness Domain */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>GYM & FITNESS</span>
-                        <Flame size={18} color={completedWorkouts > 0 ? "#EF4444" : "var(--text-muted)"} />
-                    </div>
-                    <h3 style={{ fontSize: '24px', fontWeight: '800', color: completedWorkouts > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{fitnessRate}%</h3>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${fitnessRate}%`, height: '100%', background: '#EF4444', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
-                    </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{completedWorkouts} workouts executed</span>
-                </div>
-
-                {/* Finance Domain */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>FINANCIAL HEALTH</span>
-                        <DollarSign size={18} color={budget > 0 ? "#10B981" : "var(--text-muted)"} />
-                    </div>
-                    <h3 style={{ fontSize: '24px', fontWeight: '800', color: budget > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{financeScore}%</h3>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${financeScore}%`, height: '100%', background: '#10B981', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
-                    </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Budget utilization at {budgetUtilization}%</span>
-                </div>
-
-                {/* Schedule Domain */}
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: 'var(--premium-shadow)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>SCHEDULE DISCIPLINE</span>
-                        <Clock size={18} color={totalCalendarEvents > 0 ? "#3B82F6" : "var(--text-muted)"} />
-                    </div>
-                    <h3 style={{ fontSize: '24px', fontWeight: '800', color: totalCalendarEvents > 0 ? 'var(--text-primary)' : 'var(--text-muted)' }}>{calendarRate}%</h3>
-                    <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${calendarRate}%`, height: '100%', background: '#3B82F6', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
-                    </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{completedCalendarEvents} of {totalCalendarEvents} calendar events kept</span>
-                </div>
-
+                            {d.hasData ? (
+                                <>
+                                    <h3 style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{d.rate}%</h3>
+                                    <div style={{ width: '100%', height: '8px', background: 'var(--widget-bg)', borderRadius: '4px', overflow: 'hidden' }}>
+                                        <div style={{ width: `${d.rate}%`, height: '100%', background: config.color, borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
+                                    </div>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                        {key === 'finance'
+                                            ? `Budget utilization at ${d.budgetUtilization}%`
+                                            : `${d.completedCount} of ${d.totalCount} ${key === 'gym' ? 'workouts executed' : 'completed'}`}
+                                    </span>
+                                </>
+                            ) : (
+                                <AnalyticsEmptyState
+                                    icon={config.icon}
+                                    title={config.emptyTitle}
+                                    subtitle={null}
+                                    ctaLabel={config.emptyCta}
+                                    onCta={(e) => { e.stopPropagation(); goTo(config.tab); }}
+                                    compact
+                                />
+                            )}
+                        </div>
+                    );
+                })}
             </div>
 
             {/* AI Cross-Module Insights Feed */}
@@ -212,82 +132,46 @@ const AnalyticsPage = () => {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {holisticScore > 0 ? (
+                    {hasAnyData ? (
                         <>
-                            {/* Planner & Study - independent of any other domain, so a
-                                user who only tracks tasks (no gym/finance/calendar
-                                activity yet) still genuinely sees their own real insight,
-                                rather than needing multiple domains active at once. */}
-                            {totalTasks > 0 && (
-                                <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px 20px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                    <div style={{ padding: '10px', background: 'rgba(var(--primary-rgb), 0.1)', borderRadius: '10px', color: 'var(--primary)' }}><Activity size={20} /></div>
+                            {/* Missed-task cross-module suggestion - the concrete
+                                example this request names: an overdue Planner
+                                task or Calendar event, cross-referenced against
+                                today's/tomorrow's real Timetable + Calendar
+                                occupancy to suggest a genuinely free hour. */}
+                            {missedTaskSuggestion && (
+                                <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '14px', padding: '16px 20px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                                    <div style={{ padding: '10px', background: 'rgba(239, 68, 68, 0.15)', borderRadius: '10px', color: '#EF4444', flexShrink: 0 }}><AlertTriangle size={20} /></div>
                                     <div>
-                                        <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                                            {productivityRate >= 70 ? 'Strong Task Execution' : productivityRate > 0 ? 'Tasks In Progress' : 'Tasks Awaiting Action'}
-                                        </h4>
+                                        <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>Missed Task Detected</h4>
                                         <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                                            {productivityRate >= 70
-                                                ? `${completedTasks}/${totalTasks} Planner & Study items complete (${productivityRate}%) - strong execution across both domains.`
-                                                : productivityRate > 0
-                                                    ? `${totalTasks - completedTasks} of ${totalTasks} Planner & Study items are still pending. Keep chipping away at the queue.`
-                                                    : `${totalTasks} Planner & Study item${totalTasks === 1 ? '' : 's'} logged but none completed yet - time to knock out the first one.`}
+                                            "{missedTaskSuggestion.item.title}" was due {formatShortDate(missedTaskSuggestion.item.date)} and is still not complete.
+                                            Your schedule looks free <strong>{missedTaskSuggestion.suggestedLabel}</strong> - a good window to reschedule it.
                                         </p>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Gym & Fitness - independent, so real workout activity is
-                                surfaced even with zero Planner/Study data. */}
-                            {completedWorkouts > 0 && (
-                                <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px 20px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                    <div style={{ padding: '10px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '10px', color: '#EF4444' }}><Flame size={20} /></div>
-                                    <div>
-                                        <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                                            {fitnessRate >= 70 ? 'Fitness Momentum Building' : 'Workouts Logged'}
-                                        </h4>
-                                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                                            {completedWorkouts} workout{completedWorkouts === 1 ? '' : 's'} logged in Gym & Fitness.
-                                            {productivityRate > 50 ? ' This pairs well with your task completion rate - physical activity and focus tend to reinforce each other.' : ' Keep the consistency going.'}
-                                        </p>
+                            {Object.entries(DOMAIN_CONFIG).map(([key, config]) => {
+                                const d = domainData[key];
+                                if (!d.hasData) return null;
+                                return (
+                                    <div key={key} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px 20px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+                                        <div style={{ padding: '10px', background: `rgba(${config.rgb}, 0.1)`, borderRadius: '10px', color: config.color, flexShrink: 0, alignSelf: 'flex-start' }}>{config.icon}</div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                                                {insightHeading(key, d)}
+                                            </h4>
+                                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                                                {insightBody(key, d)}
+                                            </p>
+                                        </div>
+                                        <div style={{ flexShrink: 0 }}>
+                                            <AnalyticsTrendChart data={d.history.slice(-14)} color={config.color} variant="sparkline" />
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-
-                            {budget > 0 && (
-                                <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px 20px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                    <div style={{ padding: '10px', background: budgetUtilization > 80 ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', borderRadius: '10px', color: budgetUtilization > 80 ? '#EF4444' : '#10B981' }}><ShieldCheck size={20} /></div>
-                                    <div>
-                                        <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                                            {budgetUtilization > 80 ? 'Budget Alert' : 'Financial Discipline Stable'}
-                                        </h4>
-                                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                                            {budgetUtilization > 80 
-                                                ? `You have utilized ${budgetUtilization}% of your monthly budget. Limit unnecessary expenses.`
-                                                : `Your monthly spending is well within the ₹${financeProfile.monthlyBudget?.toLocaleString()} limit, keeping savings goals on track.`}
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Calendar & Schedule - genuinely new. calendarRate was
-                                already being computed before this fix, but never
-                                actually surfaced in any insight - Calendar had zero
-                                presence here despite being one of the four domains
-                                this request explicitly names. */}
-                            {totalCalendarEvents > 0 && (
-                                <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '16px 20px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                                    <div style={{ padding: '10px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '10px', color: '#3B82F6' }}><Clock size={20} /></div>
-                                    <div>
-                                        <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                                            {calendarRate >= 70 ? 'Schedule Discipline Strong' : calendarRate > 0 ? 'Schedule In Progress' : 'Events Awaiting Completion'}
-                                        </h4>
-                                        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                                            {completedCalendarEvents}/{totalCalendarEvents} scheduled events kept ({calendarRate}%).
-                                            {calendarRate >= 70 ? ' Your schedule discipline is genuinely paying off.' : totalCalendarEvents - completedCalendarEvents > 0 ? ` ${totalCalendarEvents - completedCalendarEvents} event${totalCalendarEvents - completedCalendarEvents === 1 ? ' is' : 's are'} still open.` : ''}
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
+                                );
+                            })}
                         </>
                     ) : (
                         <div style={{ background: 'var(--widget-bg)', border: '1px dashed var(--border-premium)', borderRadius: '14px', padding: '30px 20px', textAlign: 'center' }}>
@@ -299,8 +183,54 @@ const AnalyticsPage = () => {
                 </div>
             </div>
 
+            {openDomain && (
+                <AnalyticsDrillDownModal
+                    domain={openDomain}
+                    config={DOMAIN_CONFIG[openDomain]}
+                    data={domainData[openDomain]}
+                    currency={finance.currency}
+                    onClose={() => setOpenDomain(null)}
+                    onCta={() => { goTo(DOMAIN_CONFIG[openDomain].tab); setOpenDomain(null); }}
+                />
+            )}
+
         </div>
     );
+};
+
+const formatShortDate = (dateStr) => {
+    if (!dateStr) return 'recently';
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+// One heading/body sentence pair per domain, using the same real numbers
+// (completedCount/totalCount/rate/streak/budgetUtilization) the card and
+// modal already show - not a separate, disconnected copy of the data.
+const insightHeading = (key, d) => {
+    if (key === 'productivity') return d.rate >= 70 ? 'Strong Task Execution' : d.rate > 0 ? 'Tasks In Progress' : 'Tasks Awaiting Action';
+    if (key === 'gym') return d.rate >= 70 ? 'Fitness Momentum Building' : 'Workouts Logged';
+    if (key === 'finance') return d.budgetUtilization > 80 ? 'Budget Alert' : 'Financial Discipline Stable';
+    return d.rate >= 70 ? 'Schedule Discipline Strong' : d.rate > 0 ? 'Schedule In Progress' : 'Events Awaiting Completion';
+};
+
+const insightBody = (key, d) => {
+    if (key === 'productivity') {
+        const streakNote = d.streak > 1 ? ` ${d.streak}-day completion streak going.` : '';
+        return `${d.completedCount}/${d.totalCount} Planner & Study items complete (${d.rate}%).${streakNote}`;
+    }
+    if (key === 'gym') {
+        const streakNote = d.streak > 1 ? ` ${d.streak}-day logging streak.` : '';
+        return `${d.completedCount} workout${d.completedCount === 1 ? '' : 's'} logged in Gym & Fitness.${streakNote}`;
+    }
+    if (key === 'finance') {
+        return d.budgetUtilization > 80
+            ? `You've used ${d.budgetUtilization}% of your monthly budget. Limit unnecessary expenses.`
+            : `Monthly spending is at ${d.budgetUtilization}% of your ${d.currency}${(d.budget || 0).toLocaleString()} budget, keeping savings goals on track.`;
+    }
+    const remaining = d.totalCount - d.completedCount;
+    return `${d.completedCount}/${d.totalCount} scheduled items kept (${d.rate}%).${remaining > 0 ? ` ${remaining} still open.` : ''}`;
 };
 
 export default AnalyticsPage;

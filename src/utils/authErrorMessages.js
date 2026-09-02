@@ -44,6 +44,24 @@ export const AUTH_ERROR_MESSAGES = {
     'auth/requires-recent-login': 'For your security, please sign out and sign back in before changing your password.',
 };
 
+// A real, confirmed mismatch found on review: phone sign-in maps to a
+// synthetic internal email under the hood (see phoneAuth.js's own header
+// comment), so Firebase itself throws the exact same codes below whether
+// a person actually typed an email or a mobile number - it has no idea
+// a phone number was ever involved. Someone signing in with a mobile
+// number who got the wrong password would see "Incorrect email or
+// password" despite never having typed an email anywhere on the page, a
+// genuinely confusing message. identifierType is an optional third
+// argument specifically for this - every existing caller (Google
+// sign-in, password reset, Settings' own password-change flows - none
+// of which have a phone/email choice at all) omits it and keeps working
+// exactly as before.
+const PHONE_AWARE_OVERRIDES = {
+    'auth/user-not-found': 'No account found with that mobile number.',
+    'auth/invalid-credential': 'Incorrect mobile number or password.',
+    'auth/invalid-email': 'That mobile number doesn\'t look valid.',
+};
+
 // Resolves a real, raw Firebase error to the best available honest
 // message: the mapped message when the real code is known, otherwise
 // the real, raw error code itself (rather than falling straight to a
@@ -53,8 +71,9 @@ export const AUTH_ERROR_MESSAGES = {
 // before the final, truly-generic fallback since it's sometimes more
 // descriptive than a bare code for non-Firebase errors (e.g. a real
 // network-layer failure with no .code at all).
-export const getAuthErrorMessage = (err) => {
+export const getAuthErrorMessage = (err, identifierType) => {
     const code = err && err.code ? err.code : '';
+    if (identifierType === 'phone' && code && PHONE_AWARE_OVERRIDES[code]) return PHONE_AWARE_OVERRIDES[code];
     if (code && AUTH_ERROR_MESSAGES[code]) return AUTH_ERROR_MESSAGES[code];
     if (code) return `Firebase error: ${code}`;
     if (err && err.message) return err.message;

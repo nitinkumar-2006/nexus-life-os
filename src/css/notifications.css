@@ -1,0 +1,328 @@
+/* src/css/notifications.css
+ *
+ * Point 11: the Notification Center dropdown/sheet. Uses this app's own
+ * established glass tokens (var(--bg-surface), var(--glass-blur),
+ * var(--border-premium), var(--premium-shadow)) instead of hardcoded
+ * rgba/blur values, matching every other glass surface in the app - a
+ * hardcoded background would ignore the user's own Light theme, custom
+ * wallpaper, and the Settings > Glassmorphism Blur Intensity/Transparency
+ * sliders, all of which every other panel already honors.
+ */
+
+/* Desktop: no full-page backdrop - this is meant to stay a lightweight
+   anchored dropdown, not a modal. A real, reported "the panel mixes with
+   what's behind it" complaint led to an earlier attempt at a full-
+   viewport dimming backdrop here (matching QuickNotesModal.jsx's own
+   modal), but that was wrong for this specific control: dimming the
+   whole page blocks/hides everything else in the header (the audio
+   player's own other controls, etc.) while this is just open to check
+   notifications - a real, explicit correction from the same report. The
+   real fix instead lives entirely in .nexus-notif-panel's own fill - see
+   its own comment below. This backdrop stays real and enabled ONLY on
+   mobile (see the media query below), where the panel itself becomes a
+   full-width bottom sheet and a scrim genuinely makes sense there. */
+.nexus-notif-backdrop {
+    display: none;
+}
+
+.nexus-notif-panel {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    max-height: 480px;
+    /* --popover-bg (variables.css), not --bg-surface - a real, reported
+       "the panel mixes with what's behind it" complaint. --bg-surface is
+       deliberately near-transparent at the user's own low Transparency
+       setting (correct for cards sitting over page content); a small
+       anchored dropdown like this one has no such backing and needs to
+       read as solid on its own, so it gets a dedicated, always-~85%-
+       opaque token instead (falls back to --bg-surface itself on
+       Night/Comfort/Day, where --bg-surface is already opaque and this
+       token isn't defined). */
+    background: var(--popover-bg, var(--bg-surface));
+    /* max(), not a flat var(--glass-blur, 16px) - the same Blur Intensity
+       floor (0px) issue as above, kept as a light secondary touch on top
+       of the now-solid fill. */
+    backdrop-filter: blur(max(var(--glass-blur, 16px), 12px)) saturate(105%);
+    -webkit-backdrop-filter: blur(max(var(--glass-blur, 16px), 12px)) saturate(105%);
+    border: 1px solid var(--border-premium);
+    border-radius: 16px;
+    box-shadow: var(--premium-shadow);
+    z-index: 1100;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top right;
+}
+.nexus-notif-panel.is-open {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.nexus-notif-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 16px 16px 12px 16px;
+    border-bottom: 1px solid var(--border-premium);
+    flex-shrink: 0;
+}
+.nexus-notif-header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.nexus-notif-header-title h4 {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+    white-space: nowrap;
+}
+.nexus-notif-count-badge {
+    font-size: 11px;
+    font-weight: 800;
+    color: #fff;
+    background: var(--danger);
+    border-radius: 9999px;
+    padding: 1px 7px;
+    min-width: 18px;
+    text-align: center;
+    line-height: 1.5;
+    flex-shrink: 0;
+}
+.nexus-notif-header-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.nexus-notif-header-actions button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: inherit;
+    color: var(--text-muted);
+    background: var(--widget-bg);
+    border: 1px solid var(--border-premium);
+    border-radius: 8px;
+    padding: 5px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.nexus-notif-header-actions button:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+.nexus-notif-close-mobile {
+    display: none;
+}
+
+.nexus-notif-list {
+    overflow-y: auto;
+    flex: 1;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.nexus-notif-list::-webkit-scrollbar { width: 6px; }
+.nexus-notif-list::-webkit-scrollbar-track { background: transparent; }
+.nexus-notif-list::-webkit-scrollbar-thumb { background: var(--border-premium); border-radius: 10px; }
+.nexus-notif-list::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+.nexus-notif-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 10px;
+    border-radius: 12px;
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    position: relative;
+    transition: background 0.15s ease;
+}
+.nexus-notif-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.nexus-notif-item.is-read {
+    opacity: 0.6;
+}
+.nexus-notif-item-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: var(--widget-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.nexus-notif-item-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+.nexus-notif-item-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+.nexus-notif-item-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.nexus-notif-item-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.nexus-notif-item-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+.nexus-notif-item-category {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 2px;
+}
+.nexus-notif-item-dot {
+    position: absolute;
+    top: 12px;
+    right: 10px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+}
+
+.nexus-notif-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    text-align: center;
+}
+.nexus-notif-empty p {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin: 0;
+}
+.nexus-notif-empty span {
+    font-size: 12px;
+}
+
+/* Bell button's unread badge - rendered by header.jsx on the button
+   itself, so it needs to be its own class here rather than living inside
+   the panel above. Pulses subtly via the theme's own --danger token so
+   the glow always matches the active theme, not a hardcoded red. */
+.nexus-notif-bell-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 9999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 8px var(--danger), 0 0 0 2px var(--bg-surface);
+    animation: nexusNotifBadgePulse 2s ease-in-out infinite;
+}
+@keyframes nexusNotifBadgePulse {
+    0%, 100% { box-shadow: 0 0 6px var(--danger), 0 0 0 2px var(--bg-surface); }
+    50% { box-shadow: 0 0 12px var(--danger), 0 0 0 2px var(--bg-surface); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .nexus-notif-bell-badge { animation: none; }
+}
+
+/* Mobile: the anchored dropdown becomes a full-width bottom sheet -
+   matching this app's own established mobile-modal convention (Planner/
+   Timetable's slide-up sheets) rather than the desktop's slide-down
+   dropdown, since a corner-anchored panel would overflow/clip on a
+   narrow viewport. */
+@media (max-width: 768px) {
+    .nexus-notif-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1099;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+    .nexus-notif-backdrop.is-open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .nexus-notif-panel {
+        position: fixed;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-width: 100%;
+        max-height: 75vh;
+        border-radius: 20px 20px 0 0;
+        transform: translateY(100%);
+        transform-origin: bottom center;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .nexus-notif-panel.is-open {
+        transform: translateY(0);
+    }
+    .nexus-notif-close-mobile {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--widget-bg);
+        border: 1px solid var(--border-premium);
+        border-radius: 8px;
+        width: 28px;
+        height: 28px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+}

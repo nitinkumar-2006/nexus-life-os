@@ -13,22 +13,30 @@ import { buildAudioTrackCloudMetadata, AUDIO_SYNC_STATUS } from '../utils/audioC
 import { uploadAudioToCloud, saveAudioTrackMetadata, fetchUserAudioTracks, deleteAudioFromCloud } from '../utils/audioCloudSync.js';
 import { getSynthPresetUrl } from '../utils/noiseSynth.js';
 
-// A brand-new user (empty localStorage) starts on this queue - it used to
-// hotlink Pixabay's CDN directly, which is exactly the unreliable pattern
-// noiseSynth.js exists to avoid (Pixabay doesn't expose stable, crawlable
-// direct-download links without an authenticated API call). That's what
-// produced the real console 403/429s and the "Couldn't play" state on the
-// very first thing a fresh install ever tries to play. Synth-generated
-// audio has zero network dependency and can never 403/429/go dead.
-const DEFAULT_PLAYLIST = [
-    { id: 1, title: 'Lofi Focus Beats', url: getSynthPresetUrl('lofi'), isLocal: false },
-    { id: 2, title: 'Ambient Rain', url: getSynthPresetUrl('rain'), isLocal: false },
-];
+// Explicit, repeated request: a brand-new user's queue used to seed itself
+// with these 2 synth-generated placeholder tracks so Next/Prev always had
+// SOMETHING to index into - but that meant they permanently cluttered Up
+// Next/the queue for every real user too, described directly as "yeh
+// chutiya jaisa song jo dikhte rehta hai... hatate kyun nahi ho". A real
+// Spotify/Apple Music queue starts genuinely empty until the user chooses
+// something, and this app's next()/prev()/playAt() all already guard
+// against an empty playlist safely (confirmed: each returns/no-ops on
+// `len === 0` rather than crashing) - so there's no structural reason to
+// keep a fake default here any more.
+const DEFAULT_PLAYLIST = [];
+// Titles of the old default placeholder tracks - used once below to strip
+// them out of an EXISTING user's already-persisted queue too (changing
+// DEFAULT_PLAYLIST above only affects a genuinely fresh localStorage; a
+// real user who already had these two saved needs them actually removed,
+// not just stopped from being added to new installs).
+const REMOVED_DEFAULT_TITLES = new Set(['Lofi Focus Beats', 'Ambient Rain']);
 
-// Every title any synth-generated track (library "catalog" tracks above,
-// plus AudioHubPage's Ambient Focus presets - see AMBIENT_PRESETS there)
-// is ever known by, mapped to the noiseSynth.js profile that regenerates
-// its audio. Two things can leave a persisted playlist entry pointing at
+// Every title any synth-generated track (the library "catalog" tracks
+// above - Ambient Focus/AMBIENT_PRESETS was removed from AudioHubPage.jsx
+// per explicit request, this table just keeps healing any of ITS presets
+// still sitting in an existing user's saved playlist) is ever known by,
+// mapped to the noiseSynth.js profile that regenerates its audio. Two
+// things can leave a persisted playlist entry pointing at
 // a genuinely dead URL: (1) an install from before this fix may still
 // have the old, dead Pixabay hotlink baked into a saved track object, or
 // (2) ANY blob: URL (what every synth track's `url` actually is) is
@@ -46,6 +54,28 @@ const TITLE_TO_SYNTH_PROFILE = {
     'Coffee Shop': 'coffeeShop',
     'White Noise': 'whiteNoise',
 };
+// Real, reported bug fixed: favoriteTrackTitles used to be keyed by BARE
+// title alone. Two different tracks that happen to share a title (a real,
+// common case once real Spotify search is in the mix - e.g. two different
+// artists' songs both called "Tum Hi Ho", or a remix/cover) collided into
+// ONE Set entry: favoriting the second one made its heart icon show as
+// already-filled (since .has(title) was already true from the first), and
+// clicking it then REMOVED the first favorite instead of adding a second -
+// a silent, no-error data loss that matches "bahut sara song gayab hai".
+// For the 'local' source specifically (the small, low-collision-risk demo/
+// uploaded-file catalog that predates this fix) the key stays the bare
+// title exactly as before - genuinely zero behavior change, no migration
+// needed for existing users. Any other source gets a real composite key
+// instead, cheaply differentiating same-titled tracks without needing a
+// stable per-track catalog id this app doesn't reliably have everywhere.
+// Exported so every consumer that checks favoriteTrackTitles.has(...) can
+// compute the exact same key toggleFavoriteTrack uses, instead of each one
+// reimplementing (or drifting from) this rule independently.
+export const makeFavoriteKey = (title, source, artist) => {
+    if (!source || source === 'local') return title;
+    return `${source}::${title}::${artist || ''}`;
+};
+
 const healDeadHotlinks = (tracks) => tracks.map((t) => {
     const profileKey = TITLE_TO_SYNTH_PROFILE[t.title];
     if (!profileKey || typeof t.url !== 'string') return t;
@@ -175,7 +205,24 @@ export const AudioPlayerProvider = ({ children }) => {
     // own SDK instead, so every existing caller (header shortcut, Audio
     // Hub page, keyboard shortcuts) automatically follows the active
     // source without needing its own copy of this check.
-    const { activeSource, spotifyTogglePlay, spotifyNext, spotifyPrevious, appleMusicTogglePlay, appleMusicNext, appleMusicPrevious } = useStreaming();
+    const {
+        activeSource, setActiveSource, spotifyTogglePlay, spotifyNext, spotifyPrevious, appleMusicTogglePlay, appleMusicNext, appleMusicPrevious,
+        // YouTube's own now-playing/progress state lives in StreamingContext
+        // (it owns the hidden IFrame player) - read here purely to expose it
+        // through this context's OWN currentTrack/isPlaying/currentTime/
+        // duration below, so every existing consumer (MiniPlayerBar, the
+        // header player) keeps reading the exact same four fields it always
+        // has and transparently sees YouTube's live state without any
+        // changes on their end.
+        youtubeTogglePlay, youtubeNext, youtubePrevious, youtubeSeek,
+        youtubeNowPlaying, youtubeIsPlaying, youtubeCurrentTime, youtubeDuration,
+        // Real fix for the "pre-existing gap" this file used to document
+        // just below (see effectiveCurrentTrack) - Spotify's Web Playback
+        // SDK has its own live now-playing/progress state, exactly the
+        // same shape/reason as YouTube's above, and gets the identical
+        // treatment now instead of staying a known, unaddressed gap.
+        spotifyNowPlaying, spotifyIsPlaying, spotifyCurrentTime, spotifyDuration, spotifySeek,
+    } = useStreaming();
     const { user } = useAuth();
     // Real, per-track cloud upload state - keyed by track id since more
     // than one upload could genuinely be in flight at once. Consumed by
@@ -186,7 +233,17 @@ export const AudioPlayerProvider = ({ children }) => {
         try {
             const saved = localStorage.getItem('nexus_playlist');
             const parsed = saved ? JSON.parse(saved) : null;
-            return Array.isArray(parsed) && parsed.length > 0 ? healDeadHotlinks(parsed) : DEFAULT_PLAYLIST;
+            if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PLAYLIST;
+            // One-time cleanup for an existing user who already had the
+            // old default placeholder tracks persisted (see
+            // REMOVED_DEFAULT_TITLES's own comment above) - a genuinely
+            // real, user-added local file could theoretically share one of
+            // these exact titles, but that's an acceptable, rare tradeoff
+            // against the alternative of leaving a real, repeatedly
+            // reported clutter complaint unfixed for every existing user.
+            const cleaned = parsed.filter((t) => !REMOVED_DEFAULT_TITLES.has(t?.title));
+            if (cleaned.length !== parsed.length) localStorage.setItem('nexus_playlist', JSON.stringify(cleaned));
+            return healDeadHotlinks(cleaned);
         } catch (e) {
             return DEFAULT_PLAYLIST;
         }
@@ -215,6 +272,27 @@ export const AudioPlayerProvider = ({ children }) => {
             return new Set(Array.isArray(saved) ? saved : []);
         } catch (e) {
             return new Set();
+        }
+    });
+    // Real, reported gap: favoriting a track anywhere in this app (the "..."
+    // menu, the full player's heart button) updated this Set - which every
+    // heart ICON already correctly reads to show filled/outline - but
+    // there was genuinely nowhere in the whole app to go SEE the resulting
+    // list. This second store keeps the richer details (artist/url/source/
+    // artworkUrl) a real "Favorites" view needs, keyed by the same title,
+    // without changing favoriteTrackTitles's own shape (a plain Set of
+    // titles) that every existing .has(title) check above already depends
+    // on. A track favorited with no url (Spotify's Web Playback SDK state
+    // doesn't currently expose a stable, directly-playable url/uri here)
+    // still gets a real, honest entry - the Favorites view is expected to
+    // show it and label it un-replayable-from-this-list rather than pretend
+    // it has a working url.
+    const [favoriteTrackDetails, setFavoriteTrackDetails] = useState(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('nexus_favorite_track_details') || '{}');
+            return saved && typeof saved === 'object' ? saved : {};
+        } catch (e) {
+            return {};
         }
     });
     const [shuffleEnabled, setShuffleEnabled] = useState(() => localStorage.getItem('nexus_shuffle') === 'true');
@@ -255,6 +333,18 @@ export const AudioPlayerProvider = ({ children }) => {
     // the declaration here, before anything that reads it, fixes that at
     // the root instead of working around it.
     const currentTrack = playlist[currentSongIndex] || { id: null, title: 'No Track', url: '', isLocal: false };
+
+    // Real, reported bug: a brand-new session pre-loads DEFAULT_PLAYLIST's
+    // first entry ("Lofi Focus Beats") as currentTrack purely so Next/Prev/
+    // shuffle math always has something to index into - but every consumer
+    // (GreetingCard's mini player, the header popup) showed that title as
+    // if it were genuinely queued/selected, even though the user never
+    // pressed Play. hasEverPlayed tracks whether playback has genuinely
+    // started at least once (persisted, so it stays honest across a
+    // reload) - consumers use it to show a real "nothing playing" state
+    // instead of this fake-looking default until the user actually
+    // presses Play for the first time.
+    const [hasEverPlayed, setHasEverPlayed] = useState(() => localStorage.getItem('nexus_has_played') === 'true');
     const [isPlaying, setIsPlaying] = useState(false);
     // A real, confirmed bug: neither audio element had any error
     // handling at all, so a failed load (an expired/blocked CDN URL,
@@ -449,6 +539,10 @@ export const AudioPlayerProvider = ({ children }) => {
     }, [favoriteTrackTitles]);
 
     useEffect(() => {
+        localStorage.setItem('nexus_favorite_track_details', JSON.stringify(favoriteTrackDetails));
+    }, [favoriteTrackDetails]);
+
+    useEffect(() => {
         localStorage.setItem('nexus_shuffle', String(shuffleEnabled));
     }, [shuffleEnabled]);
 
@@ -587,6 +681,7 @@ export const AudioPlayerProvider = ({ children }) => {
     const togglePlay = useCallback(() => {
         if (activeSource === 'spotify') { spotifyTogglePlay(); return; }
         if (activeSource === 'apple') { appleMusicTogglePlay(); return; }
+        if (activeSource === 'youtube') { youtubeTogglePlay(); return; }
         const audio = getActiveAudio();
         if (!audio) return;
         if (isPlaying) {
@@ -595,18 +690,21 @@ export const AudioPlayerProvider = ({ children }) => {
         } else {
             attemptPlay();
         }
-    }, [isPlaying, attemptPlay, activeSource, spotifyTogglePlay, appleMusicTogglePlay]);
+    }, [isPlaying, attemptPlay, activeSource, spotifyTogglePlay, appleMusicTogglePlay, youtubeTogglePlay]);
 
     // Used by the seek bar. Moves the real <audio> element's position and
     // updates state immediately, rather than waiting for the next
     // "timeupdate" tick, so dragging the slider feels instant.
     const seek = useCallback((time) => {
+        if (!isFinite(time)) return;
+        if (activeSource === 'spotify') { spotifySeek(time); return; }
+        if (activeSource === 'youtube') { youtubeSeek(time); return; }
         if (crossfadingRef.current) cancelCrossfade();
         const audio = getActiveAudio();
-        if (!audio || !isFinite(time)) return;
+        if (!audio) return;
         audio.currentTime = time;
         setCurrentTime(time);
-    }, []);
+    }, [activeSource, youtubeSeek, spotifySeek]);
 
     const toggleMute = useCallback(() => {
         setVolume((currentVol) => {
@@ -622,9 +720,13 @@ export const AudioPlayerProvider = ({ children }) => {
         if (crossfadingRef.current) cancelCrossfade();
         const len = playlistRef.current.length;
         if (index < 0 || index >= len) return;
+        // Same real fix as playTrackNow/queuePlaylistTracks above - this
+        // selects a track from the local queue, always through the local
+        // <audio> element.
+        setActiveSource('local');
         setCurrentSongIndex(index);
         setIsPlaying(true);
-    }, []);
+    }, [setActiveSource]);
 
     // isNaturalEnd distinguishes "the track finished playing on its own"
     // (onEnded) from "the user clicked skip" - repeat-one should replay the
@@ -634,6 +736,7 @@ export const AudioPlayerProvider = ({ children }) => {
     const next = useCallback((opts = {}) => {
         if (activeSource === 'spotify') { spotifyNext(); return; }
         if (activeSource === 'apple') { appleMusicNext(); return; }
+        if (activeSource === 'youtube') { youtubeNext(); return; }
         const { isNaturalEnd = false } = opts;
         if (!isNaturalEnd && crossfadingRef.current) cancelCrossfade();
         const len = playlistRef.current.length;
@@ -678,7 +781,7 @@ export const AudioPlayerProvider = ({ children }) => {
             return (prevIdx + 1) % len;
         });
         if (!(repeatMode === 'off' && isNaturalEnd)) setIsPlaying(true);
-    }, [repeatMode, shuffleEnabled, currentSongIndex, attemptPlay, activeSource, spotifyNext, appleMusicNext]);
+    }, [repeatMode, shuffleEnabled, currentSongIndex, attemptPlay, activeSource, spotifyNext, appleMusicNext, youtubeNext]);
 
     // Mirrors next()'s shuffle/repeat decision to determine what track
     // comes after the current one, for crossfade preloading - committing to
@@ -792,12 +895,13 @@ export const AudioPlayerProvider = ({ children }) => {
     const prev = useCallback(() => {
         if (activeSource === 'spotify') { spotifyPrevious(); return; }
         if (activeSource === 'apple') { appleMusicPrevious(); return; }
+        if (activeSource === 'youtube') { youtubePrevious(); return; }
         if (crossfadingRef.current) cancelCrossfade();
         const len = playlistRef.current.length;
         if (len === 0) return;
         setCurrentSongIndex((prevIdx) => (prevIdx - 1 + len) % len);
         setIsPlaying(true);
-    }, [activeSource, spotifyPrevious, appleMusicPrevious]);
+    }, [activeSource, spotifyPrevious, appleMusicPrevious, youtubePrevious]);
 
     // For locally-imported files (drag-and-drop / file picker). Takes the
     // raw File object so this function can own the whole lifecycle: an
@@ -865,6 +969,18 @@ export const AudioPlayerProvider = ({ children }) => {
     const playTrackNow = useCallback((title, url) => {
         if (!title || !url) return;
         if (crossfadingRef.current) cancelCrossfade();
+        // Real, reported bug fixed: this never reset activeSource, so
+        // playing a local track (or a Spotify preview clip through this
+        // exact local-<audio> pathway) right after Spotify/YouTube/Apple
+        // had been the active source left activeSource stuck on the OLD
+        // source - effectiveCurrentTrack/effectiveIsPlaying (see below)
+        // kept reading THAT source's stale state instead of switching over
+        // to reflect what's actually now playing, so the bottom player
+        // looked "stuck on Spotify" (blank/disconnected-looking) while a
+        // local track genuinely played. This function always plays
+        // through the local <audio> element, so it's always the real
+        // active source from this point on.
+        setActiveSource('local');
         const list = playlistRef.current;
         const existingIndex = list.findIndex((t) => t.title === title && t.url === url);
         if (existingIndex !== -1) {
@@ -876,7 +992,7 @@ export const AudioPlayerProvider = ({ children }) => {
         setPlaylist((prevList) => [...prevList, { id: generateTrackId(), title, url, isLocal: false }]);
         setCurrentSongIndex(newIndex);
         setIsPlaying(true);
-    }, []);
+    }, [setActiveSource]);
 
     // Queues an entire array of tracks (e.g. a whole Library playlist) in
     // one call, then jumps to and plays the first one - optionally shuffled
@@ -887,6 +1003,9 @@ export const AudioPlayerProvider = ({ children }) => {
     const queuePlaylistTracks = useCallback((tracks, { shuffle = false } = {}) => {
         if (!Array.isArray(tracks) || tracks.length === 0) return;
         if (crossfadingRef.current) cancelCrossfade();
+        // Same real fix as playTrackNow above - this always plays through
+        // the local <audio> element too.
+        setActiveSource('local');
         const ordered = shuffle ? [...tracks].sort(() => Math.random() - 0.5) : tracks;
         setPlaylist((prevList) => {
             const startIndex = prevList.length;
@@ -902,7 +1021,7 @@ export const AudioPlayerProvider = ({ children }) => {
             setIsPlaying(true);
             return [...prevList, ...newEntries];
         });
-    }, []);
+    }, [setActiveSource]);
 
     const toggleFavoritePlaylist = useCallback((playlistId) => {
         setFavoritePlaylistIds((prev) => {
@@ -913,11 +1032,33 @@ export const AudioPlayerProvider = ({ children }) => {
         });
     }, []);
 
-    const toggleFavoriteTrack = useCallback((title) => {
+    // `details` is optional and backward-compatible - every existing
+    // caller that only ever passed a title keeps working exactly as
+    // before, just without a details entry (the Favorites view falls back
+    // to bare-title display for those, same as it always effectively was).
+    const toggleFavoriteTrack = useCallback((title, details) => {
+        // Real fix for a real bug (see makeFavoriteKey's own comment): the
+        // Set/details map are now keyed by source+artist-aware key, not
+        // bare title, so two different tracks that happen to share a
+        // title no longer collide into one favorite.
+        const key = makeFavoriteKey(title, details?.source, details?.artist);
         setFavoriteTrackTitles((prev) => {
             const nextSet = new Set(prev);
-            if (nextSet.has(title)) nextSet.delete(title);
-            else nextSet.add(title);
+            const wasFav = nextSet.has(key);
+            if (wasFav) nextSet.delete(key); else nextSet.add(key);
+            setFavoriteTrackDetails((prevDetails) => {
+                if (wasFav) {
+                    // eslint-disable-next-line no-unused-vars
+                    const { [key]: _removed, ...rest } = prevDetails;
+                    return rest;
+                }
+                // title is always stored alongside the rest of details now
+                // (even for callers that only passed a bare title before)
+                // so any consumer can recover the real title from the key
+                // alone - needed since a composite key is no longer the
+                // literal display title.
+                return { ...prevDetails, [key]: { ...(details || {}), title } };
+            });
             return nextSet;
         });
     }, []);
@@ -1022,28 +1163,31 @@ export const AudioPlayerProvider = ({ children }) => {
     const [recentlyPlayed, setRecentlyPlayed] = useState(() => {
         try {
             const saved = JSON.parse(localStorage.getItem('nexus_recently_played') || '[]');
-            return Array.isArray(saved) ? healDeadHotlinks(saved) : [];
+            if (!Array.isArray(saved)) return [];
+            // One-time cleanup for a real, reported bug: entries recorded
+            // BEFORE the fix that captures a Spotify track's real `uri`
+            // (see StreamingContext.jsx's player_state_changed listener)
+            // have no `uri` and never will - retroactively unfixable, since
+            // this app never had that data for them in the first place.
+            // Left in the list they just sat there confusingly stuck on
+            // "Search to replay" forever, even after the fix, which looked
+            // like the fix hadn't worked at all. Every entry recorded from
+            // now on carries a real uri and plays fine - only this
+            // permanently-stale pre-fix subset is dropped, once.
+            const cleaned = saved.filter((t) => !(t?.source === 'spotify' && !t?.uri));
+            if (cleaned.length !== saved.length) {
+                localStorage.setItem('nexus_recently_played', JSON.stringify(cleaned));
+            }
+            return healDeadHotlinks(cleaned);
         } catch (e) {
             return [];
         }
     });
     const lastTrackedTitleRef = useRef(null);
-
-    useEffect(() => {
-        if (!currentTrack.title || currentTrack.title === 'No Track') return;
-        if (lastTrackedTitleRef.current === currentTrack.title) return;
-        lastTrackedTitleRef.current = currentTrack.title;
-        setRecentlyPlayed((prev) => {
-            const withoutDupe = prev.filter((t) => t.title !== currentTrack.title);
-            const next = [
-                { title: currentTrack.title, url: currentTrack.url, isLocal: !!currentTrack.isLocal, playedAt: Date.now() },
-                ...withoutDupe,
-            ].slice(0, 10);
-            localStorage.setItem('nexus_recently_played', JSON.stringify(next));
-            return next;
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentTrack.title, currentTrack.url]);
+    // The actual tracking effect moved below effectiveCurrentTrack (real
+    // fix for a real, reported bug: this used to key off the raw local
+    // currentTrack only, so a Spotify - or YouTube - track never showed up
+    // in Recently Played at all, even while genuinely playing).
 
     // Duration cache for queue rows that aren't the currently-playing
     // track (which already gets its real duration from the shared <audio>
@@ -1067,23 +1211,112 @@ export const AudioPlayerProvider = ({ children }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [playlist]);
 
+    // YouTube AND Spotify both override what every existing consumer
+    // (MiniPlayerBar, the header player, FloatingBottomPlayer) reads for
+    // these four fields while either is the active source - none of them
+    // need any changes of their own to show the real title/progress/play-
+    // state, exactly the same way getActiveAudio() already lets every
+    // caller above stay agnostic to which of the two local <audio>
+    // elements is actually live. Spotify used to be a documented, real gap
+    // here (its Web Playback SDK plays through its own separate engine
+    // entirely, so the bottom card looked "disconnected" - audible, but
+    // blank/stale - even while it was genuinely playing) - closed now with
+    // the exact same treatment YouTube already had, not a new mechanism.
+    // Apple Music still isn't covered (no reported bug/request for it
+    // yet), so it's left as-is rather than guessed at.
+    const youtubeActive = activeSource === 'youtube';
+    const spotifyActive = activeSource === 'spotify' && !!spotifyNowPlaying;
+    const effectiveCurrentTrack = youtubeActive && youtubeNowPlaying
+        ? { id: youtubeNowPlaying.videoId, title: youtubeNowPlaying.title, artist: youtubeNowPlaying.artist, artworkUrl: youtubeNowPlaying.artworkUrl, url: '', isLocal: false, source: 'youtube' }
+        : spotifyActive
+            // uri included now (real fix - see StreamingContext.jsx's own
+            // comment) so a Spotify track reaching Recently Played can
+            // actually be replayed from there via spotifyPlayUri, instead
+            // of only ever showing as honestly non-replayable. Also used
+            // for `id` when available - more stable/unique than the old
+            // title-only id, which collided for two different tracks that
+            // happened to share a title.
+            ? { id: spotifyNowPlaying.uri || `spotify-${spotifyNowPlaying.title}`, title: spotifyNowPlaying.title, artist: spotifyNowPlaying.artist, artworkUrl: spotifyNowPlaying.artworkUrl, uri: spotifyNowPlaying.uri || '', url: '', isLocal: false, source: 'spotify' }
+            : currentTrack;
+    const effectiveIsPlaying = youtubeActive ? youtubeIsPlaying : spotifyActive ? spotifyIsPlaying : isPlaying;
+    const effectiveCurrentTime = youtubeActive ? youtubeCurrentTime : spotifyActive ? spotifyCurrentTime : currentTime;
+    const effectiveDuration = youtubeActive ? youtubeDuration : spotifyActive ? spotifyDuration : duration;
+
+    useEffect(() => {
+        if (effectiveIsPlaying && !hasEverPlayed) {
+            setHasEverPlayed(true);
+            localStorage.setItem('nexus_has_played', 'true');
+        }
+    }, [effectiveIsPlaying, hasEverPlayed]);
+
+    // Recently Played tracking, now driven by effectiveCurrentTrack (see
+    // its own comment above) instead of the raw local currentTrack, so a
+    // Spotify or YouTube track genuinely gets recorded too - real fix for
+    // a real, reported bug. url stays empty for both (matches
+    // effectiveCurrentTrack's own shape) - Recently Played's own renderer
+    // already treats a track with no url as "not directly replayable from
+    // this list", which is honest: a Spotify play needs Spotify itself
+    // active again to actually restart it, not a plain <audio src>.
+    useEffect(() => {
+        // Real root cause of a real, reported bug: this used to fire
+        // purely because effectiveCurrentTrack.title changed (including
+        // on first mount, when it's already DEFAULT_PLAYLIST's "Lofi Focus
+        // Beats" before the user has ever pressed Play) - recording a
+        // track into Recently Played that was never actually played. Now
+        // requires effectiveIsPlaying to genuinely be true first.
+        if (!effectiveIsPlaying) return;
+        if (!effectiveCurrentTrack.title || effectiveCurrentTrack.title === 'No Track') return;
+        if (lastTrackedTitleRef.current === effectiveCurrentTrack.title) return;
+        lastTrackedTitleRef.current = effectiveCurrentTrack.title;
+        setRecentlyPlayed((prev) => {
+            const withoutDupe = prev.filter((t) => t.title !== effectiveCurrentTrack.title);
+            const next = [
+                {
+                    title: effectiveCurrentTrack.title, url: effectiveCurrentTrack.url, isLocal: !!effectiveCurrentTrack.isLocal,
+                    source: effectiveCurrentTrack.source, artworkUrl: effectiveCurrentTrack.artworkUrl, artist: effectiveCurrentTrack.artist,
+                    // Real fix for a real, reported gap: a Spotify track's
+                    // `uri` (spotify:track:...) is the ONLY thing that can
+                    // actually replay it later from this list (its `url` is
+                    // always empty - the SDK plays through its own engine,
+                    // not a normal <audio src>) - stored now so Recently
+                    // Played/RecentlyPlayedView can offer a real Play button
+                    // instead of an honest-but-permanent "not replayable".
+                    uri: effectiveCurrentTrack.uri || '',
+                    playedAt: Date.now(),
+                },
+                ...withoutDupe,
+                // Real, reported bug: capped at 10 - a real listening
+                // session (especially browsing Spotify search results one
+                // after another) fills that in minutes, and anything
+                // played earlier then looked like it had vanished. Raised
+                // to 50, matching the scale Spotify's own "Recently
+                // Played" keeps.
+            ].slice(0, 50);
+            localStorage.setItem('nexus_recently_played', JSON.stringify(next));
+            return next;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effectiveCurrentTrack.title, effectiveCurrentTrack.url, effectiveIsPlaying]);
+
     const value = {
         playlist,
         currentSongIndex,
-        currentTrack,
-        isPlaying,
+        currentTrack: effectiveCurrentTrack,
+        isPlaying: effectiveIsPlaying,
         volume,
         isMuted: volume === 0,
-        currentTime,
-        duration,
+        currentTime: effectiveCurrentTime,
+        duration: effectiveDuration,
         favoritePlaylistIds,
         favoriteTrackTitles,
+        favoriteTrackDetails,
         shuffleEnabled,
         repeatMode,
         crossfadeEnabled,
         isCrossfading,
         recentlyPlayed,
         durationsByUrl,
+        hasEverPlayed,
         setVolume,
         toggleMute,
         togglePlay,

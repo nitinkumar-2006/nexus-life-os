@@ -1,25 +1,34 @@
 // src/pages/AudioHubPage.jsx
 //
 // The Audio & Focus Hub: a persistent player console + reorderable queue at
-// the top, with four browsable sub-tabs beneath it (Library/Playlists,
-// Global Search, Ambient Focus, Local Files). Structured so a real
-// streaming API (e.g. Apple Music/MusicKit) can later replace
-// src/data/audioLibraryMock.js's mock catalog and the search tab's local
-// filtering with real endpoint calls, without this file's rendering or
-// queueing logic needing to change - see the shape documentation at the
+// the top, with browsable sub-tabs beneath it (Library/Playlists, Global
+// Search, Local Files - Ambient Focus was removed per explicit request).
+// Structured so a real streaming API (e.g. Apple Music/MusicKit) can later
+// replace src/data/audioLibraryMock.js's mock catalog and the search tab's
+// local filtering with real endpoint calls, without this file's rendering
+// or queueing logic needing to change - see the shape documentation at the
 // top of audioLibraryMock.js for exactly what that swap would touch.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Play, Pause, SkipForward, SkipBack, Music, Trash2, Volume2, VolumeX,
-    Disc, ArrowUp, ArrowDown, UploadCloud, CloudRain, TreePine, Coffee, Wind,
-    Search, Shuffle, Heart, Library, ListMusic, FolderOpen, X, ChevronLeft, Radio,
-    Repeat, Repeat1, Apple, Check, Loader2, CheckCircle2,
+    Play, Pause, Music, Trash2,
+    Disc, ArrowUp, ArrowDown, UploadCloud,
+    Search, Shuffle, Heart, ListMusic, X, ChevronLeft, Radio,
+    Apple, Check, Loader2, Video, Music2, Pin, Mic2, Clock, Home, FolderOpen,
 } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useStreaming } from '../context/StreamingContext.jsx';
-import { getSynthPresetUrl } from '../utils/noiseSynth.js';
+import { searchSaavnSongs } from '../utils/saavnClient.js';
+import { searchYoutubeTracks } from '../utils/youtubeMusicClient.js';
+import { searchSpotifyTracks, searchManySpotifyTracks, getSpotifyPlaylists, getSpotifyPlaylistTracks, getSpotifyLikedSongs, getSpotifyNewReleases, getSpotifyAlbumTracks } from '../utils/spotifyClient.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useResizableSidebar } from '../hooks/useResizableSidebar.js';
 import { AUDIO_LIBRARY, getAllLibraryTracks } from '../data/audioLibraryMock.js';
+import EqualizerBars from '../components/audio/EqualizerBars.jsx';
+import AudioSidebar from '../components/audio/AudioSidebar.jsx';
+import FloatingBottomPlayer from '../components/audio/FloatingBottomPlayer.jsx';
+import ProfileMenu from '../components/audio/ProfileMenu.jsx';
+import StreamingSetupModal from '../components/audio/StreamingSetupModal.jsx';
+import AudioSettingsView from '../components/audio/AudioSettingsView.jsx';
 
 const ACCEPTED_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg'];
 
@@ -69,110 +78,80 @@ const shortTitle = (title, maxWords = 2) => {
     return `${words.slice(0, maxWords).join(' ')}...`;
 };
 
-// A small animated equalizer - bars only animate while isPlaying is
-// genuinely true (paused via CSS animation-play-state, not remounted),
-// so it starts/stops in exact sync with actual playback rather than
-// looping regardless of state.
-const EqualizerBars = React.memo(({ isPlaying, size = 'normal' }) => {
-    const barCount = 4;
-    const heightPx = size === 'small' ? 14 : 20;
-    return (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2.5px', height: `${heightPx}px` }}>
-            {Array.from({ length: barCount }, (_, i) => (
-                <div
-                    key={i}
-                    style={{
-                        width: '3px', borderRadius: '2px', background: 'var(--primary)',
-                        height: '100%',
-                        animation: `nexusEqBar${i % 3} ${0.7 + i * 0.15}s ease-in-out infinite`,
-                        animationPlayState: isPlaying ? 'running' : 'paused',
-                        opacity: isPlaying ? 1 : 0.35,
-                        transformOrigin: 'bottom',
-                    }}
-                />
-            ))}
-            <style>{`
-                @keyframes nexusEqBar0 { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
-                @keyframes nexusEqBar1 { 0%, 100% { transform: scaleY(0.9); } 50% { transform: scaleY(0.25); } }
-                @keyframes nexusEqBar2 { 0%, 100% { transform: scaleY(0.5); } 50% { transform: scaleY(1); } }
-            `}</style>
-        </div>
-    );
-});
-
-// Quick-launch ambient loops for background focus. Synthesized in-browser
-// (see src/utils/noiseSynth.js) - zero network dependency, so they can
-// never 404 or go dead, unlike the external hotlink URLs used previously.
-const AMBIENT_PRESETS = [
-    { title: 'Rain', icon: CloudRain, profileKey: 'rain' },
-    { title: 'Forest', icon: TreePine, profileKey: 'forest' },
-    { title: 'Coffee Shop', icon: Coffee, profileKey: 'coffeeShop' },
-    { title: 'White Noise', icon: Wind, profileKey: 'whiteNoise' },
-];
-
-const SUB_TABS = [
-    { id: 'library', label: 'Library / Playlists', icon: Library },
-    { id: 'search', label: 'Global Search', icon: Search },
-    { id: 'ambient', label: 'Ambient Focus', icon: Wind },
-    { id: 'local', label: 'Local Files', icon: FolderOpen },
-];
-
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
 // Sized to exactly match the Recently Played / Quick Mix cards below it
-// (same 132px flex-basis, 112px fixed artwork square, 10px padding,
-// single-line title, no separate description row) - these used to be a
-// visibly different, much larger card shape (160x212px vs Recently
-// Played's 134x160px: 18px padding, a full aspect-ratio-square artwork,
-// and a two-line title+description), which made the two rows look like
-// they belonged to two different apps stacked on top of each other. The
-// playlist's own description is still real and available - it's just
-// shown on PlaylistDetailView once opened, not doubled up here too.
-const PlaylistCard = React.memo(({ playlist, isFavorite, onOpen, onToggleFavorite, onShufflePlay }) => (
+// (same flex-basis, artwork square, padding, single-line title, no
+// separate description row) - these used to be a visibly different, much
+// larger card shape (160x212px vs Recently Played's 134x160px: 18px
+// padding, a full aspect-ratio-square artwork, and a two-line title+
+// description), which made the two rows look like they belonged to two
+// different apps stacked on top of each other. The playlist's own
+// description is still real and available - it's just shown on
+// PlaylistDetailView once opened, not doubled up here too.
+//
+// Mobile gets its own, smaller size (96px vs desktop's 132px) - per
+// explicit request, the desktop 132px card was cropping mid-card at
+// mobile's own narrower width, leaving only ~2 full cards plus a chopped-
+// off sliver of a 3rd. This isn't just a smaller version of the same
+// card - the artwork/icon/button sizes below are proportionally reduced
+// too so it stays a clean miniature, not the same card simply clipped
+// tighter.
+const PlaylistCard = React.memo(({ playlist, isFavorite, onOpen, onToggleFavorite, onShufflePlay, isMobile }) => {
+    // No boxed card wrapper (no background/border/padding) - a plain
+    // floating tile (artwork + title only), matching Apple Music's own
+    // playlist tiles exactly, per explicit side-by-side comparison request:
+    // the previous bordered card read as "cut/lined" next to Apple's clean,
+    // borderless squares. Artwork now fills the tile's own full width
+    // (no padding eating into it) rather than sitting smaller inside one.
+    const tileWidth = isMobile ? 96 : 150;
+    return (
     <div
         style={{
-            flex: '0 0 132px', display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer',
-            background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px',
-            padding: '10px', transition: 'border-color 0.15s ease',
+            flex: `0 0 ${tileWidth}px`, display: 'flex', flexDirection: 'column', gap: isMobile ? '6px' : '8px', cursor: 'pointer',
         }}
         onClick={() => onOpen(playlist)}
-        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-premium)'; }}
     >
-        <div style={{ position: 'relative', width: '112px', height: '112px', borderRadius: '12px', overflow: 'hidden', background: gradientForId(playlist.id), flexShrink: 0 }}>
+        <div style={{ position: 'relative', width: `${tileWidth}px`, height: `${tileWidth}px`, borderRadius: '10px', overflow: 'hidden', background: gradientForId(playlist.id), flexShrink: 0, transition: 'transform 0.15s ease', boxShadow: '0 6px 18px rgba(0,0,0,0.22)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.03)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+        >
             <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Disc size={32} color="rgba(255,255,255,0.85)" />
+                <Disc size={isMobile ? 22 : 32} color="rgba(255,255,255,0.85)" />
             </div>
             <button
                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(playlist.id); }}
                 title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                 style={{
-                    position: 'absolute', top: '6px', right: '6px', background: 'rgba(0,0,0,0.55)',
-                    border: 'none', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', alignItems: 'center',
+                    position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.55)',
+                    border: 'none', borderRadius: '50%', width: isMobile ? '18px' : '24px', height: isMobile ? '18px' : '24px', display: 'flex', alignItems: 'center',
                     justifyContent: 'center', cursor: 'pointer',
                 }}
             >
-                <Heart size={12} color={isFavorite ? '#F43F5E' : '#fff'} fill={isFavorite ? '#F43F5E' : 'none'} />
+                <Heart size={isMobile ? 9 : 12} color={isFavorite ? '#F43F5E' : '#fff'} fill={isFavorite ? '#F43F5E' : 'none'} />
             </button>
-            <button
-                onClick={(e) => { e.stopPropagation(); onShufflePlay(playlist); }}
-                title="Shuffle play"
-                style={{
-                    position: 'absolute', bottom: '6px', right: '6px', background: 'rgba(0,0,0,0.65)',
-                    border: 'none', borderRadius: '50%', width: '26px', height: '26px', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', cursor: 'pointer', color: '#fff',
-                }}
-            >
-                <Shuffle size={13} />
-            </button>
+            {!isMobile && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onShufflePlay(playlist); }}
+                    title="Shuffle play"
+                    style={{
+                        position: 'absolute', bottom: '6px', right: '6px', background: 'rgba(0,0,0,0.65)',
+                        border: 'none', borderRadius: '50%', width: '26px', height: '26px', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', cursor: 'pointer', color: '#fff',
+                    }}
+                >
+                    <Shuffle size={13} />
+                </button>
+            )}
         </div>
-        <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }} title={playlist.title}>
+        <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }} title={playlist.title}>
             {playlist.title}
         </span>
     </div>
-));
+    );
+});
 
 const PlaylistDetailView = React.memo(({ playlist, onBack, onPlayTrack, onShufflePlay, onQueueAll }) => {
     const tracks = useMemo(() => playlist.trackRefs(), [playlist]);
@@ -220,6 +199,377 @@ const PlaylistDetailView = React.memo(({ playlist, onBack, onPlayTrack, onShuffl
     );
 });
 
+// Real card for a genuine Spotify playlist (id/name/images/track count) -
+// separate from PlaylistCard above rather than reusing it, since that one
+// assumes the demo catalog's own shape (a synchronous trackRefs()
+// function, a stable numeric-ish id safe for gradientForId) which a real
+// Spotify playlist doesn't have (its tracks are fetched lazily on open -
+// see SpotifyPlaylistDetailView).
+// isFavorite/onToggleFavorite added per a real, reported gap: "Pins" only
+// ever pinned from the demo/mock catalog (AUDIO_LIBRARY) - once Spotify was
+// connected, this card fully replaced those demo cards, but had no pin
+// button of its own, so Pins became silently unreachable for any connected
+// user ("PIN wala working hona chahiye"). Spotify's own client-local "Pin"
+// feature has no public Web API - not honestly buildable as a real sync -
+// so this is a real, working, app-local equivalent instead: the exact same
+// favoritePlaylistIds mechanism the demo catalog already used, now
+// available here too.
+const SpotifyPlaylistCard = React.memo(({ playlist, isFavorite, onOpen, onToggleFavorite, isMobile }) => {
+    const tileWidth = isMobile ? 96 : 150;
+    return (
+        <div style={{ flex: `0 0 ${tileWidth}px`, display: 'flex', flexDirection: 'column', gap: isMobile ? '6px' : '8px', cursor: 'pointer' }} onClick={() => onOpen(playlist)}>
+            <div style={{
+                position: 'relative', width: `${tileWidth}px`, height: `${tileWidth}px`, borderRadius: '10px', overflow: 'hidden', flexShrink: 0, boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+                // A real Spotify playlist without a cover image (some
+                // genuinely have none - empty/auto-generated playlists,
+                // confirmed via the live API response, not a bug this app
+                // can fix by fabricating one) gets a plain, neutral dark
+                // tile here instead of the demo catalog's own loud,
+                // per-id-colored gradient - a real, reported "looks like a
+                // mismatched mess" complaint when real cover photos and
+                // fallback tiles sat side by side using two different
+                // visual languages.
+                background: playlist.artworkUrl ? 'transparent' : 'var(--widget-bg)',
+            }}>
+                {playlist.artworkUrl ? (
+                    <img src={playlist.artworkUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Disc size={isMobile ? 22 : 32} color="var(--text-muted)" />
+                    </div>
+                )}
+                {typeof onToggleFavorite === 'function' && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleFavorite(playlist.id); }}
+                        title={isFavorite ? 'Unpin' : 'Pin'}
+                        style={{
+                            position: 'absolute', top: '4px', right: '4px', background: 'rgba(0,0,0,0.55)',
+                            border: 'none', borderRadius: '50%', width: isMobile ? '18px' : '24px', height: isMobile ? '18px' : '24px', display: 'flex', alignItems: 'center',
+                            justifyContent: 'center', cursor: 'pointer',
+                        }}
+                    >
+                        <Heart size={isMobile ? 9 : 12} color={isFavorite ? '#F43F5E' : '#fff'} fill={isFavorite ? '#F43F5E' : 'none'} />
+                    </button>
+                )}
+            </div>
+            <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }} title={playlist.title}>{playlist.title}</span>
+        </div>
+    );
+});
+
+// Real playlist detail view for a genuine Spotify playlist - fetches its
+// actual tracks lazily (only once opened), and plays them through the
+// exact same mechanism GlobalSearchTab's own Spotify results already use
+// (full SDK playback if a device is ready, else the track's real 30s
+// preview) rather than a second, parallel implementation.
+const SpotifyPlaylistDetailView = React.memo(({ playlist, onBack, playTrackNow, spotifyAuth, spotifyDeviceId, spotifyPlayUri, activeSource, setActiveSource }) => {
+    const [tracks, setTracks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        getSpotifyPlaylistTracks(spotifyAuth.accessToken, playlist.id)
+            .then((results) => { if (!cancelled) setTracks(results); })
+            .catch((err) => { if (!cancelled) setError(err.message || 'Could not load this playlist'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [playlist.id, spotifyAuth.accessToken]);
+
+    const handleTrackClick = (track) => {
+        if (spotifyDeviceId && spotifyAuth.connected) {
+            if (activeSource !== 'spotify') setActiveSource('spotify');
+            spotifyPlayUri(track.uri);
+        } else if (track.previewUrl) {
+            playTrackNow(track.title, track.previewUrl);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <button onClick={onBack} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '8px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={18} /></button>
+                {playlist.artworkUrl ? (
+                    <img src={playlist.artworkUrl} alt="" style={{ width: '64px', height: '64px', borderRadius: '12px', objectFit: 'cover', flexShrink: 0 }} />
+                ) : (
+                    <div style={{ width: '64px', height: '64px', borderRadius: '12px', background: gradientForId(playlist.id), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Disc size={28} color="rgba(255,255,255,0.85)" />
+                    </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{playlist.title}</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>{playlist.trackCount} tracks · Spotify</p>
+                </div>
+            </div>
+            {loading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Loading tracks…</p>}
+            {error && <p style={{ fontSize: '13px', color: '#fca5a5', textAlign: 'center', padding: '20px 0' }}>{error}</p>}
+            {!loading && !error && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {tracks.map((t, i) => {
+                        const playable = (spotifyDeviceId && spotifyAuth.connected) || t.previewUrl;
+                        return (
+                            <div key={t.id} onClick={() => playable && handleTrackClick(t)} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', width: '18px' }}>{i + 1}</span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.artist}</div>
+                                </div>
+                                {!playable && <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>No preview</span>}
+                                <Play size={14} color="var(--text-muted)" />
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+});
+
+// Real, explicitly-requested "New Releases" detail view - a genuine
+// Spotify album (via GET /v1/browse/new-releases), not a playlist. Reuses
+// SpotifyPlaylistDetailView's exact same layout/interaction, just backed
+// by getSpotifyAlbumTracks instead (an album's tracks endpoint has a
+// slightly different response shape - see that function's own comment).
+const AlbumDetailView = React.memo(({ album, onBack, playTrackNow, spotifyAuth, spotifyDeviceId, spotifyPlayUri, activeSource, setActiveSource }) => {
+    const [tracks, setTracks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        getSpotifyAlbumTracks(spotifyAuth.accessToken, album.id, album.artworkUrl)
+            .then((results) => { if (!cancelled) setTracks(results); })
+            .catch((err) => { if (!cancelled) setError(err.message || 'Could not load this album'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [album.id, album.artworkUrl, spotifyAuth.accessToken]);
+
+    const handleTrackClick = (track) => {
+        if (spotifyDeviceId && spotifyAuth.connected) {
+            if (activeSource !== 'spotify') setActiveSource('spotify');
+            spotifyPlayUri(track.uri);
+        } else if (track.previewUrl) {
+            playTrackNow(track.title, track.previewUrl);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <button onClick={onBack} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '8px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={18} /></button>
+                {album.artworkUrl ? (
+                    <img src={album.artworkUrl} alt="" style={{ width: '64px', height: '64px', borderRadius: '12px', objectFit: 'cover', flexShrink: 0 }} />
+                ) : (
+                    <div style={{ width: '64px', height: '64px', borderRadius: '12px', background: gradientForId(album.id), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Disc size={28} color="rgba(255,255,255,0.85)" />
+                    </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{album.title}</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>{album.artist} · New Release</p>
+                </div>
+            </div>
+            {loading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Loading tracks…</p>}
+            {error && <p style={{ fontSize: '13px', color: '#fca5a5', textAlign: 'center', padding: '20px 0' }}>{error}</p>}
+            {!loading && !error && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {tracks.map((t, i) => {
+                        const playable = (spotifyDeviceId && spotifyAuth.connected) || t.previewUrl;
+                        return (
+                            <div key={t.id} onClick={() => playable && handleTrackClick(t)} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', width: '18px' }}>{i + 1}</span>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.artist}</div>
+                                </div>
+                                {!playable && <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>No preview</span>}
+                                <Play size={14} color="var(--text-muted)" />
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+});
+
+// Explicit request: Spotify's public Web API has no real endpoint for
+// "user-created playlists that reliably contain a lot of tracks" - many
+// real accounts (this user's included) have few or none, and even the
+// ones that exist can 403 (Spotify-owned/editorial playlists, see
+// describeSpotifyError's own note). Rather than a sparse or broken-looking
+// "Playlists & Albums" row, this is a hand-curated set of genre/mood tiles
+// - each one is just a real Spotify search query, run live (via the same
+// searchSpotifyTracks already used everywhere else), so it always returns
+// real, current tracks rather than a fixed list that goes stale. Genuinely
+// "rotating over time" in the honest sense of this being a small, plain
+// array a person (or a future scheduled task) can edit - not a fabricated
+// auto-rotation mechanism this app doesn't have data to drive honestly.
+const CURATED_GENRE_TILES = [
+    { id: 'genre-punjabi', title: 'Punjabi Hits', query: 'Punjabi hits', gradient: 'linear-gradient(135deg, #F97316, #DC2626)' },
+    { id: 'genre-bollywood', title: 'Bollywood', query: 'Bollywood top hits', gradient: 'linear-gradient(135deg, #DB2777, #7C3AED)' },
+    { id: 'genre-hindi', title: 'Hindi Chill', query: 'Hindi chill songs', gradient: 'linear-gradient(135deg, #059669, #0D9488)' },
+    { id: 'genre-gym', title: 'Gym Workout', query: 'gym workout motivation', gradient: 'linear-gradient(135deg, #EA580C, #B91C1C)' },
+    { id: 'genre-lofi', title: 'Lofi Focus', query: 'lofi focus beats', gradient: 'linear-gradient(135deg, #4338CA, #6D28D9)' },
+    { id: 'genre-party', title: 'Party Anthems', query: 'party anthems', gradient: 'linear-gradient(135deg, #DB2777, #F59E0B)' },
+    { id: 'genre-romantic', title: 'Romantic', query: 'romantic hindi songs', gradient: 'linear-gradient(135deg, #E11D48, #DB2777)' },
+    { id: 'genre-sleep', title: 'Sleep & Calm', query: 'calm sleep music', gradient: 'linear-gradient(135deg, #1E3A8A, #4C1D95)' },
+    // Added per explicit request for more sections/variety once the
+    // real-Spotify-playlists row (constantly 403ing) was removed entirely.
+    { id: 'genre-trending', title: 'Trending Now', query: 'trending songs 2026', gradient: 'linear-gradient(135deg, #16A34A, #065F46)' },
+    { id: 'genre-english', title: 'English Pop', query: 'English pop hits', gradient: 'linear-gradient(135deg, #2563EB, #0891B2)' },
+    { id: 'genre-hiphop', title: 'Hip-Hop & Rap', query: 'hip hop rap hits', gradient: 'linear-gradient(135deg, #78350F, #B45309)' },
+    { id: 'genre-retro', title: 'Old Is Gold', query: 'old Hindi classic songs', gradient: 'linear-gradient(135deg, #92400E, #7C2D12)' },
+    { id: 'genre-devotional', title: 'Devotional', query: 'Hindi devotional bhajan', gradient: 'linear-gradient(135deg, #B45309, #C2410C)' },
+    { id: 'genre-roadtrip', title: 'Road Trip', query: 'road trip driving songs', gradient: 'linear-gradient(135deg, #0EA5E9, #1D4ED8)' },
+];
+
+// Real, reported gap fixed ("daily refresh hona chahiye... refresh pe
+// change hote rehna chahiye"): a plain live search returns the SAME
+// Spotify-ranked top results every time it's run, since nothing about a
+// bare query changes day to day - it LOOKED live but never actually
+// varied. This derives a real, deterministic-per-day starting page (0-9,
+// i.e. offset 0/20/40.../180) from the current date, so every open on the
+// same day shows the same set (cacheable, not flickering per click) but a
+// new day genuinely shows a different slice of Spotify's own results -
+// real variety, not fabricated shuffling.
+const dailyGenreOffset = () => {
+    const dayIndex = Math.floor(Date.now() / 86400000);
+    return (dayIndex % 10) * 20;
+};
+
+// Explicit request, styled directly against a real Spotify home-page
+// screenshot: small rectangular "quick access" chips (a square swatch +
+// title, side by side) in a WRAPPING GRID - not the big square tiles in a
+// horizontal-scroll row this used to be. Real Spotify's own equivalent row
+// (Liked Songs/Mega Punjabi Hits/etc.) is exactly this shape.
+const GenreTileCard = React.memo(({ tile, isMobile, onOpen }) => (
+    <div
+        onClick={() => onOpen(tile)}
+        style={{
+            display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer',
+            background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '8px',
+            overflow: 'hidden', height: isMobile ? '52px' : '56px', transition: 'background 0.15s ease',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-surface-hover, var(--widget-bg))'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--widget-bg)'; }}
+    >
+        <div style={{
+            width: isMobile ? '52px' : '56px', height: '100%', flexShrink: 0,
+            background: tile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+            <Disc size={20} color="rgba(255,255,255,0.85)" />
+        </div>
+        <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>{tile.title}</span>
+    </div>
+));
+
+// Apple Music's own real "Browse Categories" tile shape (large, colorful,
+// name pinned to the bottom-left corner over a full-bleed color) - used
+// only by the Search tab's own Browse grid (GlobalSearchTab), a
+// deliberately different visual weight from GenreTileCard's small
+// "quick access" chip used on Home, matching each reference app's own
+// actual layout for that specific section rather than reusing one shape
+// everywhere.
+const BrowseCategoryTile = React.memo(({ tile, onOpen }) => (
+    <div
+        onClick={() => onOpen(tile)}
+        style={{
+            position: 'relative', aspectRatio: '1 / 1', borderRadius: '12px', cursor: 'pointer',
+            background: tile.gradient, overflow: 'hidden', boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+            transition: 'transform 0.15s ease',
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.03)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+    >
+        <Disc size={26} color="rgba(255,255,255,0.35)" style={{ position: 'absolute', top: '10px', right: '10px' }} />
+        <span style={{ position: 'absolute', left: '12px', bottom: '12px', right: '12px', fontSize: '15px', fontWeight: '800', color: '#fff', textShadow: '0 2px 6px rgba(0,0,0,0.35)' }}>{tile.title}</span>
+    </div>
+));
+
+// Detail view for one curated genre/mood tile - runs its query live
+// against real Spotify search (not a stored track list) so it's never
+// stale, using the exact same play mechanism (SDK if a device is ready,
+// else the real 30s preview) every other Spotify surface in this file
+// already uses.
+const GenreDetailView = React.memo(({ tile, onBack, playTrackNow, spotifyAuth, spotifyDeviceId, spotifyPlayUri, activeSource, setActiveSource }) => {
+    const [tracks, setTracks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        // Real fix for a real, reported gap: a single search call only
+        // ever returned Spotify's own default page (~20 tracks, read as
+        // "sirf 4-5 song aa raha hai" once filtered) - searchManySpotifyTracks
+        // pages through real results up to a genuine 200-track target, and
+        // dailyGenreOffset() makes which 200 change once a day for real
+        // variety instead of the exact same set forever.
+        searchManySpotifyTracks(spotifyAuth.accessToken, tile.query, { targetCount: 200, startOffset: dailyGenreOffset() })
+            .then((results) => { if (!cancelled) setTracks(results); })
+            .catch((err) => { if (!cancelled) setError(err.message || 'Could not load this genre'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [tile.query, spotifyAuth.accessToken]);
+
+    const handleTrackClick = (track) => {
+        if (spotifyDeviceId && spotifyAuth.connected) {
+            if (activeSource !== 'spotify') setActiveSource('spotify');
+            spotifyPlayUri(track.uri);
+        } else if (track.previewUrl) {
+            playTrackNow(track.title, track.previewUrl);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <button onClick={onBack} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '8px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={18} /></button>
+                <div style={{ width: '64px', height: '64px', borderRadius: '12px', background: tile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Disc size={28} color="rgba(255,255,255,0.85)" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tile.title}</h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>Live Spotify search · {tracks.length || '…'} tracks</p>
+                </div>
+            </div>
+            {loading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Searching…</p>}
+            {error && <p style={{ fontSize: '13px', color: '#fca5a5', textAlign: 'center', padding: '20px 0' }}>{error}</p>}
+            {!loading && !error && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {tracks.map((t, i) => {
+                        const playable = (spotifyDeviceId && spotifyAuth.connected) || t.previewUrl;
+                        return (
+                            <div key={t.id} onClick={() => playable && handleTrackClick(t)} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}>
+                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', width: '18px' }}>{i + 1}</span>
+                                {t.artworkUrl ? (
+                                    <img src={t.artworkUrl} alt="" style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
+                                ) : (
+                                    <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: gradientForId(t.title), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <Disc size={15} color="rgba(255,255,255,0.85)" />
+                                    </div>
+                                )}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.artist}</div>
+                                </div>
+                                {!playable && <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>No preview</span>}
+                                <Play size={14} color="var(--text-muted)" />
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+});
+
 // One connect button + active-source toggle per streaming service. Same
 // component drives both Apple Music and Spotify - only the branding
 // (icon/color/label) and the auth state/handlers passed in differ, so the
@@ -229,6 +579,13 @@ const StreamingServiceControl = ({
     connected, connecting, error, configured,
     onConnect, onDisconnect, onNeedsSetup,
     isActive, onSetActive, isMobile,
+    // Saavn is the one service here that never becomes a real
+    // activeSource (its tracks always play through the normal 'local'
+    // <audio> pathway, see StreamingContext.jsx) - showing a "Set Active"
+    // toggle that can't meaningfully do anything for it would be
+    // misleading, so it opts out; every existing caller (Apple/Spotify/
+    // YouTube) is unaffected by this defaulting to true.
+    showActiveToggle = true,
 }) => {
     const [isHovered, setIsHovered] = useState(false);
     const [showError, setShowError] = useState(false);
@@ -260,32 +617,46 @@ const StreamingServiceControl = ({
                 title={!configured ? `${label}: tap to see setup steps` : (connected ? `Disconnect ${label}` : `Connect ${label}`)}
                 style={{
                     display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 16px', borderRadius: '12px',
-                    background: connected ? 'var(--widget-bg)' : (configured ? brandGradient : 'var(--widget-bg)'),
-                    border: `1px solid ${connected ? 'var(--border-premium)' : (configured ? 'transparent' : 'var(--border-premium)')}`,
-                    color: connected ? 'var(--text-primary)' : (configured ? '#fff' : 'var(--text-muted)'),
+                    // Connected state mirrors the AI chat header's own
+                    // provider-connection styling (.ai-provider-pill-group
+                    // .is-active in aiChat.css: rgba(16,185,129,0.12) fill,
+                    // rgba(16,185,129,0.3) border, #10B981 text) - a clear,
+                    // consistent "this is really connected" signal reused
+                    // here rather than invented fresh for this button.
+                    background: connected ? 'rgba(16,185,129,0.12)' : (configured ? brandGradient : 'var(--widget-bg)'),
+                    border: `1px solid ${connected ? 'rgba(16,185,129,0.4)' : (configured ? 'transparent' : 'var(--border-premium)')}`,
+                    color: connected ? 'var(--success)' : (configured ? '#fff' : 'var(--text-muted)'),
                     fontWeight: '700', fontSize: '13px', cursor: connecting ? 'wait' : 'pointer',
                     opacity: configured ? 1 : 0.75,
                     minWidth: isMobile ? 0 : '176px', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 0' : 'none',
                     justifyContent: 'center', boxSizing: 'border-box',
                     // Signature brand glow on hover, only while the button is
                     // actually its branded self (configured, not yet
-                    // connected) - once connected it goes back to the
-                    // neutral widget style, so the glow only ever appears on
-                    // the "come connect me" state it's meant to invite.
+                    // connected) - once connected it shows the green
+                    // connected treatment above instead, so the glow only
+                    // ever appears on the "come connect me" state it's meant
+                    // to invite.
                     boxShadow: isHovered && configured && !connected ? `0 6px 24px ${brandGlowColor}` : 'none',
                     transform: isHovered && configured && !connected ? 'translateY(-1px)' : 'none',
-                    transition: 'box-shadow 0.25s ease, transform 0.2s ease',
+                    transition: 'box-shadow 0.25s ease, transform 0.2s ease, background 0.25s ease, border-color 0.25s ease, color 0.25s ease',
                 }}
             >
                 {connecting ? <Loader2 size={15} className="nexus-spin" /> : icon}
-                {connecting ? 'Connecting...' : connected ? `${label} Connected` : `Connect ${label}`}
+                {connecting ? 'Connecting...' : connected ? `Connected ${label}` : `Connect ${label}`}
+                {/* Pulsing dot - the same "this is genuinely live right now"
+                    signal used throughout this app (the header's own
+                    System Active badge), reused here rather than a new
+                    visual language for the same concept. */}
+                {connected && !connecting && (
+                    <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--success)', boxShadow: '0 0 6px var(--success)', flexShrink: 0, animation: 'nexusConnectedPulse 1.8s ease-in-out infinite' }} />
+                )}
             </button>
 
             {/* Active-source toggle - only meaningful (and only shown) once
                 actually connected. Clicking it when already active hands
                 playback back to the local library rather than leaving no
                 way to turn a source "off". */}
-            {connected && (
+            {connected && showActiveToggle && (
                 <button
                     onClick={() => onSetActive(isActive ? 'local' : undefined)}
                     title={isActive ? `${label} is steering the queue - click to switch back to Local` : `Make ${label} the active source`}
@@ -321,178 +692,172 @@ const StreamingServiceControl = ({
     );
 };
 
-// Graceful "not configured yet" state - replaces what used to be an abrupt
-// error box popping up the moment someone clicked an unconfigured
-// service's connect button. This is an expected, known state (most people
-// trying this app won't have their own Spotify/Apple Music credentials set
-// up), not a failure, so it's presented as plain information rather than
-// an error: what's needed, and exactly where to put it.
-const STREAMING_SETUP_INFO = {
-    apple: {
-        title: 'Connect Apple Music - Setup Needed',
-        steps: [
-            'Requires an active Apple Developer Program membership (paid) with MusicKit access.',
-            'Generate a MusicKit developer token (a signed JWT) from your Apple Developer account.',
-            'Paste it into APPLE_MUSICKIT_DEVELOPER_TOKEN in src/config/streamingConfig.js.',
-        ],
-    },
-    spotify: {
-        title: 'Connect Spotify - Setup Needed',
-        steps: [
-            'Create a free app at developer.spotify.com/dashboard.',
-            'Set its Redirect URI to exactly match SPOTIFY_REDIRECT_URI in src/config/streamingConfig.js.',
-            'Copy the Client ID into SPOTIFY_CLIENT_ID in that same file - no secret needed.',
-        ],
-    },
-};
-
-const StreamingSetupModal = ({ service, onClose }) => {
-    const info = STREAMING_SETUP_INFO[service];
-    useEffect(() => {
-        const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', handleKey);
-        return () => document.removeEventListener('keydown', handleKey);
-    }, [onClose]);
-
-    return (
-        <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
-            onClick={onClose}
-        >
-            <div
-                style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', width: '100%', maxWidth: '420px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }}
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{info.title}</h3>
-                    <button onClick={onClose} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', display: 'flex' }}>
-                        <X size={18} />
-                    </button>
-                </div>
-                <ol style={{ margin: 0, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {info.steps.map((step, i) => (
-                        <li key={i} style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{step}</li>
-                    ))}
-                </ol>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Once saved, this button will connect for real - nothing else about the app needs to change.</span>
-            </div>
-        </div>
-    );
-};
-
-const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, queuePlaylistTracks, playTrackNow, recentlyPlayed, currentTrack, isPlaying, togglePlay }) => {
+// Real, reported gap closed: the 4 streaming-service connect buttons used
+// to sit inline in LibraryTab's own header row, right next to "Playlists &
+// Albums" - a real, fair complaint that once 2+ were configured/connected
+// (e.g. Spotify + YouTube) that row visibly cluttered/overlapped the
+// page's own content. Moved into a real modal, opened from AudioSidebar's
+// own footer (a "Connections" button) - genuinely self-contained (reads
+// useStreaming() directly), so LibraryTab no longer needs to own any of
+// this connection state/logic at all.
+const ConnectionsPanel = React.memo(({ onClose }) => {
     const isMobile = useIsMobile();
-    const [openPlaylist, setOpenPlaylist] = useState(null);
     const {
         spotifyAuth, connectSpotify, disconnectSpotify,
         appleMusicAuth, connectAppleMusic, disconnectAppleMusic,
+        youtubeAuth, connectYoutube, disconnectYoutube,
+        saavnAuth, connectSaavn, disconnectSaavn,
         activeSource, setActiveSource,
-        isSpotifyConfigured, isAppleMusicConfigured,
+        isSpotifyConfigured, isAppleMusicConfigured, isYoutubeConfigured, isSaavnConfigured,
     } = useStreaming();
-    const [connectingService, setConnectingService] = useState(null); // null | 'apple' | 'spotify'
-    const [setupModalService, setSetupModalService] = useState(null); // null | 'apple' | 'spotify'
+    const [connectingService, setConnectingService] = useState(null);
+    const [setupModalService, setSetupModalService] = useState(null);
 
     const handleConnectApple = async () => {
         setConnectingService('apple');
         try { await connectAppleMusic(); } finally { setConnectingService(null); }
     };
-    // Spotify's connect performs a full-page redirect (window.location.assign),
-    // so this component unmounts before connectingService would ever get
-    // reset back to null - no finally-block cleanup needed the way Apple's
-    // in-page popup flow needs above.
     const handleConnectSpotify = () => {
         setConnectingService('spotify');
         connectSpotify();
     };
+    const handleConnectYoutube = () => connectYoutube();
+    const handleConnectSaavn = () => connectSaavn();
 
-    const handlePlayTrack = (track) => playTrackNow(track.title, track.url);
-    const handleShufflePlay = (playlist) => queuePlaylistTracks(playlist.trackRefs(), { shuffle: true });
-    const handleQueueAll = (tracks) => queuePlaylistTracks(tracks, { shuffle: false });
+    const anyConfigured = isAppleMusicConfigured || isSpotifyConfigured || isYoutubeConfigured || isSaavnConfigured;
 
-    if (openPlaylist) {
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }} onClick={onClose}>
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '24px', width: '100%', maxWidth: '380px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: '16px' }} onClick={(e) => e.stopPropagation()}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Connections</h3>
+                    <button onClick={onClose} title="Close" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', display: 'flex' }}><X size={18} /></button>
+                </div>
+                {!anyConfigured && (
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>No music service is configured yet - add a Spotify/Apple Music/YouTube credential in Settings &gt; API Integrations to connect one.</p>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {isAppleMusicConfigured && (
+                        <StreamingServiceControl
+                            label="Apple Music" icon={<Apple size={15} />}
+                            brandGradient="linear-gradient(135deg, #FA233B, #FB5C74)" brandGlowColor="rgba(250, 35, 59, 0.45)"
+                            connected={appleMusicAuth.connected} connecting={connectingService === 'apple'} error={appleMusicAuth.error} configured={isAppleMusicConfigured}
+                            onConnect={handleConnectApple} onDisconnect={disconnectAppleMusic} onNeedsSetup={() => setSetupModalService('apple')}
+                            isActive={activeSource === 'apple'} onSetActive={(explicit) => setActiveSource(explicit || 'apple')} isMobile={isMobile}
+                        />
+                    )}
+                    {isSpotifyConfigured && (
+                        <StreamingServiceControl
+                            label="Spotify" icon={<Disc size={15} />}
+                            brandGradient="linear-gradient(135deg, #1DB954, #1ed760)" brandGlowColor="rgba(29, 185, 84, 0.5)"
+                            connected={spotifyAuth.connected} connecting={connectingService === 'spotify'} error={spotifyAuth.error} configured={isSpotifyConfigured}
+                            onConnect={handleConnectSpotify} onDisconnect={disconnectSpotify} onNeedsSetup={() => setSetupModalService('spotify')}
+                            isActive={activeSource === 'spotify'} onSetActive={(explicit) => setActiveSource(explicit || 'spotify')} isMobile={isMobile}
+                        />
+                    )}
+                    {isYoutubeConfigured && (
+                        <StreamingServiceControl
+                            label="YouTube" icon={<Video size={15} />}
+                            brandGradient="linear-gradient(135deg, #FF0000, #FF4E45)" brandGlowColor="rgba(255, 0, 0, 0.45)"
+                            connected={youtubeAuth.connected} connecting={connectingService === 'youtube'} error={youtubeAuth.error} configured={isYoutubeConfigured}
+                            onConnect={handleConnectYoutube} onDisconnect={disconnectYoutube} onNeedsSetup={() => setSetupModalService('youtube')}
+                            isActive={activeSource === 'youtube'} onSetActive={(explicit) => setActiveSource(explicit || 'youtube')} isMobile={isMobile}
+                        />
+                    )}
+                    {isSaavnConfigured && (
+                        <StreamingServiceControl
+                            label="Saavn" icon={<Music2 size={15} />}
+                            brandGradient="linear-gradient(135deg, #2BC5B4, #0DB4B9)" brandGlowColor="rgba(43, 197, 180, 0.45)"
+                            connected={saavnAuth.connected} connecting={false} error={saavnAuth.error} configured={isSaavnConfigured}
+                            onConnect={handleConnectSaavn} onDisconnect={disconnectSaavn} onNeedsSetup={() => setSetupModalService('saavn')}
+                            isActive={false} onSetActive={() => {}} showActiveToggle={false} isMobile={isMobile}
+                        />
+                    )}
+                </div>
+                <style>{`
+                    @keyframes nexusSpin { to { transform: rotate(360deg); } } .nexus-spin { animation: nexusSpin 0.8s linear infinite; }
+                    @keyframes nexusFadeInDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+                    @keyframes nexusConnectedPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+                `}</style>
+                {setupModalService && (
+                    <StreamingSetupModal service={setupModalService} onClose={() => setSetupModalService(null)} />
+                )}
+            </div>
+        </div>
+    );
+});
+
+// Real, reported gap fixed: "Playlists & Albums" (real Spotify playlists
+// via SpotifyPlaylistCard, or the demo catalog when not connected) was
+// removed ENTIRELY - explicit user feedback that it was constantly 403ing
+// on this account (Spotify-owned/editorial playlists the account follows -
+// see describeSpotifyError's own note - not something this app can fix,
+// since it's Spotify's own permission model) and the demo cards behind it
+// were fake data nobody wanted either. "Genres & Moods" (a real, live
+// Spotify search per tile - see CURATED_GENRE_TILES) is now the ONLY
+// browsing entry point on this tab, moved to the top where Playlists &
+// Albums used to be, with more tiles added.
+const LibraryTab = React.memo(({ playTrackNow, recentlyPlayed, currentTrack, isPlaying, togglePlay }) => {
+    const isMobile = useIsMobile();
+    const [openGenre, setOpenGenre] = useState(null);
+    const [openAlbum, setOpenAlbum] = useState(null);
+    // Connection state/handlers for all 4 services moved into
+    // ConnectionsPanel (opened from AudioSidebar's own footer) - this
+    // component only still needs Spotify's own auth state, since Genres &
+    // Moods needs a real connected account to search.
+    const { spotifyAuth, activeSource, setActiveSource, spotifyDeviceId, spotifyPlayUri } = useStreaming();
+    // Real seed for MoreLikeArtistRow below - the most recent Recently
+    // Played entry that actually has a known artist (real user data,
+    // nothing fabricated).
+    const topArtist = useMemo(() => recentlyPlayed.find((t) => t.artist)?.artist || null, [recentlyPlayed]);
+
+    if (openGenre) {
         return (
-            <PlaylistDetailView
-                playlist={openPlaylist}
-                onBack={() => setOpenPlaylist(null)}
-                onPlayTrack={handlePlayTrack}
-                onShufflePlay={handleShufflePlay}
-                onQueueAll={handleQueueAll}
+            <GenreDetailView
+                tile={openGenre}
+                onBack={() => setOpenGenre(null)}
+                playTrackNow={playTrackNow}
+                spotifyAuth={spotifyAuth} spotifyDeviceId={spotifyDeviceId} spotifyPlayUri={spotifyPlayUri}
+                activeSource={activeSource} setActiveSource={setActiveSource}
+            />
+        );
+    }
+
+    if (openAlbum) {
+        return (
+            <AlbumDetailView
+                album={openAlbum}
+                onBack={() => setOpenAlbum(null)}
+                playTrackNow={playTrackNow}
+                spotifyAuth={spotifyAuth} spotifyDeviceId={spotifyDeviceId} spotifyPlayUri={spotifyPlayUri}
+                activeSource={activeSource} setActiveSource={setActiveSource}
             />
         );
     }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-            {/* Header row: label + the two streaming connect buttons. On
-                mobile this stacks into its own column with the buttons
-                sharing one full-width row (flex:1 each in
-                StreamingServiceControl) instead of the old flexWrap:'wrap'
-                layout, which let a fixed 176px minWidth on each button
-                force them onto separate stacked lines the moment both
-                didn't fit beside the "Playlists & Albums" label. */}
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px', minHeight: isMobile ? 'auto' : '40px' }}>
-                <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Playlists & Albums</h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '14px', flexWrap: 'nowrap', width: isMobile ? '100%' : 'auto' }}>
-                    <StreamingServiceControl
-                        label="Apple Music"
-                        icon={<Apple size={15} />}
-                        brandGradient="linear-gradient(135deg, #FA233B, #FB5C74)"
-                        brandGlowColor="rgba(250, 35, 59, 0.45)"
-                        connected={appleMusicAuth.connected}
-                        connecting={connectingService === 'apple'}
-                        error={appleMusicAuth.error}
-                        configured={isAppleMusicConfigured}
-                        onConnect={handleConnectApple}
-                        onDisconnect={disconnectAppleMusic}
-                        onNeedsSetup={() => setSetupModalService('apple')}
-                        isActive={activeSource === 'apple'}
-                        onSetActive={(explicit) => setActiveSource(explicit || 'apple')}
-                        isMobile={isMobile}
-                    />
-                    <StreamingServiceControl
-                        label="Spotify"
-                        icon={<Disc size={15} />}
-                        brandGradient="linear-gradient(135deg, #1DB954, #1ed760)"
-                        brandGlowColor="rgba(29, 185, 84, 0.5)"
-                        connected={spotifyAuth.connected}
-                        connecting={connectingService === 'spotify'}
-                        error={spotifyAuth.error}
-                        configured={isSpotifyConfigured}
-                        onConnect={handleConnectSpotify}
-                        onDisconnect={disconnectSpotify}
-                        onNeedsSetup={() => setSetupModalService('spotify')}
-                        isActive={activeSource === 'spotify'}
-                        onSetActive={(explicit) => setActiveSource(explicit || 'spotify')}
-                        isMobile={isMobile}
-                    />
+            {spotifyAuth.connected ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Genres & Moods</h3>
+                    {/* Explicit request, matched directly against a real
+                        Spotify home-page screenshot: a wrapping GRID of
+                        small rectangular "quick access" chips (not a
+                        horizontal-scroll row of big square tiles - the
+                        curated rows further down keep that bigger-card
+                        treatment instead). */}
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(200px, 1fr))', gap: isMobile ? '8px' : '10px' }}>
+                        {CURATED_GENRE_TILES.map((tile) => (
+                            <GenreTileCard key={tile.id} tile={tile} onOpen={setOpenGenre} isMobile={isMobile} />
+                        ))}
+                    </div>
                 </div>
-            </div>
-            <style>{`
-                @keyframes nexusSpin { to { transform: rotate(360deg); } } .nexus-spin { animation: nexusSpin 0.8s linear infinite; }
-                @keyframes nexusFadeInDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-            `}</style>
-            {setupModalService && (
-                <StreamingSetupModal service={setupModalService} onClose={() => setSetupModalService(null)} />
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px 20px', textAlign: 'center' }}>
+                    <Disc size={26} color="var(--text-muted)" />
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Connect Spotify (Connections in the sidebar) to browse real Genres & Moods.</p>
+                </div>
             )}
-            {/* Always a horizontally-scrolling row, on both mobile and
-                desktop now - the exact same layout (and the exact same
-                132px card via PlaylistCard's own flex-basis) as Recently
-                Played / Quick Mix below it, matching a real Spotify/Apple
-                Music app's own playlist carousels rather than a wrapping
-                grid that made this row look like a different, disconnected
-                section. */}
-            <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', overflowY: 'hidden', padding: '4px 4px 14px 4px', WebkitOverflowScrolling: 'touch' }}>
-                {AUDIO_LIBRARY.map((playlist) => (
-                    <PlaylistCard
-                        key={playlist.id}
-                        playlist={playlist}
-                        isFavorite={favoritePlaylistIds.has(playlist.id)}
-                        onOpen={setOpenPlaylist}
-                        onToggleFavorite={toggleFavoritePlaylist}
-                        onShufflePlay={handleShufflePlay}
-                    />
-                ))}
-            </div>
 
             {recentlyPlayed.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -501,50 +866,74 @@ const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, qu
                         gap between cards) so hover borders and shadows have
                         breathing room and never look clipped flush against
                         the container edge. */}
-                    <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', overflowY: 'hidden', padding: '4px 4px 14px 4px' }}>
+                    <div style={{ display: 'flex', gap: isMobile ? '10px' : '16px', overflowX: 'auto', overflowY: 'hidden', padding: '4px 4px 14px 4px' }}>
                         {recentlyPlayed.map((t, i) => {
-                            const isThisTrackActive = currentTrack && currentTrack.title === t.title && currentTrack.url === t.url;
+                            const isThisTrackActive = currentTrack && currentTrack.title === t.title && (currentTrack.url === t.url || (t.uri && currentTrack.uri === t.uri));
                             const isThisTrackPlaying = isThisTrackActive && isPlaying;
+                            // Real fix for the reported "Play पर click करो
+                            // तो play नहीं हो रहा है" bug: a Spotify entry
+                            // has no `url` (the SDK plays through its own
+                            // engine, not a normal <audio src>), but DOES
+                            // now carry a real `uri` (see
+                            // AudioPlayerContext.jsx's effectiveCurrentTrack)
+                            // that spotifyPlayUri can genuinely replay, once
+                            // a Spotify device is ready. Only a track with
+                            // neither (an older entry saved before this fix,
+                            // or a YouTube entry) stays honestly non-playable
+                            // from this list.
+                            const canPlaySpotify = t.source === 'spotify' && !!t.uri && spotifyDeviceId && spotifyAuth.connected;
+                            const playable = !!t.url || canPlaySpotify;
+                            const doPlay = () => {
+                                if (canPlaySpotify) {
+                                    if (activeSource !== 'spotify') setActiveSource('spotify');
+                                    spotifyPlayUri(t.uri);
+                                } else if (t.url) {
+                                    playTrackNow(t.title, t.url);
+                                }
+                            };
+                            // Same borderless floating-tile treatment as
+                            // PlaylistCard above (tileWidth matches its own
+                            // sizing exactly) - no boxed card wrapper.
+                            const tileWidth = isMobile ? 96 : 150;
                             return (
                                 <div
                                     key={t.title + i}
-                                    onClick={() => playTrackNow(t.title, t.url)}
-                                    title={`Play ${t.title}`}
+                                    onClick={() => { if (playable) doPlay(); }}
+                                    title={playable ? `Play ${t.title}` : `${t.title} - open Search to replay this ${SOURCE_BADGE_STYLE[t.source]?.label || t.source} track`}
                                     style={{
-                                        // Fixed flex-basis (not shrink/grow) plus an explicit
-                                        // matching width below on the artwork square, so every
-                                        // card always renders at its full intended size inside
-                                        // the scroll row - nothing gets squeezed or cut off.
-                                        flex: '0 0 132px', display: 'flex', flexDirection: 'column', gap: '10px',
-                                        cursor: 'pointer', background: 'var(--bg-surface)',
-                                        border: `1px solid ${isThisTrackActive ? 'var(--primary)' : 'var(--border-premium)'}`,
-                                        borderRadius: '16px', padding: '10px', transition: 'border-color 0.15s ease',
+                                        flex: `0 0 ${tileWidth}px`, display: 'flex', flexDirection: 'column', gap: isMobile ? '6px' : '8px',
+                                        cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6,
                                     }}
-                                    onMouseEnter={(e) => { if (!isThisTrackActive) e.currentTarget.style.borderColor = 'var(--primary)'; }}
-                                    onMouseLeave={(e) => { if (!isThisTrackActive) e.currentTarget.style.borderColor = 'var(--border-premium)'; }}
                                 >
-                                    <div style={{ position: 'relative', width: '112px', height: '112px', borderRadius: '12px', background: gradientForId(t.title), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isThisTrackActive) {
-                                                    togglePlay();
-                                                } else {
-                                                    playTrackNow(t.title, t.url);
-                                                }
-                                            }}
-                                            title={isThisTrackPlaying ? `Pause ${t.title}` : `Play ${t.title}`}
-                                            style={{
-                                                background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.9)',
-                                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                width: '100%', height: '100%', padding: 0,
-                                            }}
-                                        >
-                                            {isThisTrackPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" />}
-                                        </button>
+                                    <div style={{
+                                        position: 'relative', width: `${tileWidth}px`, height: `${tileWidth}px`, borderRadius: '10px',
+                                        background: t.artworkUrl ? `url(${t.artworkUrl}) center/cover` : gradientForId(t.title),
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                        boxShadow: isThisTrackActive ? '0 0 0 2px var(--primary), 0 6px 18px rgba(0,0,0,0.22)' : '0 6px 18px rgba(0,0,0,0.22)',
+                                    }}>
+                                        {playable ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (isThisTrackActive) {
+                                                        togglePlay();
+                                                    } else {
+                                                        doPlay();
+                                                    }
+                                                }}
+                                                title={isThisTrackPlaying ? `Pause ${t.title}` : `Play ${t.title}`}
+                                                style={{
+                                                    background: t.artworkUrl ? 'rgba(0,0,0,0.28)' : 'transparent', border: 'none', color: 'rgba(255,255,255,0.9)',
+                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    width: '100%', height: '100%', padding: 0, borderRadius: '10px',
+                                                }}
+                                            >
+                                                {isThisTrackPlaying ? <Pause size={isMobile ? 18 : 24} fill="currentColor" /> : <Play size={isMobile ? 18 : 24} fill="currentColor" />}
+                                            </button>
+                                        ) : (!t.artworkUrl && <Disc size={isMobile ? 18 : 24} color="rgba(255,255,255,0.85)" />)}
                                     </div>
-                                    <span style={{ fontSize: '12px', fontWeight: '700', color: isThisTrackActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }}>
+                                    <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: '700', color: isThisTrackActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }}>
                                         {shortTitle(t.title)}
                                     </span>
                                 </div>
@@ -553,33 +942,304 @@ const LibraryTab = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, qu
                     </div>
                 </div>
             )}
+
+            {/* Explicit request: "more like", "discover more from [artist]"
+                - real Spotify/Apple Music home sections this app had none
+                of. Built honestly: this app has no real recommendation
+                engine or access to Spotify's own (largely deprecated for
+                new apps) recommendation endpoints, so rather than fabricate
+                a fake "for you" claim, this derives a REAL seed from the
+                user's own actual Recently Played (the most recent track
+                with a known artist) and runs a real, live Spotify search
+                for that artist - genuinely reflects their own listening,
+                not invented. */}
+            {spotifyAuth.connected && topArtist && (
+                <MoreLikeArtistRow
+                    artistName={topArtist}
+                    playTrackNow={playTrackNow}
+                    spotifyAuth={spotifyAuth} spotifyDeviceId={spotifyDeviceId} spotifyPlayUri={spotifyPlayUri}
+                    activeSource={activeSource} setActiveSource={setActiveSource}
+                    isMobile={isMobile}
+                    currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay}
+                />
+            )}
+
+            {spotifyAuth.connected && (
+                <NewReleasesRow spotifyAuth={spotifyAuth} onOpen={setOpenAlbum} isMobile={isMobile} />
+            )}
         </div>
     );
 });
 
+// Real, honest "personalization" row: seeded from the most recent
+// Recently Played track that has a known artist (real user data already
+// in this app), running one live Spotify search for that artist - not a
+// fabricated recommendation engine this app doesn't have. Same tile
+// treatment as the Recently Played row just above, for visual consistency.
+const MoreLikeArtistRow = React.memo(({ artistName, playTrackNow, spotifyAuth, spotifyDeviceId, spotifyPlayUri, activeSource, setActiveSource, isMobile, currentTrack, isPlaying, togglePlay }) => {
+    const [tracks, setTracks] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        searchSpotifyTracks(spotifyAuth.accessToken, artistName)
+            .then((results) => { if (!cancelled) setTracks(results.filter((t) => t.artist?.toLowerCase().includes(artistName.toLowerCase())).slice(0, 12)); })
+            .catch(() => { if (!cancelled) setTracks([]); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [artistName, spotifyAuth.accessToken]);
+
+    const handleClick = (t) => {
+        if (spotifyDeviceId && spotifyAuth.connected) {
+            if (activeSource !== 'spotify') setActiveSource('spotify');
+            spotifyPlayUri(t.uri);
+        } else if (t.previewUrl) {
+            playTrackNow(t.title, t.previewUrl);
+        }
+    };
+
+    if (!loading && tracks.length === 0) return null;
+    const tileWidth = isMobile ? 96 : 150;
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>More Like {artistName}</h3>
+            <div style={{ display: 'flex', gap: isMobile ? '10px' : '16px', overflowX: 'auto', overflowY: 'hidden', padding: '4px 4px 14px 4px' }}>
+                {loading ? (
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Searching…</p>
+                ) : tracks.map((t) => {
+                    const playable = (spotifyDeviceId && spotifyAuth.connected) || t.previewUrl;
+                    // Real, reported gap fixed: these tiles had no visible
+                    // Play/Pause affordance at all (unlike every other tile
+                    // row in this file - Recently Played, Genre tiles) -
+                    // "usme bhi play pause ka option nahi hai" - added the
+                    // exact same hover/always-visible overlay button
+                    // Recently Played's own tiles already use.
+                    const isThisTrackActive = currentTrack && t.uri && currentTrack.uri === t.uri;
+                    const isThisTrackPlaying = isThisTrackActive && isPlaying;
+                    return (
+                        <div key={t.id} title={playable ? `Play ${t.title}` : `${t.title} - no preview available`} style={{ flex: `0 0 ${tileWidth}px`, display: 'flex', flexDirection: 'column', gap: isMobile ? '6px' : '8px' }}>
+                            <div style={{
+                                position: 'relative', width: `${tileWidth}px`, height: `${tileWidth}px`, borderRadius: '10px',
+                                background: t.artworkUrl ? `url(${t.artworkUrl}) center/cover` : gradientForId(t.title),
+                                boxShadow: isThisTrackActive ? '0 0 0 2px var(--primary), 0 6px 18px rgba(0,0,0,0.22)' : '0 6px 18px rgba(0,0,0,0.22)',
+                            }}>
+                                {playable && (
+                                    <button
+                                        type="button"
+                                        onClick={() => { if (isThisTrackActive && togglePlay) { togglePlay(); } else { handleClick(t); } }}
+                                        title={isThisTrackPlaying ? `Pause ${t.title}` : `Play ${t.title}`}
+                                        style={{
+                                            position: 'absolute', inset: 0, background: t.artworkUrl ? 'rgba(0,0,0,0.28)' : 'transparent',
+                                            border: 'none', color: 'rgba(255,255,255,0.9)', cursor: 'pointer', display: 'flex',
+                                            alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', padding: 0, borderRadius: '10px',
+                                        }}
+                                    >
+                                        {isThisTrackPlaying ? <Pause size={isMobile ? 18 : 24} fill="currentColor" /> : <Play size={isMobile ? 18 : 24} fill="currentColor" />}
+                                    </button>
+                                )}
+                            </div>
+                            <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: '700', color: isThisTrackActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }}>{shortTitle(t.title)}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+});
+
+// Real, explicitly-requested "New Releases" row - genuine Spotify albums
+// via GET /v1/browse/new-releases (see spotifyClient.js's own comment: a
+// plain, non-personalized catalog-browse endpoint, not one of the largely-
+// restricted recommendation endpoints), fetched once per Home visit.
+const NewReleasesRow = React.memo(({ spotifyAuth, onOpen, isMobile }) => {
+    const [albums, setAlbums] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        getSpotifyNewReleases(spotifyAuth.accessToken)
+            .then((results) => { if (!cancelled) setAlbums(results); })
+            .catch(() => { if (!cancelled) setAlbums([]); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [spotifyAuth.accessToken]);
+
+    if (!loading && albums.length === 0) return null;
+    const tileWidth = isMobile ? 96 : 150;
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>New Releases</h3>
+            <div style={{ display: 'flex', gap: isMobile ? '10px' : '16px', overflowX: 'auto', overflowY: 'hidden', padding: '4px 4px 14px 4px', WebkitOverflowScrolling: 'touch' }}>
+                {loading ? (
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Loading…</p>
+                ) : albums.map((a) => (
+                    <div key={a.id} onClick={() => onOpen(a)} style={{ flex: `0 0 ${tileWidth}px`, display: 'flex', flexDirection: 'column', gap: isMobile ? '6px' : '8px', cursor: 'pointer' }}>
+                        <div style={{
+                            width: `${tileWidth}px`, height: `${tileWidth}px`, borderRadius: '10px', overflow: 'hidden', flexShrink: 0, boxShadow: '0 6px 18px rgba(0,0,0,0.22)',
+                            background: a.artworkUrl ? 'transparent' : 'var(--widget-bg)',
+                        }}>
+                            {a.artworkUrl ? (
+                                <img src={a.artworkUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Disc size={isMobile ? 22 : 32} color="var(--text-muted)" />
+                                </div>
+                            )}
+                        </div>
+                        <span style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }}>{a.title}</span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', padding: '0 1px' }}>{a.artist}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+});
+
+// Small, fixed-palette source badge - Local/Saavn/YouTube, matching
+// QueueManager's own existing LOCAL/NEXUS badge pattern elsewhere in this
+// file rather than inventing a new visual language for "where a track
+// came from".
+const SOURCE_BADGE_STYLE = {
+    local: { label: 'LOCAL', color: 'var(--text-muted)' },
+    saavn: { label: 'SAAVN', color: '#2BC5B4' },
+    youtube: { label: 'YOUTUBE', color: '#FF4E45' },
+    spotify: { label: 'SPOTIFY', color: '#1DB954' },
+};
+
 const GlobalSearchTab = React.memo(({ playlist: queue, playTrackNow }) => {
+    const {
+        isSaavnConfigured, isYoutubeConfigured, setYoutubeQueue,
+        spotifyAuth, spotifyDeviceId, spotifyPlayUri, activeSource, setActiveSource,
+    } = useStreaming();
     const [query, setQuery] = useState('');
+    // Explicit request, matched directly against a real Apple Music
+    // screenshot: their Search page isn't blank until you type - it opens
+    // straight into a real "Browse Categories" grid. This reuses the exact
+    // same real, live-search genre tiles Home's own "Genres & Moods"
+    // already has (BrowseCategoryTile below is just a bigger, Apple-style
+    // visual treatment of the same CURATED_GENRE_TILES data + GenreDetailView).
+    const [openGenre, setOpenGenre] = useState(null);
     const allTracks = useMemo(getAllLibraryTracks, []);
 
-    const results = useMemo(() => {
+    const localResults = useMemo(() => {
         if (!query.trim()) return [];
         const q = query.toLowerCase();
         const fromLibrary = allTracks.filter((t) => t.title.toLowerCase().includes(q) || (t.artist || '').toLowerCase().includes(q));
         const fromQueue = queue.filter((t) => t.title.toLowerCase().includes(q));
-        // De-duplicate by title so a track already in the queue doesn't
-        // also show as a separate library result for the same title.
         const seen = new Set();
-        return [...fromLibrary, ...fromQueue].filter((t) => {
-            if (seen.has(t.title)) return false;
-            seen.add(t.title);
-            return true;
-        });
+        return [...fromLibrary, ...fromQueue]
+            .filter((t) => { if (seen.has(t.title)) return false; seen.add(t.title); return true; })
+            .map((t) => ({ ...t, source: 'local' }));
     }, [query, allTracks, queue]);
+
+    // Saavn/YouTube results - fetched live, debounced, only while the
+    // respective service is actually connected/configured. Each keeps its
+    // own independent loading/error state so one provider being slow or
+    // down never blocks the other, or the always-instant local results.
+    const [saavnResults, setSaavnResults] = useState([]);
+    const [saavnLoading, setSaavnLoading] = useState(false);
+    const [saavnError, setSaavnError] = useState(null);
+    const [youtubeResults, setYoutubeResults] = useState([]);
+    const [youtubeLoading, setYoutubeLoading] = useState(false);
+    const [youtubeError, setYoutubeError] = useState(null);
+    // Spotify: only fires while a real, connected access token exists -
+    // same "each source has its own independent loading/error state"
+    // pattern as Saavn/YouTube above, so a Spotify hiccup never blocks the
+    // others (or vice versa).
+    const [spotifyResults, setSpotifyResults] = useState([]);
+    const [spotifyLoading, setSpotifyLoading] = useState(false);
+    const [spotifyError, setSpotifyError] = useState(null);
+
+    useEffect(() => {
+        const trimmed = query.trim();
+        if (trimmed.length < 2) {
+            setSaavnResults([]); setSaavnError(null); setSaavnLoading(false);
+            setYoutubeResults([]); setYoutubeError(null); setYoutubeLoading(false);
+            setSpotifyResults([]); setSpotifyError(null); setSpotifyLoading(false);
+            return undefined;
+        }
+        const controller = new AbortController();
+        // A real, 450ms debounce - typing "lofi beats" would otherwise
+        // fire a network request (and, for YouTube, burn API quota) on
+        // every single keystroke.
+        const timer = setTimeout(() => {
+            if (isSaavnConfigured) {
+                setSaavnLoading(true); setSaavnError(null);
+                searchSaavnSongs(trimmed, { signal: controller.signal })
+                    .then((results) => setSaavnResults(results.map((t) => ({ ...t, source: 'saavn' }))))
+                    .catch((err) => { if (err?.name !== 'AbortError') setSaavnError(err.message || 'Saavn search failed'); })
+                    .finally(() => setSaavnLoading(false));
+            } else {
+                setSaavnResults([]); setSaavnError(null);
+            }
+            if (isYoutubeConfigured) {
+                setYoutubeLoading(true); setYoutubeError(null);
+                searchYoutubeTracks(trimmed, { signal: controller.signal })
+                    .then((results) => setYoutubeResults(results))
+                    .catch((err) => { if (err?.name !== 'AbortError') setYoutubeError(err.message || 'YouTube search failed'); })
+                    .finally(() => setYoutubeLoading(false));
+            } else {
+                setYoutubeResults([]); setYoutubeError(null);
+            }
+            if (spotifyAuth.connected && spotifyAuth.accessToken) {
+                setSpotifyLoading(true); setSpotifyError(null);
+                searchSpotifyTracks(spotifyAuth.accessToken, trimmed, { signal: controller.signal })
+                    .then((results) => setSpotifyResults(results))
+                    .catch((err) => { if (err?.name !== 'AbortError') setSpotifyError(err.message || 'Spotify search failed'); })
+                    .finally(() => setSpotifyLoading(false));
+            } else {
+                setSpotifyResults([]); setSpotifyError(null);
+            }
+        }, 450);
+        return () => { clearTimeout(timer); controller.abort(); };
+    }, [query, isSaavnConfigured, isYoutubeConfigured, spotifyAuth.connected, spotifyAuth.accessToken]);
+
+    const handleResultClick = (track, indexInYoutubeResults) => {
+        if (track.source === 'youtube') { setYoutubeQueue(youtubeResults, indexInYoutubeResults); return; }
+        if (track.source === 'spotify') {
+            // Full-length playback needs the Web Playback SDK's device to
+            // already be registered (only happens once activeSource is
+            // 'spotify' - see StreamingContext.jsx) AND a Premium account,
+            // a real restriction of Spotify's own SDK. Falling back to the
+            // track's own 30-second preview clip - a real, legal MP3 URL -
+            // plays through the exact same local <audio> pathway every
+            // other source here already uses, so a non-Premium account (or
+            // one that hasn't set Spotify active yet) still gets SOMETHING
+            // real to listen to instead of a dead click.
+            if (spotifyDeviceId && spotifyAuth.connected) {
+                if (activeSource !== 'spotify') setActiveSource('spotify');
+                spotifyPlayUri(track.uri);
+            } else if (track.previewUrl) {
+                playTrackNow(track.title, track.previewUrl);
+            }
+            return;
+        }
+        playTrackNow(track.title, track.url);
+    };
+
+    const anyLoading = saavnLoading || youtubeLoading || spotifyLoading;
+    const combinedResults = [...localResults, ...spotifyResults, ...saavnResults, ...youtubeResults];
+
+    if (openGenre) {
+        return (
+            <GenreDetailView
+                tile={openGenre}
+                onBack={() => setOpenGenre(null)}
+                playTrackNow={playTrackNow}
+                spotifyAuth={spotifyAuth} spotifyDeviceId={spotifyDeviceId} spotifyPlayUri={spotifyPlayUri}
+                activeSource={activeSource} setActiveSource={setActiveSource}
+            />
+        );
+    }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '14px', border: '1px solid var(--border-premium)' }}>
-                <Search size={16} color="var(--text-muted)" />
+                {anyLoading ? <Loader2 size={16} color="var(--text-muted)" className="nexus-spin" /> : <Search size={16} color="var(--text-muted)" />}
                 <input
                     autoFocus
                     type="text"
@@ -591,66 +1251,84 @@ const GlobalSearchTab = React.memo(({ playlist: queue, playTrackNow }) => {
                 />
                 {query && <button onClick={() => setQuery('')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={14} /></button>}
             </div>
+            {/* Explicit request, matched directly against a real Apple
+                Music screenshot of their own Search page: this used to be
+                one plain, empty sentence until you typed something -
+                Apple's Search page instead opens straight into a real
+                "Browse Categories" grid. Same real CURATED_GENRE_TILES
+                data Home's own Genres & Moods uses, just the bigger,
+                Apple-style visual treatment (BrowseCategoryTile). */}
             {!query.trim() && (
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>
-                    Search across your library, playlists, and current queue.
-                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Browse Categories</h3>
+                    {spotifyAuth.connected ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '14px' }}>
+                            {CURATED_GENRE_TILES.map((tile) => (
+                                <BrowseCategoryTile key={tile.id} tile={tile} onOpen={setOpenGenre} />
+                            ))}
+                        </div>
+                    ) : (
+                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                            Search across your library, playlists, and current queue{(isSaavnConfigured || isYoutubeConfigured) ? `, plus ${[isSaavnConfigured && 'Saavn', isYoutubeConfigured && 'YouTube'].filter(Boolean).join('/')}` : ''}. Connect Spotify (Connections in the sidebar) to also browse real categories here without typing.
+                        </p>
+                    )}
+                </div>
             )}
-            {query.trim() && results.length === 0 && (
+            {(saavnError || youtubeError || spotifyError) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '10px' }}>
+                    {spotifyError && <span style={{ fontSize: '12px', color: '#fca5a5' }}>{spotifyError}</span>}
+                    {saavnError && <span style={{ fontSize: '12px', color: '#fca5a5' }}>{saavnError}</span>}
+                    {youtubeError && <span style={{ fontSize: '12px', color: '#fca5a5' }}>{youtubeError}</span>}
+                </div>
+            )}
+            {query.trim() && !anyLoading && combinedResults.length === 0 && (
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>No tracks match "{query}".</p>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {results.map((t) => (
-                    <div
-                        key={t.id}
-                        onClick={() => playTrackNow(t.title, t.url)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: 'pointer' }}
-                    >
-                        <Radio size={14} color="var(--accent)" />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
-                            {t.artist && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.artist}</div>}
+                {combinedResults.map((t, i) => {
+                    const badge = SOURCE_BADGE_STYLE[t.source] || SOURCE_BADGE_STYLE.local;
+                    // Index of THIS track within youtubeResults specifically
+                    // (not the combined list) - that's the array setYoutubeQueue
+                    // needs, so next/prev browse the YouTube results only.
+                    const youtubeIndex = t.source === 'youtube' ? youtubeResults.indexOf(t) : -1;
+                    // A Spotify result is only actually playable here if
+                    // EITHER a Web Playback SDK device is already up
+                    // (full-length, Premium-only) OR it has a real
+                    // preview_url (30s, works on any account) - Spotify has
+                    // been removing preview_url from a growing share of
+                    // tracks, so this is a genuine, honest "can't play
+                    // this one" state rather than a silent dead click.
+                    const spotifyUnplayable = t.source === 'spotify' && !(spotifyDeviceId && spotifyAuth.connected) && !t.previewUrl;
+                    return (
+                        <div
+                            key={`${t.source}-${t.id}`}
+                            onClick={() => { if (!spotifyUnplayable) handleResultClick(t, youtubeIndex); }}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px',
+                                background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px',
+                                cursor: spotifyUnplayable ? 'default' : 'pointer', opacity: spotifyUnplayable ? 0.5 : 1,
+                            }}
+                        >
+                            {t.artworkUrl ? (
+                                <img src={t.artworkUrl} alt="" style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }} />
+                            ) : (
+                                <Radio size={14} color="var(--accent)" style={{ flexShrink: 0 }} />
+                            )}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                {t.artist && <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.artist}</div>}
+                            </div>
+                            {spotifyUnplayable && <span style={{ fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>No preview</span>}
+                            <span style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px', color: badge.color, flexShrink: 0 }}>{badge.label}</span>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
 });
 
-const AmbientTab = React.memo(({ currentTrack, isPlaying, playPreset }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            {AMBIENT_PRESETS.map((preset) => {
-                const Icon = preset.icon;
-                const isActivePreset = currentTrack.title === preset.title && isPlaying;
-                return (
-                    <button
-                        key={preset.title}
-                        onClick={() => playPreset(preset.title, getSynthPresetUrl(preset.profileKey))}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            padding: '10px 16px', borderRadius: '14px',
-                            background: isActivePreset ? 'var(--primary)' : 'var(--widget-bg)',
-                            border: `1px solid ${isActivePreset ? 'var(--primary)' : 'var(--border-premium)'}`,
-                            color: isActivePreset ? '#fff' : 'var(--text-primary)',
-                            fontWeight: '700', fontSize: '13px', cursor: 'pointer',
-                            transition: 'background 0.2s ease, border-color 0.2s ease',
-                        }}
-                    >
-                        <Icon size={16} />
-                        {preset.title}
-                    </button>
-                );
-            })}
-        </div>
-        <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-            Click a preset to start it instantly, or click again to pause. Presets join your playback queue below, so they can mix alongside music tracks.
-        </p>
-    </div>
-));
-
-const LocalFilesTab = React.memo(({ addSong, cloudUploadStatus, playlist }) => {
+const LocalFilesTab = React.memo(({ addSong, playlist }) => {
     const [isDragActive, setIsDragActive] = useState(false);
     const [importMessage, setImportMessage] = useState('');
     const fileInputRef = useRef(null);
@@ -672,18 +1350,29 @@ const LocalFilesTab = React.memo(({ addSong, cloudUploadStatus, playlist }) => {
     const importFiles = (fileList) => {
         const files = Array.from(fileList || []);
         if (files.length === 0) return;
-        let added = 0, skipped = 0;
+        // Real de-duplication by title, checked against the actual current
+        // queue - a real, reported bug: selecting the same file twice (or
+        // re-adding a track already in the queue from an earlier import)
+        // always appended a second, redundant copy with no check at all.
+        // Seeded with every title already in the queue, then grown as each
+        // file in THIS SAME selection is accepted, so picking the same
+        // file multiple times in one go is also caught, not just repeats
+        // across separate imports.
+        const existingTitles = new Set(playlist.map((t) => t.title.toLowerCase()));
+        let added = 0, skipped = 0, duplicates = 0;
         files.forEach((file) => {
-            if (isSupportedAudioFile(file)) {
-                addSong(deriveTitle(file.name), file);
-                added += 1;
-            } else {
-                skipped += 1;
-            }
+            if (!isSupportedAudioFile(file)) { skipped += 1; return; }
+            const title = deriveTitle(file.name);
+            if (existingTitles.has(title.toLowerCase())) { duplicates += 1; return; }
+            addSong(title, file);
+            existingTitles.add(title.toLowerCase());
+            added += 1;
         });
-        if (added && skipped) showImportMessage(`Added ${added} track${added > 1 ? 's' : ''}, skipped ${skipped} unsupported file${skipped > 1 ? 's' : ''}.`);
-        else if (added) showImportMessage(`Added ${added} track${added > 1 ? 's' : ''} to the queue.`);
-        else showImportMessage('No supported audio files found in that selection.');
+        const parts = [];
+        if (added) parts.push(`Added ${added} track${added > 1 ? 's' : ''}`);
+        if (duplicates) parts.push(`skipped ${duplicates} already in your queue`);
+        if (skipped) parts.push(`skipped ${skipped} unsupported file${skipped > 1 ? 's' : ''}`);
+        showImportMessage(parts.length > 0 ? `${parts.join(', ')}.` : 'No supported audio files found in that selection.');
     };
 
     const handleDrop = (e) => {
@@ -723,38 +1412,17 @@ const LocalFilesTab = React.memo(({ addSong, cloudUploadStatus, playlist }) => {
             </div>
             {importMessage && <div style={{ fontSize: '12px', color: 'var(--accent)', fontWeight: '600', textAlign: 'center' }}>{importMessage}</div>}
 
-            {/* Real Cloud Sync Status - live per-track upload progress,
-                success, and error feedback. Driven directly by the real
-                cloudUploadStatus state AudioPlayerContext's own addSong
-                maintains during a real Firebase Storage upload - not a
-                simulated/decorative progress bar. */}
-            {cloudUploadStatus && Object.keys(cloudUploadStatus).length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '520px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
-                    {Object.entries(cloudUploadStatus).map(([trackId, status]) => {
-                        const track = playlist.find((t) => t.id === trackId);
-                        const label = track ? track.title : 'Track';
-                        return (
-                            <div key={trackId} style={{ background: 'rgba(255, 255, 255, 0.02)', backdropFilter: 'blur(20px)', border: '1px solid var(--border-premium)', borderRadius: '12px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
-                                    <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>{label}</span>
-                                    {status.status === 'uploading' && <span style={{ fontSize: '11px', color: 'var(--accent)', fontWeight: '700', flexShrink: 0 }}>{status.progress}%</span>}
-                                    {status.status === 'success' && <span style={{ fontSize: '11px', color: '#10B981', fontWeight: '700', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}><CheckCircle2 size={13} /> Synced to cloud</span>}
-                                    {status.status === 'error' && <span style={{ fontSize: '11px', color: '#EF4444', fontWeight: '700', flexShrink: 0 }}>Sync failed</span>}
-                                </div>
-                                {status.status === 'uploading' && (
-                                    <div style={{ width: '100%', height: '5px', background: 'var(--surface-inset)', borderRadius: '10px', overflow: 'hidden' }}>
-                                        <div style={{ width: `${status.progress}%`, height: '100%', background: 'var(--accent)', borderRadius: '10px', transition: 'width 0.2s ease' }} />
-                                    </div>
-                                )}
-                                {status.status === 'error' && status.error && (
-                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{status.error} (the track is still saved locally and fully playable.)</span>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
+            {/* The per-track cloud-sync status feed that used to render
+                here was removed entirely, per explicit, direct feedback:
+                it accumulated one card PER EVER-IMPORTED TRACK with no
+                cleanup, so a real library of any size turned this into a
+                long, cluttered scroll of "Sync failed" cards repeating
+                the same message - real, but not useful to keep staring
+                at. The underlying background sync itself (AudioPlayerContext's
+                own addSong) is untouched and still runs exactly as
+                before; a track that fails to sync to the cloud still
+                stays fully saved locally and playable, it just no longer
+                narrates that process here. */}
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, textAlign: 'center' }}>
                 Imported tracks stay in your queue permanently - across pages and reloads - until you delete them.
             </p>
@@ -762,211 +1430,440 @@ const LocalFilesTab = React.memo(({ addSong, cloudUploadStatus, playlist }) => {
     );
 });
 
-const QueueManager = React.memo(({ playlist, currentSongIndex, isPlaying, togglePlay, playAt, deleteSong, moveSong, favoriteTrackTitles, toggleFavoriteTrack, durationsByUrl }) => {
-    const [search, setSearch] = useState('');
-    const filtered = useMemo(
-        () => playlist.map((song, idx) => ({ song, idx })).filter(({ song }) => song.title.toLowerCase().includes(search.toLowerCase())),
-        [playlist, search]
-    );
+// ---------------------------------------------------------------------------
+// Sidebar library views (Pins / Recently Played / Artists / Songs)
+// ---------------------------------------------------------------------------
+
+// Real, reported bug fixed: this used to only ever pin from the demo/mock
+// AUDIO_LIBRARY catalog - once Spotify was connected, LibraryTab fully
+// replaces those demo cards with the user's real Spotify playlists, which
+// (until now) had no pin button at all, so this view became silently
+// unreachable for any connected user ("PIN wala working hona chahiye").
+// Spotify itself has no public Web API for its own client-local Pin
+// feature - not honestly syncable - so this fetches the user's real
+// playlists the same way LibraryTab does and lets favoritePlaylistIds (the
+// same mechanism the demo catalog already used) pin real ones too: a
+// genuine, working, app-local Pins feature covering whatever the user
+// actually has, not a fake sync of something this app can't read.
+const PinsView = React.memo(({ favoritePlaylistIds, toggleFavoritePlaylist, queuePlaylistTracks, playTrackNow, isMobile }) => {
+    const [openPlaylist, setOpenPlaylist] = useState(null);
+    const { spotifyAuth, activeSource, setActiveSource, spotifyDeviceId, spotifyPlayUri } = useStreaming();
+    const [spotifyPlaylists, setSpotifyPlaylists] = useState([]);
+    useEffect(() => {
+        if (!spotifyAuth.connected || !spotifyAuth.accessToken) { setSpotifyPlaylists([]); return undefined; }
+        let cancelled = false;
+        getSpotifyPlaylists(spotifyAuth.accessToken).then((results) => { if (!cancelled) setSpotifyPlaylists(results); }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [spotifyAuth.connected, spotifyAuth.accessToken]);
+
+    const pinnedDemo = useMemo(() => AUDIO_LIBRARY.filter((p) => favoritePlaylistIds.has(p.id)), [favoritePlaylistIds]);
+    const pinnedSpotify = useMemo(() => spotifyPlaylists.filter((p) => favoritePlaylistIds.has(p.id)), [spotifyPlaylists, favoritePlaylistIds]);
+    const handleShufflePlay = (playlist) => queuePlaylistTracks(playlist.trackRefs(), { shuffle: true });
+    const handleQueueAll = (tracks) => queuePlaylistTracks(tracks, { shuffle: false });
+    const handlePlayTrack = (track) => queuePlaylistTracks([track], { shuffle: false });
+
+    if (openPlaylist) {
+        return openPlaylist.source === 'spotify' ? (
+            <SpotifyPlaylistDetailView
+                playlist={openPlaylist}
+                onBack={() => setOpenPlaylist(null)}
+                playTrackNow={playTrackNow}
+                spotifyAuth={spotifyAuth} spotifyDeviceId={spotifyDeviceId} spotifyPlayUri={spotifyPlayUri}
+                activeSource={activeSource} setActiveSource={setActiveSource}
+            />
+        ) : (
+            <PlaylistDetailView
+                playlist={openPlaylist}
+                onBack={() => setOpenPlaylist(null)}
+                onPlayTrack={handlePlayTrack}
+                onShufflePlay={handleShufflePlay}
+                onQueueAll={handleQueueAll}
+            />
+        );
+    }
+
+    if (pinnedDemo.length === 0 && pinnedSpotify.length === 0) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px 20px', textAlign: 'center' }}>
+                <Pin size={26} color="var(--text-muted)" />
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>No pins yet - tap the heart on a playlist in Home to pin it here.</p>
+            </div>
+        );
+    }
 
     return (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box' }}>
-            <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Music size={18} color="var(--accent)" /> Playback Queue ({playlist.length})
-            </h3>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--widget-bg)', padding: '8px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)' }}>
-                <Search size={14} color="var(--text-muted)" />
-                <input
-                    type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                    aria-label="Search your queue"
-                    placeholder="Search your queue..."
-                    style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? '10px' : '16px' }}>
+            {pinnedSpotify.map((playlist) => (
+                <SpotifyPlaylistCard
+                    key={playlist.id}
+                    playlist={playlist}
+                    isFavorite
+                    onOpen={setOpenPlaylist}
+                    onToggleFavorite={toggleFavoritePlaylist}
+                    isMobile={isMobile}
                 />
-                {search && <button onClick={() => setSearch('')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '12px', padding: 0 }}>✕</button>}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto', willChange: 'scroll-position' }}>
-                {playlist.length === 0 && <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Your queue is empty. Add tracks from Library, Search, Ambient Focus, or Local Files.</div>}
-                {playlist.length > 0 && filtered.length === 0 && <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>No tracks match "{search}".</div>}
-                {filtered.map(({ song, idx }) => {
-                    const isFav = favoriteTrackTitles.has(song.title);
-                    const isActive = idx === currentSongIndex;
-                    const knownDuration = durationsByUrl[song.url];
-                    return (
-                        <div key={song.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-                                <button onClick={() => toggleFavoriteTrack(song.title)} title={isFav ? 'Unfavorite' : 'Favorite'} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px', display: 'flex', flexShrink: 0 }}>
-                                    <Heart size={14} color={isFav ? '#F43F5E' : 'var(--text-muted)'} fill={isFav ? '#F43F5E' : 'none'} />
-                                </button>
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0 }}>#{idx + 1}</span>
-                                <span style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '1 1 auto', minWidth: 0 }}>{song.title}</span>
-                                {/* Honest source badge - this used to hardcode
-                                    "Apple Music" for every non-local track,
-                                    which was simply wrong for the mock
-                                    library/ambient/search tracks that make
-                                    up the overwhelming majority of the
-                                    queue (genuine Apple Music playback only
-                                    happens once that streaming source is
-                                    actually connected and active). */}
-                                <span style={{ fontSize: '9px', color: 'var(--text-muted)', border: '1px solid var(--border-premium)', borderRadius: '4px', padding: '1px 5px', flexShrink: 0, fontWeight: '700' }}>{song.isLocal ? 'LOCAL' : 'NEXUS'}</span>
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{knownDuration !== undefined ? (knownDuration > 0 ? formatTime(knownDuration) : '--:--') : '...'}</span>
-                                {isActive && isPlaying && <EqualizerBars isPlaying size="small" />}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                                <button onClick={() => moveSong(idx, 'up')} title="Move Up" style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}><ArrowUp size={14} /></button>
-                                <button onClick={() => moveSong(idx, 'down')} title="Move Down" style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}><ArrowDown size={14} /></button>
-                                <button onClick={() => (idx === currentSongIndex ? togglePlay() : playAt(idx))} style={{ padding: '4px 10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>
-                                    {idx === currentSongIndex && isPlaying ? 'Pause' : 'Play'}
-                                </button>
-                                <button onClick={() => deleteSong(song.id)} title="Delete Track" style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '2px' }}><Trash2 size={14} /></button>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
+            ))}
+            {pinnedDemo.map((playlist) => (
+                <PlaylistCard
+                    key={playlist.id}
+                    playlist={playlist}
+                    isFavorite
+                    onOpen={setOpenPlaylist}
+                    onToggleFavorite={toggleFavoritePlaylist}
+                    onShufflePlay={handleShufflePlay}
+                    isMobile={isMobile}
+                />
+            ))}
         </div>
     );
 });
 
-// Compact, persistent mini-player - the actual replacement for the old,
-// oversized "Now Playing" hero that used to sit at the very top of the
-// page (a 220px circular disc + full transport on mobile, an equally
-// large horizontal console on desktop), pushing every real browsing
-// surface (playlists, recently played, queue) below the fold before a
-// user could even see them. A real streaming app's own main view is
-// almost entirely the browsing surface; "what's playing" lives in one
-// slim, always-visible bar pinned to the edge of the screen instead -
-// this is that bar. flexShrink: 0 keeps it from ever being compressed by
-// the scrollable content above it in the page's own flex column.
-const MiniPlayerBar = ({
-    currentTrack, isPlaying, togglePlay, next, prev, isMobile,
-    favoriteTrackTitles, toggleFavoriteTrack, volume, isMuted, toggleMute, setVolume,
-    currentTime, duration, seek,
-}) => {
-    const isFav = favoriteTrackTitles.has(currentTrack.title);
-    const safeDuration = duration && isFinite(duration) ? duration : 0;
-    const clampedTime = Math.min(currentTime, safeDuration);
-    const progressPct = safeDuration > 0 ? (clampedTime / safeDuration) * 100 : 0;
-
+const RecentlyPlayedView = React.memo(({ recentlyPlayed, currentTrack, isPlaying, playTrackNow, togglePlay }) => {
+    // Real fix for the reported "Play पर click करो तो play नहीं हो रहा है"
+    // bug: a Spotify entry has no `url` but now carries a real `uri` (see
+    // AudioPlayerContext.jsx's effectiveCurrentTrack) that spotifyPlayUri
+    // can genuinely replay once a device is ready.
+    const { spotifyAuth, activeSource, setActiveSource, spotifyDeviceId, spotifyPlayUri } = useStreaming();
+    if (recentlyPlayed.length === 0) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px 20px', textAlign: 'center' }}>
+                <Clock size={26} color="var(--text-muted)" />
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Nothing played yet this session - your play history will show up here.</p>
+            </div>
+        );
+    }
     return (
-        <div style={{
-            flexShrink: 0, display: 'flex', flexDirection: 'column',
-            // A real Spotify-style mini-player is always fully opaque - a
-            // dedicated --player-bar-bg token (see variables.css) instead
-            // of --bg-surface, since --bg-surface is exactly what the
-            // Dynamic theme's own automatic glass/blur CSS selectors match
-            // on. Using it here was the actual cause of this bar picking
-            // up unwanted transparency/blur "leaking" from that theme.
-            background: 'var(--player-bar-bg)', borderTop: '1px solid var(--border-premium)',
-            // overflow: hidden clips the scrubber below to this card's own
-            // rounded top corners rather than letting its flat edges
-            // overhang past the curve. position: relative is what scopes
-            // the scrubber's position: absolute below to THIS card
-            // specifically (top: 0/left: 0/right: 0 becomes relative to
-            // this element's own border box, not the page or any other
-            // ancestor) - so it is structurally impossible for it to
-            // render anywhere but pinned to this exact card's top edge,
-            // regardless of any spacing a parent layout might introduce
-            // above this bar.
-            borderRadius: '20px 20px 0 0', boxShadow: '0 -8px 24px rgba(0,0,0,0.18)', boxSizing: 'border-box',
-            overflow: 'hidden', position: 'relative',
-        }}>
-            {/* Thin, custom-painted Spotify-style progress line, absolutely
-                pinned to this card's own top edge (position: absolute;
-                top: 0; left: 0; right: 0) instead of relying on normal
-                document flow to keep it first - this removes it from flow
-                entirely, so no sibling spacing/gap above this bar can ever
-                push it out of place. The hit-area stays a taller 14px for
-                a real touch/click target, matching the actual 3px painted
-                line centered at its very top. A plain native
-                <input type="range"> here would render with real,
-                inconsistent browser chrome (padding, a permanently-visible
-                thumb) at a much taller footprint than a real mini-player
-                scrubber ever uses - this paints only the slim colored fill
-                for the visual, while a fully transparent range input the
-                same size still handles every real interaction (click-to-
-                seek, drag, keyboard, a11y). */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '14px', zIndex: 2 }}>
-                <div style={{ position: 'absolute', left: 0, right: 0, top: 0, height: '3px', background: 'var(--border-premium)', overflow: 'hidden' }}>
-                    <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--primary)' }} />
-                </div>
-                <input
-                    type="range" min={0} max={safeDuration} step="0.1"
-                    value={clampedTime}
-                    onChange={(e) => seek(parseFloat(e.target.value))}
-                    aria-label="Seek"
-                    style={{
-                        position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0,
-                        opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none',
-                    }}
-                />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '14px', padding: isMobile ? '16px 14px 12px 14px' : '14px 20px 14px 20px' }}>
-                <div style={{
-                    width: isMobile ? '40px' : '46px', height: isMobile ? '40px' : '46px', borderRadius: '12px', background: 'var(--primary-muted)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', flexShrink: 0,
-                }}>
-                    <Disc size={isMobile ? 20 : 22} />
-                </div>
-
-                {/* Title only, single-lined, bold - no artist/"Nexus Audio"
-                    subtitle row underneath it anymore, per this request's
-                    own explicit "keep the track title clean, bold, and
-                    single-lined" ask. The equalizer bars alone already
-                    signal live playback; a crossfade in progress no longer
-                    gets its own text label here (it still genuinely
-                    happens - this only removes the second text row that
-                    announced it). */}
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: isMobile ? '14px' : '15px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.title}</span>
-                    <EqualizerBars isPlaying={isPlaying} size="small" />
-                </div>
-
-                <button
-                    onClick={() => toggleFavoriteTrack(currentTrack.title)}
-                    title={isFav ? 'Unfavorite' : 'Favorite'}
-                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: '4px' }}
-                >
-                    <Heart size={17} color={isFav ? '#F43F5E' : 'var(--text-muted)'} fill={isFav ? '#F43F5E' : 'none'} />
-                </button>
-
-                {/* Previous - now always shown (not desktop-only): a real
-                    media player needs both skip directions available
-                    regardless of viewport, matching Next right beside it. */}
-                <button onClick={prev} title="Previous" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', borderRadius: '50%', width: isMobile ? '34px' : '36px', height: isMobile ? '34px' : '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                    <SkipBack size={14} />
-                </button>
-                <button
-                    onClick={togglePlay} title={isPlaying ? 'Pause' : 'Play'}
-                    style={{
-                        background: 'var(--primary)', border: 'none', color: '#fff', borderRadius: '50%',
-                        width: isMobile ? '42px' : '44px', height: isMobile ? '42px' : '44px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: 'pointer', boxShadow: '0 4px 15px rgba(var(--primary-rgb), 0.3)', flexShrink: 0,
-                    }}
-                >
-                    {isPlaying ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: '2px' }} />}
-                </button>
-                <button onClick={next} title="Next" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', borderRadius: '50%', width: isMobile ? '34px' : '36px', height: isMobile ? '34px' : '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-                    <SkipForward size={14} />
-                </button>
-
-                {!isMobile && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '6px', background: 'var(--bg-main)', padding: '7px 12px', borderRadius: '12px', border: '1px solid var(--border-premium)', flexShrink: 0 }}>
-                        <button onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex' }}>
-                            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                        </button>
-                        <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} aria-label="Volume" style={{ width: '80px', accentColor: 'var(--primary)' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {recentlyPlayed.map((t, i) => {
+                const isActive = currentTrack && currentTrack.title === t.title && (currentTrack.url === t.url || (t.uri && currentTrack.uri === t.uri));
+                const canPlaySpotify = t.source === 'spotify' && !!t.uri && spotifyDeviceId && spotifyAuth.connected;
+                const playable = !!t.url || canPlaySpotify;
+                const doPlay = () => {
+                    if (canPlaySpotify) {
+                        if (activeSource !== 'spotify') setActiveSource('spotify');
+                        spotifyPlayUri(t.uri);
+                    } else if (t.url) {
+                        playTrackNow(t.title, t.url);
+                    }
+                };
+                const badge = SOURCE_BADGE_STYLE[t.source] || SOURCE_BADGE_STYLE.local;
+                return (
+                    <div
+                        key={t.title + i}
+                        onClick={() => { if (playable) (isActive ? togglePlay() : doPlay()); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}
+                    >
+                        {t.artworkUrl ? (
+                            <img src={t.artworkUrl} alt="" style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
+                        ) : (
+                            <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: gradientForId(t.title), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Disc size={15} color="rgba(255,255,255,0.85)" />
+                            </div>
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                            {t.artist && <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.artist}</div>}
+                        </div>
+                        {!playable && <span style={{ fontSize: '9px', color: 'var(--text-muted)', flexShrink: 0 }}>Search to replay</span>}
+                        <span style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px', color: badge.color, flexShrink: 0 }}>{badge.label}</span>
+                        {playable && (isActive && isPlaying ? <Pause size={14} color="var(--primary)" /> : <Play size={14} color="var(--text-muted)" />)}
                     </div>
-                )}
-            </div>
+                );
+            })}
         </div>
     );
-};
+});
+
+// Real, reported gap closed: a track favorited anywhere in this app (the
+// "..." menu, the full player's heart button) previously had nowhere to
+// actually be seen as a list - the heart icons themselves always worked
+// (see toggleFavoriteTrack), there was just no view for the result.
+// favoriteTrackDetails (title -> {artist,url,source,artworkUrl}) only
+// exists for tracks favorited AFTER this fix - older entries in
+// favoriteTrackTitles (title-only, from before) still render honestly as
+// a bare title with a LOCAL badge, resolved against the local library by
+// title if possible (the only source with a stable, guessable url).
+const FavoritesView = React.memo(({ favoriteTrackTitles, favoriteTrackDetails, toggleFavoriteTrack, playTrackNow, currentTrack, isPlaying, togglePlay }) => {
+    const allTracks = useMemo(getAllLibraryTracks, []);
+    // Real fix for a real bug ("bahut sara song gayab hai" - many
+    // favorited songs missing): favoriteTrackTitles now holds composite
+    // source+artist-aware KEYS for non-local tracks, not literal titles
+    // (see makeFavoriteKey's own comment in AudioPlayerContext.jsx) - two
+    // different tracks that happened to share a title used to collide into
+    // one Set entry and silently overwrite each other. Each key's REAL
+    // title is recovered from favoriteTrackDetails[key].title (always
+    // stored there now), falling back to the key itself only for legacy
+    // 'local' entries, where the key genuinely still IS the plain title.
+    const rows = useMemo(() => {
+        return [...favoriteTrackTitles].map((key) => {
+            const details = favoriteTrackDetails[key];
+            const title = details?.title || key;
+            if (details) return { key, title, ...details };
+            const localMatch = allTracks.find((t) => t.title === title);
+            return localMatch
+                ? { key, title, artist: localMatch.artist, url: localMatch.url, source: 'local' }
+                : { key, title, artist: '', url: '', source: 'local' };
+        });
+    }, [favoriteTrackTitles, favoriteTrackDetails, allTracks]);
+
+    // Real, explicitly-requested feature: the user's ACTUAL Spotify "Liked
+    // Songs" library, not just tracks favorited from inside this app -
+    // shown as its own clearly-labeled section above the app-local list.
+    // Read-only here (no un-like) - that's a real, separate scope
+    // (PUT/DELETE /v1/me/tracks) not yet built, kept honest rather than a
+    // heart button that would silently do nothing.
+    const { spotifyAuth, spotifyDeviceId, spotifyPlayUri, activeSource, setActiveSource } = useStreaming();
+    const [spotifyLiked, setSpotifyLiked] = useState([]);
+    const [spotifyLikedLoading, setSpotifyLikedLoading] = useState(false);
+    const [spotifyLikedError, setSpotifyLikedError] = useState(null);
+    useEffect(() => {
+        if (!spotifyAuth.connected || !spotifyAuth.accessToken) { setSpotifyLiked([]); return undefined; }
+        let cancelled = false;
+        setSpotifyLikedLoading(true);
+        setSpotifyLikedError(null);
+        getSpotifyLikedSongs(spotifyAuth.accessToken)
+            .then((results) => { if (!cancelled) setSpotifyLiked(results); })
+            .catch((err) => { if (!cancelled) setSpotifyLikedError(err.message || 'Could not load your Spotify Liked Songs'); })
+            .finally(() => { if (!cancelled) setSpotifyLikedLoading(false); });
+        return () => { cancelled = true; };
+    }, [spotifyAuth.connected, spotifyAuth.accessToken]);
+
+    const handleSpotifyTrackClick = (track) => {
+        if (spotifyDeviceId && spotifyAuth.connected) {
+            if (activeSource !== 'spotify') setActiveSource('spotify');
+            spotifyPlayUri(track.uri);
+        } else if (track.previewUrl) {
+            playTrackNow(track.title, track.previewUrl);
+        }
+    };
+
+    if (rows.length === 0 && spotifyLiked.length === 0 && !spotifyLikedLoading) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px 20px', textAlign: 'center' }}>
+                <Heart size={26} color="var(--text-muted)" />
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>No favourites yet - tap the heart on any track (the "..." menu, or the full player) to add it here.</p>
+            </div>
+        );
+    }
+    // Explicit request: split into two side-by-side columns (Spotify Liked
+    // Songs / Favourited in Nexus) instead of one stacked on top of the
+    // other - grid naturally collapses to a single column on a narrow
+    // viewport instead of needing a separate isMobile check.
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', alignItems: 'start' }}>
+            {spotifyAuth.connected && (spotifyLiked.length > 0 || spotifyLikedLoading || spotifyLikedError) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Spotify Liked Songs</h3>
+                    {spotifyLikedLoading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Loading…</p>}
+                    {spotifyLikedError && <p style={{ fontSize: '13px', color: '#fca5a5', margin: 0 }}>{spotifyLikedError}</p>}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {spotifyLiked.map((t) => {
+                            const isActive = currentTrack && currentTrack.title === t.title;
+                            const playable = (spotifyDeviceId && spotifyAuth.connected) || t.previewUrl;
+                            return (
+                                <div
+                                    key={t.id}
+                                    onClick={() => playable && handleSpotifyTrackClick(t)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}
+                                >
+                                    {t.artworkUrl ? (
+                                        <img src={t.artworkUrl} alt="" style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
+                                    ) : (
+                                        <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: 'var(--widget-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <Disc size={15} color="var(--text-muted)" />
+                                        </div>
+                                    )}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                        {t.artist && <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.artist}</div>}
+                                    </div>
+                                    {!playable && <span style={{ fontSize: '9px', color: 'var(--text-muted)', flexShrink: 0 }}>No preview</span>}
+                                    <span style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px', color: SOURCE_BADGE_STYLE.spotify.color, flexShrink: 0 }}>{SOURCE_BADGE_STYLE.spotify.label}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+            {rows.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {spotifyAuth.connected && <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Favourited in Nexus</h3>}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {rows.map((t) => {
+                            const isActive = currentTrack && currentTrack.title === t.title;
+                            const playable = !!t.url;
+                            const badge = SOURCE_BADGE_STYLE[t.source] || SOURCE_BADGE_STYLE.local;
+                            return (
+                                <div
+                                    key={t.key}
+                                    onClick={() => { if (playable) (isActive ? togglePlay() : playTrackNow(t.title, t.url)); }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}
+                                >
+                                    {t.artworkUrl ? (
+                                        <img src={t.artworkUrl} alt="" style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />
+                                    ) : (
+                                        <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: gradientForId(t.title), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <Disc size={15} color="rgba(255,255,255,0.85)" />
+                                        </div>
+                                    )}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                                        {t.artist && <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.artist}</div>}
+                                    </div>
+                                    {!playable && <span style={{ fontSize: '9px', color: 'var(--text-muted)', flexShrink: 0 }}>Search to replay</span>}
+                                    <span style={{ fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px', color: badge.color, flexShrink: 0 }}>{badge.label}</span>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); toggleFavoriteTrack(t.title, { source: t.source, artist: t.artist }); }}
+                                        title="Remove from favourites"
+                                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                                    >
+                                        <Heart size={14} color="#F43F5E" fill="#F43F5E" />
+                                    </button>
+                                    {isActive && (isPlaying ? <Pause size={14} color="var(--primary)" /> : <Play size={14} color="var(--text-muted)" />)}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+});
+
+// Explicit request: remove every demo/mock entry that used to live here
+// (this used to be getAllLibraryTracks() - the app's own placeholder
+// catalog, e.g. "Focus Flow"/"Deep Work") and replace it with something
+// real and necessary, left to this app's own judgment per the user's
+// explicit delegation ("apni samajh se... zaroori cheez rakh sakte ho").
+// Real Spotify's own "Songs" library entry is just Liked Songs, but
+// FavoritesView already shows that clearly - repeating it here would be
+// pure duplication, not something necessary. What's genuinely missing a
+// home anywhere else: the user's OWN real uploaded local files
+// (playlist entries with isLocal===true, from the Local Files tab) -
+// currently only visible buried inside the live queue, never as a browsable
+// list of their own.
+const SongsView = React.memo(({ playlist, playTrackNow, currentTrack, isPlaying, togglePlay, setActiveView }) => {
+    const localSongs = useMemo(() => (playlist || []).filter((t) => t.isLocal), [playlist]);
+    if (localSongs.length === 0) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px 20px', textAlign: 'center' }}>
+                <Music2 size={26} color="var(--text-muted)" />
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>No local songs added yet - your own uploaded files show up here.</p>
+                {typeof setActiveView === 'function' && (
+                    <button onClick={() => setActiveView('local')} style={{ marginTop: '4px', padding: '8px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '8px', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Go to Local Files</button>
+                )}
+            </div>
+        );
+    }
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {localSongs.map((t, i) => {
+                const isActive = currentTrack && currentTrack.title === t.title;
+                return (
+                    <div
+                        key={t.id || t.title + i}
+                        onClick={() => (isActive ? togglePlay() : playTrackNow(t.title, t.url))}
+                        style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: 'pointer' }}
+                    >
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '700', width: '18px', flexShrink: 0 }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                            {t.artist && <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.artist}</div>}
+                        </div>
+                        {isActive && isPlaying ? <Pause size={14} color="var(--primary)" /> : <Play size={14} color="var(--text-muted)" />}
+                    </div>
+                );
+            })}
+        </div>
+    );
+});
+
+const ArtistsView = React.memo(({ playTrackNow, currentTrack, isPlaying, togglePlay }) => {
+    const allTracks = useMemo(getAllLibraryTracks, []);
+    const [selectedArtist, setSelectedArtist] = useState(null);
+    const artists = useMemo(() => {
+        const map = new Map();
+        allTracks.forEach((t) => {
+            const name = t.artist || 'Unknown Artist';
+            if (!map.has(name)) map.set(name, []);
+            map.get(name).push(t);
+        });
+        return Array.from(map.entries());
+    }, [allTracks]);
+
+    if (selectedArtist) {
+        const tracks = artists.find(([name]) => name === selectedArtist)?.[1] || [];
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button onClick={() => setSelectedArtist(null)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '10px', padding: '8px', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={18} /></button>
+                    <h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>{selectedArtist}</h3>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {tracks.map((t, i) => {
+                        const isActive = currentTrack && currentTrack.title === t.title;
+                        return (
+                            <div
+                                key={t.id || t.title + i}
+                                onClick={() => (isActive ? togglePlay() : playTrackNow(t.title, t.url))}
+                                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: 'pointer' }}
+                            >
+                                <span style={{ fontSize: '13px', fontWeight: '700', color: isActive ? 'var(--primary)' : 'var(--text-primary)', flex: 1 }}>{t.title}</span>
+                                {isActive && isPlaying ? <Pause size={14} color="var(--primary)" /> : <Play size={14} color="var(--text-muted)" />}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {artists.map(([name, tracks]) => (
+                <div
+                    key={name}
+                    onClick={() => setSelectedArtist(name)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: 'pointer' }}
+                >
+                    <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: 'var(--primary-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Mic2 size={15} color="var(--primary)" />
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', flex: 1 }}>{name}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{tracks.length} track{tracks.length !== 1 ? 's' : ''}</span>
+                </div>
+            ))}
+        </div>
+    );
+});
 
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
-const AudioHubPage = () => {
+// Same 8 destinations AudioSidebar renders as a real vertical sidebar on
+// desktop - reused here as a horizontal scrollable pill row on mobile,
+// where a fixed 220px-wide sidebar would eat too much of the screen. This
+// mirrors an established convention already used elsewhere in this app
+// (e.g. Notifications' anchored dropdown becoming a full-width bottom
+// sheet on mobile): the same real destinations, a layout suited to the
+// viewport.
+const MOBILE_NAV_ITEMS = [
+    { id: 'search', label: 'Search', icon: Search },
+    { id: 'home', label: 'Home', icon: Home },
+    { id: 'local', label: 'Local Files', icon: FolderOpen },
+    { id: 'pins', label: 'Pins', icon: Pin },
+    { id: 'recent', label: 'Recent', icon: Clock },
+    { id: 'artists', label: 'Artists', icon: Mic2 },
+    { id: 'songs', label: 'Songs', icon: Music2 },
+];
+
+const VIEW_TITLES = {
+    search: 'Search', home: 'Home', local: 'Local Files',
+    pins: 'Pins', favorites: 'Favourites', recent: 'Recently Played', artists: 'Artists', songs: 'Songs', settings: 'Music Settings',
+};
+
+const AudioHubPage = ({ setActiveTab }) => {
     const isMobile = useIsMobile();
     useEffect(() => {
         localStorage.setItem('nexus_current_route', 'audio_hub');
@@ -974,133 +1871,307 @@ const AudioHubPage = () => {
 
     const {
         playlist, currentSongIndex, currentTrack, isPlaying, volume, isMuted, currentTime, duration,
-        favoritePlaylistIds, favoriteTrackTitles, shuffleEnabled, repeatMode, recentlyPlayed, durationsByUrl,
-        setVolume, toggleMute, togglePlay, playAt, next, prev, addSong,
+        favoritePlaylistIds, favoriteTrackTitles, favoriteTrackDetails, shuffleEnabled, repeatMode, recentlyPlayed, durationsByUrl,
+        setVolume: setLocalVolume, toggleMute, togglePlay, playAt, next, prev, addSong,
         addRemoteTrack, playTrackNow, queuePlaylistTracks, toggleFavoritePlaylist, toggleFavoriteTrack,
-        toggleShuffle, cycleRepeatMode, playPreset, deleteSong, moveSong, seek, cloudUploadStatus,
+        toggleShuffle, cycleRepeatMode, deleteSong, moveSong, seek,
     } = useAudioPlayer();
+    // currentTrack/isPlaying/currentTime/duration/seek above already
+    // transparently reflect Spotify's real Web Playback SDK state when
+    // it's the active source (AudioPlayerContext's own effectiveCurrentTrack
+    // mechanism - the same one YouTube already used) - no local override
+    // needed here anymore. Only volume still needs a small wrapper: the
+    // SDK has its own separate volume the local <audio> element's setVolume
+    // never touches.
+    const { activeSource, spotifySetVolume } = useStreaming();
+    const setVolume = (v) => {
+        setLocalVolume(v);
+        if (activeSource === 'spotify') spotifySetVolume(v);
+    };
 
-    const [subTab, setSubTab] = useState('library');
+    const [activeView, setActiveView] = useState('home');
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [connectionsPanelOpen, setConnectionsPanelOpen] = useState(false);
+    const { width: sidebarWidth, isDragging: sidebarDragging, handleMouseDown: handleSidebarResizeMouseDown } = useResizableSidebar({
+        storageKey: 'nexus_audio_sidebar_width', defaultWidth: 220, minWidth: 180, maxWidth: 320,
+    });
+
+    // Mobile has no room for AudioSidebar's own full footer, but Settings/
+    // Sign Out still need to be reachable - DashboardLayout hides the main
+    // app header/sidebar on this tab on mobile (see isHeaderHiddenOnMobile),
+    // so without this there would be no path to either. A small profile
+    // avatar button in the mobile nav row opens the exact same ProfileMenu.
+    const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+    const mobileProfileBtnRef = useRef(null);
+    const mobileProfileInitial = useMemo(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('nexus_user_profile') || '{}');
+            const name = saved.name || 'New User';
+            return name === 'New User' ? 'U' : name.charAt(0).toUpperCase();
+        } catch (e) {
+            return 'U';
+        }
+    }, []);
+
+    // Bundled once so both the Up Next drawer (opened from the floating
+    // player) and this page's own inline queue get the exact same props -
+    // one source of truth instead of two call sites drifting apart.
+    const queueProps = {
+        playlist, currentSongIndex, isPlaying,
+        togglePlay, playAt, deleteSong, moveSong,
+        favoriteTrackTitles, toggleFavoriteTrack, durationsByUrl,
+        // Real, reported bug fixed: QueueManager's own "which row is
+        // active" check used to compare currentSongIndex alone - when
+        // Spotify/YouTube was the real active source, `isPlaying` (the
+        // effective one) was correctly true, but currentSongIndex still
+        // pointed at whatever LOCAL track was last selected, so THAT row
+        // showed as falsely "active + playing" - and clicking its own
+        // Play/Pause button then called togglePlay() (which respects
+        // activeSource, so toggled Spotify) instead of actually starting
+        // the local track, which is exactly what read as "local song
+        // won't play any more". activeSource lets QueueManager gate its
+        // own active-row detection correctly.
+        activeSource,
+    };
+
+    // Views render directly on the page background now (no per-view boxed
+    // card wrapper) - real, explicit feedback that the "Playlists & Albums"
+    // grid (and the rest of this page) had a "card within a card" look; a
+    // shared object avoids repeating the same JSX for every activeView
+    // branch below.
+    const activeViewContent = (() => {
+        switch (activeView) {
+            case 'home': return (
+                <LibraryTab
+                    playTrackNow={playTrackNow}
+                    recentlyPlayed={recentlyPlayed}
+                    currentTrack={currentTrack}
+                    isPlaying={isPlaying}
+                    togglePlay={togglePlay}
+                />
+            );
+            case 'search': return <GlobalSearchTab playlist={playlist} playTrackNow={playTrackNow} />;
+            case 'local': return <LocalFilesTab addSong={addSong} playlist={playlist} />;
+            case 'pins': return <PinsView favoritePlaylistIds={favoritePlaylistIds} toggleFavoritePlaylist={toggleFavoritePlaylist} queuePlaylistTracks={queuePlaylistTracks} playTrackNow={playTrackNow} isMobile={isMobile} />;
+            case 'favorites': return <FavoritesView favoriteTrackTitles={favoriteTrackTitles} favoriteTrackDetails={favoriteTrackDetails} toggleFavoriteTrack={toggleFavoriteTrack} playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} />;
+            case 'recent': return <RecentlyPlayedView recentlyPlayed={recentlyPlayed} currentTrack={currentTrack} isPlaying={isPlaying} playTrackNow={playTrackNow} togglePlay={togglePlay} />;
+            case 'artists': return <ArtistsView playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} />;
+            case 'songs': return <SongsView playlist={playlist} playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} setActiveView={setActiveView} />;
+            case 'settings': return <AudioSettingsView />;
+            default: return null;
+        }
+    })();
 
     return (
         <div style={{
-            display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', animation: 'fadeInScale 0.3s ease',
+            display: 'flex', flexDirection: 'column', animation: 'fadeInScale 0.3s ease',
             width: '100%', maxWidth: '1600px', margin: '0 auto', boxSizing: 'border-box', minWidth: 0,
-            // Bounded to the real, available viewport height (minus the
-            // fixed chrome genuinely around this page - see AIPage.jsx's
-            // own identical fix for the exact same reasoning) so the
-            // MiniPlayerBar below can sit as a normal, non-fixed last
-            // flex child that's always visible, with only the middle
-            // browsing area scrolling internally - not position:fixed/
-            // sticky, which would need to know the sidebar's own dynamic
-            // width or risk clipping inside an overflow:hidden ancestor.
-            // Mobile constant is 73px (16px top offset from the page
-            // wrapper's own padding + the 57px bottom-nav bar), not
-            // 152px - that older value included room for the global
-            // Header, which no longer renders on this page on mobile
-            // (hidden per an explicit request). Leaving 152px here after
-            // that change left this container 79px shorter than the real
-            // available space - live-measured: mini-player bottom edge
-            // landed at y=676 while the bottom nav's own top edge was at
-            // y=755, a real, visible dead gap, which is also what made
-            // the scrubber (already correctly pinned to the mini-player's
-            // own top edge) read as "floating" - closing this gap removes
-            // the empty space around it entirely. Desktop's 164px is
-            // untouched since the header is still shown there.
-            // Also now subtracts safe-area-inset-top, same reasoning as
-            // AIPage.jsx's identical addition: glass-panel's own top
-            // padding on this page became `16px + that inset` once the
-            // status bar stopped being cleared by the (hidden-on-mobile)
-            // global Header - without this, the page's real total height
-            // would exceed 100vh by that inset, pushing the mini-player
-            // bar's bottom edge back behind the bottom nav.
-            height: isMobile ? 'calc(100vh - 73px - env(safe-area-inset-bottom, 0px) - env(safe-area-inset-top, 0px))' : 'calc(100vh - 164px)',
+            // Real relative anchor for FloatingBottomPlayer's own absolute
+            // positioning - it floats OVER this page's content rather than
+            // pushing it, per the redesign spec.
+            position: 'relative',
+            height: '100%', minHeight: 0, overflow: 'hidden',
+            // DashboardLayout gives this page zero glass-panel padding, so
+            // it applies its own padding instead. Left padding dropped to 0
+            // (was 24px) - explicit later feedback that the gap between the
+            // Main App Sidebar and this page's OWN inner AudioSidebar was
+            // way too large compared to the small, precise gap near the
+            // Main Sidebar's own 'N' logo. AudioSidebar now sits flush at
+            // this page's own true left edge, so the ONLY gap between the
+            // two sidebars is the 10px resizer/spacer below - the exact
+            // same value DashboardLayout's own shell now uses, so the two
+            // gaps read as visually identical everywhere in the app.
+            //
+            // Right padding dropped to 0 too (was 24px) - a real, reported
+            // bug: that padding sat on THIS outer wrapper, one level above
+            // the actual scrolling container (see its own overflowY:'auto'
+            // div further down), so the scrollbar rendered at the INNER
+            // box's edge - 24px short of the page's true right edge -
+            // leaving a visible dead strip of empty space between the
+            // scrollbar and the window edge. The same 24px of breathing
+            // room now lives as padding-right on the scroll container
+            // itself instead, which keeps the content inset from the
+            // scrollbar while letting the scrollbar itself sit flush
+            // against the real edge, matching the left side.
+            padding: isMobile ? 'calc(16px + env(safe-area-inset-top, 0px)) 12px 0 12px' : '8px 0 0 0',
         }}>
-
-            {/* Compact top bar - just the section tabs now (the back arrow
-                that used to sit before them jumped straight to Home,
-                which doesn't fit this page's own streaming-app tab
-                layout - every other hub page reaches Home via the
-                sidebar/bottom-nav, not a page-local back button). */}
-            <div style={{
-                display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
-                borderBottom: isMobile ? 'none' : '1px solid var(--border-premium)', paddingBottom: '2px',
-                flexWrap: isMobile ? 'nowrap' : 'wrap',
-                overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch',
-            }}>
-                {/* Mobile: clean, rounded pill tabs (Apple Music/Spotify
-                    style) in a horizontally-scrolling row instead of
-                    wrapping onto multiple lines. Desktop keeps its
-                    existing underline-tab treatment unchanged. */}
-                {SUB_TABS.map((t) => {
-                    const Icon = t.icon;
-                    const active = subTab === t.id;
-                    return (
-                        <button
-                            key={t.id}
-                            onClick={() => setSubTab(t.id)}
-                            style={isMobile ? {
-                                display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
-                                background: active ? 'var(--primary)' : 'var(--widget-bg)',
-                                border: `1px solid ${active ? 'var(--primary)' : 'var(--border-premium)'}`,
-                                borderRadius: '20px',
-                                color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
-                                marginBottom: '8px', whiteSpace: 'nowrap',
-                            } : {
-                                display: 'flex', alignItems: 'center', gap: '7px', padding: '10px 16px',
-                                background: 'transparent', border: 'none', borderBottom: `2px solid ${active ? 'var(--primary)' : 'transparent'}`,
-                                color: active ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '13px', cursor: 'pointer',
-                            }}
-                        >
-                            <Icon size={15} /> {t.label}
-                        </button>
-                    );
-                })}
-            </div>
-            {/* Scrollable browsing area - tab content + queue are the
-                actual main surface of this page now (a real streaming
-                app's own main view is almost entirely this), scrolling
-                independently in the space between the tab row above and
-                the pinned MiniPlayerBar below. flex: 1, minHeight: 0 is
-                what makes that internal scroll genuinely bounded instead
-                of growing the whole page - see AIPage.jsx's own identical
-                fix for why minHeight: 0 is required at every level of a
-                nested flex-column chain like this one. */}
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px' }}>
-                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '24px', padding: '28px', minHeight: '200px', width: '100%', boxSizing: 'border-box', overflow: 'hidden', minWidth: 0, flexShrink: 0 }}>
-                    {subTab === 'library' && (
-                        <LibraryTab
-                            favoritePlaylistIds={favoritePlaylistIds}
-                            toggleFavoritePlaylist={toggleFavoritePlaylist}
-                            queuePlaylistTracks={queuePlaylistTracks}
-                            playTrackNow={playTrackNow}
-                            recentlyPlayed={recentlyPlayed}
-                            currentTrack={currentTrack}
-                            isPlaying={isPlaying}
-                            togglePlay={togglePlay}
+            {/* "Back to Home" MOVED here from inside AudioSidebar's own
+                card, per explicit request - it now sits in the real, actual
+                gap between the main app header and this page's sidebar
+                (this page's own top padding above), not nested inside
+                either card. A real text label now, not just a bare icon.
+                Both the outer padding above and this button's own bottom
+                padding were tightened - real, reported feedback that the
+                first version left too much dead space here (and made the
+                "Home" title below feel visually cramped/cut against it). */}
+            {!isMobile && (
+                <button
+                    type="button"
+                    onClick={() => typeof setActiveTab === 'function' && setActiveTab('Home')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '6px', alignSelf: 'flex-start',
+                        background: 'transparent', border: 'none', color: 'var(--text-secondary)',
+                        fontSize: '12px', fontWeight: '700', cursor: 'pointer', padding: '0 2px 6px 4px', flexShrink: 0,
+                    }}
+                >
+                    <ChevronLeft size={15} /> Back to Home
+                </button>
+            )}
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '14px' : 0 }}>
+                {!isMobile && (
+                    <>
+                        <AudioSidebar
+                            activeView={activeView} onSelectView={setActiveView}
+                            collapsed={sidebarCollapsed}
+                            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+                            width={sidebarWidth}
+                            onOpenConnections={() => setConnectionsPanelOpen(true)}
                         />
-                    )}
-                    {subTab === 'search' && <GlobalSearchTab playlist={playlist} playTrackNow={playTrackNow} />}
-                    {subTab === 'ambient' && <AmbientTab currentTrack={currentTrack} isPlaying={isPlaying} playPreset={playPreset} />}
-                    {subTab === 'local' && <LocalFilesTab addSong={addSong} cloudUploadStatus={cloudUploadStatus} playlist={playlist} />}
-                </div>
+                        {connectionsPanelOpen && (
+                            <ConnectionsPanel onClose={() => setConnectionsPanelOpen(false)} />
+                        )}
+                        {/* Drag-to-resize handle, same proven mechanism as
+                            the AI page's own sidebar (useResizableSidebar) -
+                            doubles as the sidebar's own "floating gap" from
+                            the content column, so no separate CSS gap is
+                            needed alongside it. Not rendered while
+                            collapsed (nothing meaningful to resize in the
+                            narrow icon rail); a plain spacer keeps the same
+                            visual gap in that state instead. */}
+                        {sidebarCollapsed ? (
+                            <div style={{ width: '10px', flexShrink: 0 }} />
+                        ) : (
+                            <div
+                                className={`nexus-sidebar-resizer${sidebarDragging ? ' is-dragging' : ''}`}
+                                onMouseDown={handleSidebarResizeMouseDown}
+                                role="separator" aria-orientation="vertical" aria-label="Resize sidebar"
+                                style={{ width: '10px', margin: 0 }}
+                            />
+                        )}
+                    </>
+                )}
 
-                {/* Queue - still visible regardless of active sub-tab, just
-                    now part of the same internally-scrolling area instead
-                    of pushing the whole page taller. */}
-                <QueueManager
-                    playlist={playlist} currentSongIndex={currentSongIndex} isPlaying={isPlaying}
-                    togglePlay={togglePlay} playAt={playAt} deleteSong={deleteSong} moveSong={moveSong}
-                    favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
-                    durationsByUrl={durationsByUrl}
-                />
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    {/* Mobile-only chrome: back button + horizontally-
+                        scrolling nav pill row standing in for the full
+                        sidebar, plus a profile avatar. Pinned (not part of
+                        the unified scroll below) since it functions as
+                        real navigation, not page content - equivalent to
+                        the desktop sidebar staying in place while content
+                        scrolls past it. */}
+                    {isMobile && (
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0,
+                            padding: '0 0 10px 0', flexWrap: 'nowrap', overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+                        }}>
+                            <button
+                                type="button"
+                                onClick={() => typeof setActiveTab === 'function' && setActiveTab('Home')}
+                                aria-label="Back to Home" title="Back to Home"
+                                style={{
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                    width: '38px', height: '38px', borderRadius: '9999px',
+                                    background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', cursor: 'pointer',
+                                }}
+                            >
+                                <ChevronLeft size={18} />
+                            </button>
+                            {MOBILE_NAV_ITEMS.map((item) => {
+                                const Icon = item.icon;
+                                const active = activeView === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => setActiveView(item.id)}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
+                                            background: active ? 'var(--primary)' : 'var(--widget-bg)',
+                                            border: `1px solid ${active ? 'var(--primary)' : 'var(--border-premium)'}`,
+                                            borderRadius: '9999px',
+                                            color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        <Icon size={14} /> {item.label}
+                                    </button>
+                                );
+                            })}
+                            <div style={{ position: 'relative', flexShrink: 0, marginLeft: '2px' }}>
+                                <button
+                                    ref={mobileProfileBtnRef}
+                                    onClick={() => setMobileProfileOpen((v) => !v)}
+                                    aria-label="Profile menu"
+                                    style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px',
+                                        borderRadius: '50%', border: 'none', cursor: 'pointer',
+                                        background: 'linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899)', color: '#fff',
+                                        fontSize: '13px', fontWeight: '800', overflow: 'hidden',
+                                    }}
+                                >
+                                    {mobileProfileInitial}
+                                </button>
+                                {mobileProfileOpen && (
+                                    <ProfileMenu anchorRef={mobileProfileBtnRef} onClose={() => setMobileProfileOpen(false)} onOpenSettings={() => setActiveView('settings')} placement="bottom" />
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Unified scroll - the desktop view title now lives
+                        INSIDE this same scrolling container (scrolls away
+                        with the rest of the page) instead of a separate
+                        pinned header row above it, per explicit "Home
+                        should scroll with Playlists & Albums, not sit in
+                        its own independent area" feedback. Bottom padding
+                        reserves room for FloatingBottomPlayer so the last
+                        row of content is never permanently hidden behind
+                        it. */}
+                    <div style={{
+                        flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '18px',
+                        paddingBottom: isMobile ? '160px' : '110px',
+                        // Moved here from the outer page wrapper (was
+                        // padding-right there) - see that wrapper's own
+                        // comment. Right padding on THIS element (the actual
+                        // overflowY:'auto' box) means the scrollbar renders
+                        // at its outer edge, flush with the true page edge,
+                        // while this padding still keeps the content itself
+                        // inset from both the scrollbar and the window edge.
+                        paddingRight: isMobile ? 0 : '24px',
+                    }}>
+                        {!isMobile && (
+                            <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, flexShrink: 0 }}>{VIEW_TITLES[activeView]}</h2>
+                        )}
+                        {activeViewContent}
+                        {/* Real, reported gap closed: this "Playback Queue"
+                            section used to render on EVERY browsing view
+                            (Home, Search, Recently Played, etc.) - genuinely
+                            confusing/redundant showing up everywhere the
+                            user looked, since the exact same list is
+                            already one tap away from the floating player's
+                            own "Up Next" button (QueueDrawer) whenever it's
+                            actually needed. Removed entirely rather than
+                            scoped to just one view. */}
+                    </div>
+                </div>
             </div>
 
-            <MiniPlayerBar
-                currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev} isMobile={isMobile}
+            <FloatingBottomPlayer
+                // currentTrack/isPlaying/currentTime/duration/seek already
+                // transparently reflect Spotify's real state when it's
+                // active (see the useAudioPlayer() comment above) - no
+                // per-call swap needed here anymore. Shuffle/repeat/
+                // favorite/queue still point at the local playlist
+                // mechanism regardless of source (Spotify tracks aren't
+                // part of it, and the SDK's own shuffle/repeat state isn't
+                // wired up yet) - a known, smaller gap, not this fix's scope.
+                currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev}
+                isMobile={isMobile}
                 favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
                 volume={volume} isMuted={isMuted} toggleMute={toggleMute} setVolume={setVolume}
                 currentTime={currentTime} duration={duration} seek={seek}
+                shuffleEnabled={shuffleEnabled} toggleShuffle={toggleShuffle}
+                repeatMode={repeatMode} cycleRepeatMode={cycleRepeatMode}
+                deleteSong={deleteSong} queueProps={queueProps}
             />
         </div>
     );

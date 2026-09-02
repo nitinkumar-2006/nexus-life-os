@@ -27,7 +27,7 @@ import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 // toggled off in the OS Module Manager. Finance/Calendar are still also
 // present in ALL_NAV_ITEMS/MobileSidebarDrawer - same intentional dual
 // reachability Home already had before this change, not a new pattern.
-const PRIMARY_TABS = [
+export const PRIMARY_TABS = [
     { name: 'Home', icon: Command },
     { name: 'Finance', icon: Wallet },
     { name: 'AI', icon: Cpu },
@@ -57,16 +57,59 @@ const MobileTabBar = ({ activeTab, setActiveTab }) => {
             style={{
                 position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,
                 display: 'flex', alignItems: 'stretch',
-                // --mobile-nav-bg (Dynamic theme only; Night/Comfort/Day
-                // fall through to the same solid --sidebar-bg they always
-                // used) carries a real opacity floor this exact element
-                // needs - see its own definition in variables.css for the
-                // confirmed-on-device WebKit reason. Keeping the literal
-                // "var(--sidebar-bg)" substring present (as the fallback)
-                // is deliberate: style.css's own [style*="var(--sidebar-bg)"]
-                // backdrop-filter rule matches on this string, so the blur
-                // this nav already had keeps applying on top of the new floor.
-                background: 'var(--mobile-nav-bg, var(--sidebar-bg))',
+                // Literally the same background declaration as header.jsx's
+                // own <header> element (var(--header-bg, var(--bg-main))) -
+                // deliberate, exact parity, per explicit request: this used
+                // to read var(--mobile-nav-bg, ...) instead, a SEPARATE
+                // token with its own always-on 0.72 alpha floor (regardless
+                // of wallpaper), which made this bar visibly more opaque
+                // than the header on the same animated-sky wallpaper at low
+                // glass-alpha settings - the header would show the sun/moon
+                // through it beautifully while this bar stayed comparatively
+                // solid. --header-bg carries no such floor on the sky
+                // wallpaper (only a 0.4 floor when a custom image wallpaper
+                // is active - see style.css's own
+                // .nexus-app-shell[data-custom-wallpaper] rule, which
+                // already covers --header-bg too), so switching to it gives
+                // this bar the exact same look as the header on every theme,
+                // every wallpaper, every glass-alpha value.
+                // Trade-off worth knowing: --mobile-nav-bg's 0.72 floor
+                // existed specifically because this element is
+                // `position: fixed` sitting over another `position: fixed`
+                // layer (the sky background), and Safari/WebKit has a
+                // documented bug where backdrop-filter on a fixed element
+                // doesn't reliably capture another fixed element behind it -
+                // confirmed on a real iOS device to read as near-fully
+                // see-through even with blur genuinely applied. The header
+                // never hit this because it's `position: sticky`, not fixed.
+                // This bar is still `position: fixed` (needs to be, to stay
+                // pinned through scrolling), so if this reads as unexpectedly
+                // transparent on a real iPhone, that WebKit gap - not this
+                // change's own logic - is why.
+                background: 'var(--header-bg, var(--bg-main))',
+                // Real, reported bug: page content scrolling underneath this
+                // bar was still legible through it (most noticeably text) -
+                // exactly the WebKit "fixed-over-fixed backdrop-filter" gap
+                // this file's own comment above already flagged as a risk
+                // of the exact-parity-with-header decision. The actual fix
+                // is NOT a higher --header-bg opacity floor here - that
+                // exact approach was already tried for the header/sidebar
+                // and explicitly reverted (see variables.css's own "CUSTOM
+                // WALLPAPER CARD CONTRAST FIX" comment): flooring only
+                // THIS element's opacity while the page content scrolling
+                // up to meet its top edge stays at the user's own real,
+                // lower value creates a hard, visible seam right at that
+                // boundary. Blur is the safe lever instead - it doesn't
+                // change this bar's own tint/opacity at all, just how
+                // sharply whatever's behind it resolves, so raising it
+                // can't reproduce that seam. Same real, already-proven
+                // idiom this app uses elsewhere for a "raise the user's own
+                // slider value, never replace it" floor (see variables.css's
+                // dawn-contrast and custom-wallpaper max() floors) - applied
+                // to --glass-blur, and scoped to just this element via a
+                // local custom-property override, so no other glass surface
+                // on the page is affected.
+                '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
                 borderTop: '1px solid var(--border-premium)',
                 paddingBottom: 'env(safe-area-inset-bottom, 0px)',
                 // No inline boxShadow here on purpose - deliberately
@@ -88,6 +131,13 @@ const MobileTabBar = ({ activeTab, setActiveTab }) => {
                 // above is what provides separation in those themes,
                 // exactly like the header's own treatment relies on
                 // background contrast alone with no shadow either.
+                // Deliberately NO transform/will-change here. A GPU-layer-
+                // promotion attempt was tried and reverted - backdrop-
+                // filter plus transform on the same element has real,
+                // documented WebKit/Blink quirks in some browser versions,
+                // and this element's own blur/background already verified
+                // as byte-identical to the header's via getComputedStyle
+                // without it. Not worth the risk for an unproven gain.
             }}
         >
             {PRIMARY_TABS.map((item) => (

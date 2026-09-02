@@ -17,7 +17,7 @@
 
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -40,7 +40,29 @@ let storage = null;
 if (isFirebaseConfigured()) {
     app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(app);
-    db = getFirestore(app);
+    // Real, first-party offline persistence - Firestore genuinely caches
+    // reads and queues writes in the browser's own IndexedDB, then
+    // auto-flushes queued writes the moment connectivity returns, entirely
+    // inside the SDK. This is what actually backs the "offline queue +
+    // auto-flush on reconnect" requirement, rather than a hand-rolled
+    // queue reimplementing what Firestore already does correctly.
+    // persistentMultipleTabManager is required (not the single-tab
+    // default) since this is a normal web app users can and do open in
+    // more than one tab at once - the single-tab manager would silently
+    // fail to enable persistence in every tab after the first.
+    try {
+        db = initializeFirestore(app, {
+            localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+        });
+    } catch (e) {
+        // Falls back to the standard, non-persistent client rather than
+        // leaving `db` null and breaking the app - a real, known failure
+        // mode (private/incognito browsing, or a browser with IndexedDB
+        // disabled entirely) where persistence genuinely can't be enabled,
+        // not a bug to crash on. Online sync still works exactly as
+        // before; only the offline cache/queue is unavailable.
+        db = getFirestore(app);
+    }
     storage = getStorage(app);
 }
 

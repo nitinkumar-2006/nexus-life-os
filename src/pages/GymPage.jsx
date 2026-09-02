@@ -1,11 +1,12 @@
 // src/pages/GymPage.jsx
 import { useState, useEffect } from 'react';
-import { Dumbbell, Flame, TrendingUp, User, Target, Plus, Search, Play, Check, Trash2, ArrowLeft, Ruler, Sparkles, Cpu } from 'lucide-react';
+import { Dumbbell, Flame, TrendingUp, User, Target, Plus, Search, Play, Check, Trash2, ArrowLeft, Ruler, Sparkles, Cpu, Pencil, Save } from 'lucide-react';
 import AIQueryBox from '../components/AIQueryBox.jsx';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumberInput.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
+import { getLocalDateString } from '../utils/dateUtils.js';
 
 const KG_PER_LB = 0.45359237;
 // All weight data is stored in kilograms internally regardless of the
@@ -104,16 +105,30 @@ const GymPage = () => {
     const [tempTargetWeightDisplay, setTempTargetWeightDisplay] = useState(kgToDisplay(profile.targetWeight, weightUnit));
     const [isAddExerciseModal, setIsAddExerciseModal] = useState(false);
     const [newExercise, setNewExercise] = useState({ name: '', muscle: 'Chest', equipment: 'Barbell', difficulty: 'Beginner', type: 'Compound' });
+    // null while adding a fresh exercise; the exercise's own id while
+    // editing an existing one - same single-flag branching pattern
+    // TimetablePage.jsx's editingIndex uses for its own Add/Edit modal.
+    const [editingExerciseId, setEditingExerciseId] = useState(null);
     const [isAddMeasurementModal, setIsAddMeasurementModal] = useState(false);
     const [newMeasurement, setNewMeasurement] = useState({ chest: 0, waist: 0, biceps: 0 });
+    const [editingMeasurementId, setEditingMeasurementId] = useState(null);
     // Same "separate display-unit state" pattern as tempWeightDisplay above
     // - keeps the field typeable in whatever unit is currently selected
     // without converting through kg on every keystroke.
     const [measurementWeightDisplay, setMeasurementWeightDisplay] = useState(kgToDisplay(profile.weight, weightUnit));
-    
+
     // NEW: Add Plan Modal State
     const [isAddPlanModal, setIsAddPlanModal] = useState(false);
     const [newPlan, setNewPlan] = useState({ name: '', split: '6 Days / Week', focus: 'Hypertrophy', active: true, exerciseIds: [] });
+    const [editingPlanId, setEditingPlanId] = useState(null);
+
+    // Workout History entries have no manual "Add" flow (they're created by
+    // finishWorkoutSession or the AI assistant) - only a real, focused Edit
+    // modal for correcting a genuinely wrong title/date after the fact, not
+    // a full Add/Edit dual-purpose form like the other three.
+    const [isEditHistoryModal, setIsEditHistoryModal] = useState(false);
+    const [editingHistoryId, setEditingHistoryId] = useState(null);
+    const [editHistoryDraft, setEditHistoryDraft] = useState({ title: '', date: '' });
 
     const [searchQuery, setSearchQuery] = useState('');
     const [gymToast, setGymToast] = useState('');
@@ -189,39 +204,134 @@ const GymPage = () => {
     const handleAddExercise = (e) => {
         e.preventDefault();
         if (!newExercise.name.trim()) return;
-        const item = { id: Date.now().toString(), ...newExercise, name: toTitleCase(newExercise.name.trim()) };
-        setExercises([item, ...exercises]);
-        setIsAddExerciseModal(false);
+        const resolvedExercise = { ...newExercise, name: toTitleCase(newExercise.name.trim()) };
+        if (editingExerciseId !== null) {
+            setExercises((prev) => prev.map((ex) => (ex.id === editingExerciseId ? { ...ex, ...resolvedExercise } : ex)));
+        } else {
+            setExercises([{ id: Date.now().toString(), ...resolvedExercise }, ...exercises]);
+        }
+        closeExerciseModal();
+    };
+
+    // Opens the shared Add/Edit modal fresh for a brand-new exercise -
+    // resets every field so a previous Add or a cancelled Edit never
+    // leaves stale values behind for the next "Add Custom Exercise" click.
+    const openAddExerciseModal = () => {
+        setEditingExerciseId(null);
         setNewExercise({ name: '', muscle: 'Chest', equipment: 'Barbell', difficulty: 'Beginner', type: 'Compound' });
+        setIsAddExerciseModal(true);
+    };
+
+    const openEditExerciseModal = (exercise) => {
+        setEditingExerciseId(exercise.id);
+        setNewExercise({
+            name: exercise.name || '', muscle: exercise.muscle || 'Chest',
+            equipment: exercise.equipment || 'Barbell', difficulty: exercise.difficulty || 'Beginner', type: exercise.type || 'Compound',
+        });
+        setIsAddExerciseModal(true);
+    };
+
+    const closeExerciseModal = () => {
+        setIsAddExerciseModal(false);
+        setEditingExerciseId(null);
     };
 
     const handleAddMeasurement = (e) => {
         e.preventDefault();
-        const item = {
-            id: Date.now().toString(), date: new Date().toISOString().split('T')[0],
-            weight: displayToKg(measurementWeightDisplay, weightUnit) || profile.weight,
-            chest: parseFloat(newMeasurement.chest) || 0, waist: parseFloat(newMeasurement.waist) || 0, biceps: parseFloat(newMeasurement.biceps) || 0
-        };
-        setMeasurements([item, ...measurements]);
-        setProfile(prev => ({ ...prev, weight: item.weight }));
+        const weightKg = displayToKg(measurementWeightDisplay, weightUnit) || profile.weight;
+        const chest = parseFloat(newMeasurement.chest) || 0, waist = parseFloat(newMeasurement.waist) || 0, biceps = parseFloat(newMeasurement.biceps) || 0;
+        if (editingMeasurementId !== null) {
+            // Editing an existing (possibly historical) log entry doesn't
+            // touch the profile's current weight - only a genuinely new
+            // measurement below does that.
+            setMeasurements((prev) => prev.map((m) => (m.id === editingMeasurementId ? { ...m, weight: weightKg, chest, waist, biceps } : m)));
+        } else {
+            const item = { id: Date.now().toString(), date: getLocalDateString(), weight: weightKg, chest, waist, biceps };
+            setMeasurements([item, ...measurements]);
+            setProfile(prev => ({ ...prev, weight: item.weight }));
+        }
+        closeMeasurementModal();
+    };
+
+    const openAddMeasurementModal = () => {
+        setEditingMeasurementId(null);
+        setMeasurementWeightDisplay(kgToDisplay(profile.weight, weightUnit));
+        setNewMeasurement({ chest: 0, waist: 0, biceps: 0 });
+        setIsAddMeasurementModal(true);
+    };
+
+    const openEditMeasurementModal = (measurement) => {
+        setEditingMeasurementId(measurement.id);
+        setMeasurementWeightDisplay(kgToDisplay(measurement.weight, weightUnit));
+        setNewMeasurement({ chest: measurement.chest || 0, waist: measurement.waist || 0, biceps: measurement.biceps || 0 });
+        setIsAddMeasurementModal(true);
+    };
+
+    const closeMeasurementModal = () => {
         setIsAddMeasurementModal(false);
+        setEditingMeasurementId(null);
     };
 
     // NEW: Handle Add Plan
     const handleAddPlan = (e) => {
         e.preventDefault();
         if (!newPlan.name.trim()) return;
-        const item = { id: Date.now().toString(), ...newPlan };
-        setWorkoutPlans((prev) => {
-            // "Active Split" is a singular designation - marking this new
-            // plan active correctly deactivates any other plan that was
-            // active, rather than letting every plan silently stack up as
-            // active forever with no real distinction between them.
-            const next = item.active ? prev.map((p) => ({ ...p, active: false })) : prev;
-            return [item, ...next];
-        });
-        setIsAddPlanModal(false);
+        if (editingPlanId !== null) {
+            setWorkoutPlans((prev) => prev.map((p) => {
+                if (p.id === editingPlanId) return { ...p, ...newPlan };
+                // Same "Active Split" singularity rule as the Add branch
+                // below - editing a plan into the active slot correctly
+                // deactivates every other plan.
+                return newPlan.active ? { ...p, active: false } : p;
+            }));
+        } else {
+            const item = { id: Date.now().toString(), ...newPlan };
+            setWorkoutPlans((prev) => {
+                // "Active Split" is a singular designation - marking this new
+                // plan active correctly deactivates any other plan that was
+                // active, rather than letting every plan silently stack up as
+                // active forever with no real distinction between them.
+                const next = item.active ? prev.map((p) => ({ ...p, active: false })) : prev;
+                return [item, ...next];
+            });
+        }
+        closePlanModal();
+    };
+
+    const openAddPlanModal = () => {
+        setEditingPlanId(null);
         setNewPlan({ name: '', split: '6 Days / Week', focus: 'Hypertrophy', active: true, exerciseIds: [] });
+        setIsAddPlanModal(true);
+    };
+
+    const openEditPlanModal = (plan) => {
+        setEditingPlanId(plan.id);
+        setNewPlan({ name: plan.name || '', split: plan.split || '6 Days / Week', focus: plan.focus || 'Hypertrophy', active: !!plan.active, exerciseIds: plan.exerciseIds || [] });
+        setIsAddPlanModal(true);
+    };
+
+    const closePlanModal = () => {
+        setIsAddPlanModal(false);
+        setEditingPlanId(null);
+        setNewPlan({ name: '', split: '6 Days / Week', focus: 'Hypertrophy', active: true, exerciseIds: [] });
+    };
+
+    const openEditHistoryModal = (item) => {
+        setEditingHistoryId(item.id);
+        setEditHistoryDraft({ title: item.title || '', date: item.date || '' });
+        setIsEditHistoryModal(true);
+    };
+
+    const closeEditHistoryModal = () => {
+        setIsEditHistoryModal(false);
+        setEditingHistoryId(null);
+    };
+
+    const handleSaveHistoryEdit = (e) => {
+        e.preventDefault();
+        if (!editHistoryDraft.title.trim()) return;
+        setWorkoutHistory((prev) => prev.map((h) => (h.id === editingHistoryId ? { ...h, title: toTitleCase(editHistoryDraft.title.trim()), date: editHistoryDraft.date || h.date } : h)));
+        closeEditHistoryModal();
     };
 
     // NEW: Delete Functions
@@ -292,7 +402,7 @@ const GymPage = () => {
         // the previous hardcoded '45 mins', which never reflected how
         // long the session genuinely took.
         const elapsedMinutes = activeSession.startTimestamp ? Math.max(1, Math.round((Date.now() - activeSession.startTimestamp) / 60000)) : null;
-        const newSessionRecord = { id: Date.now().toString(), title: activeSession.planName, date: new Date().toISOString().split('T')[0], duration: elapsedMinutes ? `${elapsedMinutes} min${elapsedMinutes === 1 ? '' : 's'}` : 'Unknown', volume: `${Math.round(kgToDisplay(totalVolume, weightUnit)).toLocaleString()} ${weightUnit}`, setsCompleted: totalSets };
+        const newSessionRecord = { id: Date.now().toString(), title: activeSession.planName, date: getLocalDateString(), duration: elapsedMinutes ? `${elapsedMinutes} min${elapsedMinutes === 1 ? '' : 's'}` : 'Unknown', volume: `${Math.round(kgToDisplay(totalVolume, weightUnit)).toLocaleString()} ${weightUnit}`, setsCompleted: totalSets };
         setWorkoutHistory([newSessionRecord, ...workoutHistory]);
         setProfile(prev => ({ ...prev, streak: prev.streak + 1 }));
         if (workedMuscles.size > 0) {
@@ -393,32 +503,34 @@ const GymPage = () => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
             
-            {/* Header Section */}
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '12px' : '16px' }}>
-                <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Gym Hub</h1>
+            {/* Header Section - title and every action button share one
+                row even on mobile (buttons drop to icon-only there via
+                each one's own {!isMobile && '...'} label) instead of the
+                button group wrapping onto its own row below the title -
+                the same real fix already applied to Finance Hub's header,
+                mirrored here so the vertical space it used to cost is
+                saved back for the actual page content underneath. */}
+            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'nowrap', gap: isMobile ? '8px' : '16px' }}>
+                <h1 style={{ fontSize: isMobile ? '19px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>Gym Hub</h1>
 
-                {/* Compact pill action bar - the primary (context-dependent
-                    Add Plan / Add Exercise / Log Measurements) and Profile
-                    buttons split the row evenly on mobile instead of
-                    wrapping onto their own lines. */}
-                <div style={{ display: 'flex', gap: isMobile ? '8px' : '10px', width: isMobile ? '100%' : 'auto' }}>
+                <div style={{ display: 'flex', flexWrap: 'nowrap', gap: isMobile ? '6px' : '10px', flexShrink: 0 }}>
                     {activeTab === 'Dashboard' && (
-                        <button onClick={() => setIsAddPlanModal(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            <Plus size={isMobile ? 16 : 18} /> {isMobile ? 'Add Plan' : 'Add Workout Plan'}
+                        <button title="Add Workout Plan" onClick={openAddPlanModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '10px' : '10px 20px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <Plus size={isMobile ? 16 : 18} /> {!isMobile && 'Add Workout Plan'}
                         </button>
                     )}
                     {activeTab === 'Exercises' && (
-                        <button onClick={() => setIsAddExerciseModal(true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            <Plus size={isMobile ? 16 : 18} /> {isMobile ? 'Add Exercise' : 'Add Custom Exercise'}
+                        <button title="Add Custom Exercise" onClick={openAddExerciseModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '10px' : '10px 20px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <Plus size={isMobile ? 16 : 18} /> {!isMobile && 'Add Custom Exercise'}
                         </button>
                     )}
                     {activeTab === 'Recovery' && (
-                        <button onClick={() => { setMeasurementWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setIsAddMeasurementModal(true); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                            <Ruler size={isMobile ? 16 : 18} /> {isMobile ? 'Log' : 'Log Measurements'}
+                        <button title="Log Measurements" onClick={openAddMeasurementModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '10px' : '10px 20px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <Ruler size={isMobile ? 16 : 18} /> {!isMobile && 'Log Measurements'}
                         </button>
                     )}
-                    <button onClick={() => { setTempProfile(profile); setTempWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setTempTargetWeightDisplay(kgToDisplay(profile.targetWeight, weightUnit)); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '11px 14px' : '10px 20px', flex: isMobile ? '1 1 0' : 'none', boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: isMobile ? '13px' : '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                        <User size={isMobile ? 16 : 18} /> Profile
+                    <button title="Profile" onClick={() => { setTempProfile(profile); setTempWeightDisplay(kgToDisplay(profile.weight, weightUnit)); setTempTargetWeightDisplay(kgToDisplay(profile.targetWeight, weightUnit)); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '10px' : '10px 20px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <User size={isMobile ? 16 : 18} /> {!isMobile && 'Profile'}
                     </button>
                 </div>
             </div>
@@ -505,7 +617,8 @@ const GymPage = () => {
                                                 <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>{plan.split} · {plan.focus} · {(plan.exerciseIds || []).length} exercise{(plan.exerciseIds || []).length === 1 ? '' : 's'}</span>
                                             </div>
                                             <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                                                <button onClick={() => deletePlan(plan.id)} style={{ padding: '8px', background: 'transparent', color: 'var(--text-muted)', border: 'none', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                                <button onClick={() => openEditPlanModal(plan)} title="Edit Plan" style={{ padding: '8px', background: 'transparent', color: 'var(--text-muted)', border: 'none', cursor: 'pointer' }}><Pencil size={16} /></button>
+                                                <button onClick={() => deletePlan(plan.id)} title="Delete Plan" style={{ padding: '8px', background: 'transparent', color: 'var(--text-muted)', border: 'none', cursor: 'pointer' }}><Trash2 size={16} /></button>
                                                 <button onClick={() => startWorkoutSession(plan)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', cursor: 'pointer' }}><Play size={14} /> Start</button>
                                             </div>
                                         </div>
@@ -536,7 +649,10 @@ const GymPage = () => {
                                 <div key={ex.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                         <span style={{ fontSize: '11px', fontWeight: '700', padding: '4px 8px', background: 'var(--widget-bg)', color: 'var(--primary)', borderRadius: '6px' }}>{ex.muscle}</span>
-                                        <button onClick={() => deleteExercise(ex.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                            <button onClick={() => openEditExerciseModal(ex)} title="Edit Exercise" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}><Pencil size={16} /></button>
+                                            <button onClick={() => deleteExercise(ex.id)} title="Delete Exercise" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}><Trash2 size={16} /></button>
+                                        </div>
                                     </div>
                                     <h4 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)' }}>{ex.name}</h4>
                                 </div>
@@ -557,7 +673,8 @@ const GymPage = () => {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: isMobile ? 'space-between' : 'flex-start', gap: '20px' }}>
                                 <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>⏱️ {item.duration} | 📦 {item.volume}</span>
-                                <button onClick={() => deleteHistory(item.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
+                                <button onClick={() => openEditHistoryModal(item)} title="Edit Entry" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Pencil size={16} /></button>
+                                <button onClick={() => deleteHistory(item.id)} title="Delete Entry" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0 }}><Trash2 size={16} /></button>
                             </div>
                         </div>
                     )) : <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No workout history found.</div>}
@@ -594,7 +711,8 @@ const GymPage = () => {
                                         {m.chest > 0 && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Chest {m.chest}cm</span>}
                                         {m.waist > 0 && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Waist {m.waist}cm</span>}
                                         {m.biceps > 0 && <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Biceps {m.biceps}cm</span>}
-                                        <button onClick={() => deleteMeasurement(m.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                        <button onClick={() => openEditMeasurementModal(m)} title="Edit Measurement" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Pencil size={16} /></button>
+                                        <button onClick={() => deleteMeasurement(m.id)} title="Delete Measurement" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Trash2 size={16} /></button>
                                     </div>
                                 </div>
                             )) : <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No measurements logged yet.</div>}
@@ -629,9 +747,9 @@ const GymPage = () => {
 
             {/* MODALS (Add Plan, Add Exercise, Add Measurement, Edit Profile) */}
             {isAddPlanModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Workout Plan</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingPlanId !== null ? 'Edit Workout Plan' : 'Add Workout Plan'}</h2>
                         <form onSubmit={handleAddPlan} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input type="text" required aria-label="Plan name" placeholder="Plan Name (e.g., Push Day)" value={newPlan.name} onChange={e => setNewPlan({...newPlan, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)' }} />
                             <div style={{ display: 'flex', gap: '10px' }}>
@@ -677,8 +795,8 @@ const GymPage = () => {
                                 )}
                             </div>
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <button type="button" onClick={() => setIsAddPlanModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>Save Plan</button>
+                                <button type="button" onClick={closePlanModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>{editingPlanId !== null ? 'Save Changes' : 'Save Plan'}</button>
                             </div>
                         </form>
                     </div>
@@ -686,7 +804,7 @@ const GymPage = () => {
             )}
 
             {isEditingProfile && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Edit Fitness Profile</h2>
                         <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -722,9 +840,9 @@ const GymPage = () => {
             )}
 
             {isAddMeasurementModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Log Measurement</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingMeasurementId !== null ? 'Edit Measurement' : 'Log Measurement'}</h2>
                         <form onSubmit={handleAddMeasurement} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input id="gymMeasurementWeight" name="measurementWeight" type="number" step="0.1" aria-label={`Weight (${weightUnit})`} placeholder={`Weight (${weightUnit})`} value={measurementWeightDisplay} onChange={(e) => setMeasurementWeightDisplay(sanitizeNumberInput(e.target.value, measurementWeightDisplay))} onBlur={(e) => setMeasurementWeightDisplay(normalizeNumberOnBlur(e.target.value, true))} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
                             <div style={{ display: 'flex', gap: '12px' }}>
@@ -733,8 +851,8 @@ const GymPage = () => {
                                 <input type="number" step="0.1" placeholder="Biceps (cm)" value={newMeasurement.biceps || ''} onChange={(e) => setNewMeasurement({...newMeasurement, biceps: sanitizeNumberInput(e.target.value, newMeasurement.biceps)})} onBlur={(e) => setNewMeasurement({...newMeasurement, biceps: normalizeNumberOnBlur(e.target.value, true)})} style={{ flex: 1, minWidth: 0, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
                             </div>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button type="button" onClick={() => setIsAddMeasurementModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save Log</button>
+                                <button type="button" onClick={closeMeasurementModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>{editingMeasurementId !== null ? 'Save Changes' : 'Save Log'}</button>
                             </div>
                         </form>
                     </div>
@@ -742,9 +860,9 @@ const GymPage = () => {
             )}
 
             {isAddExerciseModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
-                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Add Exercise</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>{editingExerciseId !== null ? 'Edit Exercise' : 'Add Exercise'}</h2>
                         <form onSubmit={handleAddExercise} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <input type="text" required aria-label="Exercise name" placeholder="Exercise Name" value={newExercise.name} onChange={(e) => setNewExercise({...newExercise, name: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
                             <select aria-label="Target muscle" value={newExercise.muscle} onChange={(e) => setNewExercise({...newExercise, muscle: e.target.value})} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }}>
@@ -756,8 +874,24 @@ const GymPage = () => {
                                 <option value="Triceps" style={{ background: 'var(--surface-inset)' }}>Triceps</option>
                             </select>
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button type="button" onClick={() => setIsAddExerciseModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>Save</button>
+                                <button type="button" onClick={closeExerciseModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}>{editingExerciseId !== null ? 'Save Changes' : 'Save'}</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {isEditHistoryModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '30px', width: '420px', maxWidth: '90%' }}>
+                        <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '20px' }}>Edit Workout Entry</h2>
+                        <form onSubmit={handleSaveHistoryEdit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <input type="text" required aria-label="Workout title" placeholder="Workout Title" value={editHistoryDraft.title} onChange={(e) => setEditHistoryDraft({ ...editHistoryDraft, title: e.target.value })} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)' }} />
+                            <input type="date" required aria-label="Workout date" value={editHistoryDraft.date} onChange={(e) => setEditHistoryDraft({ ...editHistoryDraft, date: e.target.value })} style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', colorScheme: 'dark' }} />
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button type="button" onClick={closeEditHistoryModal} style={{ flex: 1, padding: '12px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flex: 1, padding: '12px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}><Save size={16} /> Save Changes</button>
                             </div>
                         </form>
                     </div>
