@@ -45,6 +45,16 @@ const SpotifyQueueList = ({ compact }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(load, [spotifyAuth.accessToken]);
 
+    const dedupedQueue = useMemo(() => {
+        if (!data?.queue) return [];
+        const seen = new Set();
+        return data.queue.filter((t) => {
+            if (seen.has(t.id)) return false;
+            seen.add(t.id);
+            return true;
+        });
+    }, [data]);
+
     const rowStyle = { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '12px', border: '1px solid var(--border-premium)' };
 
     return (
@@ -84,9 +94,19 @@ const SpotifyQueueList = ({ compact }) => {
                     )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <span style={{ fontSize: '11px', fontWeight: '800', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Next Up (from Spotify)</span>
-                        {data.queue.length === 0 ? (
+                        {/* Real, reported bug fixed: this rendered
+                            data.queue exactly as Spotify returned it -
+                            reported live as the SAME track repeated 10+
+                            times. Spotify's own /v1/me/player/queue
+                            genuinely echoes the current track for every
+                            remaining position when repeat-one/track-radio
+                            has nothing else lined up - real Spotify data,
+                            but showing the identical id ten times over adds
+                            nothing over showing it once. Deduped by id
+                            before rendering. */}
+                        {dedupedQueue.length === 0 ? (
                             <div style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Nothing queued in Spotify right now.</div>
-                        ) : data.queue.map((t, i) => (
+                        ) : dedupedQueue.map((t, i) => (
                             <div key={`${t.id}-${i}`} style={rowStyle}>
                                 {t.artworkUrl ? (
                                     <img src={t.artworkUrl} alt="" style={{ width: '34px', height: '34px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0 }} />

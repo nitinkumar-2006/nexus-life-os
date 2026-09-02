@@ -729,10 +729,23 @@
     transition: transform 0.15s ease;
 }
 
+/* position:fixed, not absolute - both these popovers used to live in
+   AIChatArea.jsx's own wide header, where an absolute box anchored to
+   its trigger's own corner always had plenty of room. They now open
+   from inside AISidebar.jsx's own much narrower (~260-300px) column - a
+   real, reported bug was that the old absolute-positioned box, anchored
+   `right:0` relative to a small trigger sitting inside that narrow
+   sidebar, mostly rendered OFF the sidebar's own left edge and got
+   clipped there, reading as truncated/cut-off text ("ini-2.5-flash"
+   instead of "Gemini 2.5 Flash"). Fixed position with a real, computed
+   top/left (set inline per-instance in AISidebar.jsx via
+   getBoundingClientRect(), same pattern GreetingCard.jsx's own portaled
+   icon pickers already use) escapes that narrow column entirely -
+   portaled straight to document.body, so this can never be clipped by
+   any ancestor's overflow again regardless of how narrow a future
+   trigger's own container is. */
 .ai-model-picker-popover {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
+    position: fixed;
     width: 220px;
     max-width: calc(100vw - 32px);
     max-height: 50vh;
@@ -744,7 +757,7 @@
     border-radius: 14px;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
     padding: 6px;
-    z-index: 250;
+    z-index: 10000;
 }
 
 .ai-model-picker-item {
@@ -780,10 +793,14 @@
    genuinely clean/distraction-free (matching the request's explicit
    Gemini-minimalism goal) without dropping the real, live-computed
    data feature itself. */
+/* position:fixed - same real fix, same reason, as .ai-model-picker-popover
+   above (see its own comment): this used to anchor fine inside
+   AIChatArea.jsx's wide header, but now opens from AISidebar.jsx's
+   narrow column and needs a real, computed top/left (set inline via
+   getBoundingClientRect(), portaled to document.body) instead of a
+   static absolute offset that clipped against the sidebar's own edge. */
 .ai-context-popover {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 18px;
+    position: fixed;
     width: 240px;
     max-width: calc(100vw - 32px);
     background: var(--bg-surface);
@@ -796,7 +813,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    z-index: 40;
+    z-index: 10000;
 }
 
 .ai-context-popover-title {

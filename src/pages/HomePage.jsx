@@ -982,32 +982,22 @@ const HomePage = ({ setActiveTab }) => {
                 onDrop={() => handleWidgetDrop('greeting')}
                 onDragEnd={() => setDraggedWidget(null)}
                 style={{
-                    order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1, position: isMobile ? 'sticky' : 'relative',
-                    // Real, explicit request: the Greeting card should
-                    // stay pinned on screen at all times on mobile -
-                    // regardless of which order the reorder feature above
-                    // has it in (swapWidgetOrder can put Master Schedule
-                    // first) - with only Master Schedule's own cards
-                    // (and its own header/heading) actually scrolling
-                    // underneath/past it. `order` and `position:sticky`
-                    // are independent CSS mechanisms - swapping order
-                    // still works exactly as before, sticky just means
-                    // THIS card never leaves the top of the viewport once
-                    // scrolled to it, wherever it currently sits in that
-                    // order. top matches the real mobile header height
-                    // (same expression MobileSidebarDrawer.jsx already
-                    // uses) so this sits directly below it, never
-                    // overlapping. --glass-blur is locally floored here
-                    // (same non-destructive max()-floor idiom already
-                    // used for the bottom tab bar's own identical bleed-
-                    // through issue) since Master Schedule's cards now
-                    // genuinely scroll past behind this card's glass
-                    // background.
-                    ...(isMobile ? {
-                        top: 'max(60px, calc(54px + env(safe-area-inset-top, 0px)))',
-                        zIndex: 20,
-                        '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
-                    } : {}),
+                    order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1, position: 'relative',
+                    // Reverted: a mobile-only position:sticky here (per an
+                    // earlier explicit request, so the Greeting card would
+                    // stay pinned while Master Schedule scrolled past it)
+                    // was reported to visually overlap/cross with Master
+                    // Schedule's own cards instead of cleanly sitting
+                    // above them - a real regression, not the intended
+                    // effect. Reverted to plain, normal document flow
+                    // (matching desktop's own unchanged behavior) rather
+                    // than guess again at a fix for a visual stacking bug
+                    // that can't be confirmed without live device
+                    // testing (this session has no authenticated browser
+                    // access - see project_no_qa_auth_bypass.md). Real
+                    // pinned-Greeting-card behavior is still a reasonable
+                    // thing to revisit, just needs to be diagnosed against
+                    // an actual render, not guessed at again blind.
                 }}
             >
                 <div

@@ -21,7 +21,8 @@
 // permanent buttons) is gone for the same reason - ChatGPT never keeps a
 // persona list open inline in its main nav either - coach-switching now
 // lives in "This Chat" as one compact picker instead.
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, MessageSquare, Trash2, Mic, ArrowLeft, ShieldCheck, ChevronDown, Check, Bot, Search, Settings2 } from 'lucide-react';
 import VoiceStatusPanel from './VoiceStatusPanel.jsx';
 import SidebarToggleIcon from '../SidebarToggleIcon.jsx';
@@ -67,23 +68,47 @@ const AISidebar = ({
     const visibleSessions = historySearch.trim()
         ? sortedSessions.filter((s) => (s.title || '').toLowerCase().includes(historySearch.trim().toLowerCase()))
         : sortedSessions;
+    // Real, reported bug this whole trio fixes: these three popovers used
+    // to live in AIChatArea.jsx's own wide header (position:absolute,
+    // anchored to their own trigger's corner) - now that they open from
+    // inside this sidebar's own much narrower column, that same static
+    // anchor mostly rendered off the sidebar's own left edge and got
+    // clipped there, reading as cut-off/truncated text. Each is now
+    // portaled straight to document.body with a real, computed
+    // top/left (see the open*Picker helpers below) - position:fixed on
+    // the popover itself, set via getBoundingClientRect() on the actual
+    // trigger button, the exact same pattern GreetingCard.jsx's own
+    // portaled icon pickers already use - so it can never be clipped by
+    // this (or any future) narrow container again. A plain full-
+    // viewport, invisible backdrop rendered just before each popover in
+    // its own portal (also GreetingCard.jsx's established pattern)
+    // replaces the old ref-based "was the click outside this box"
+    // listener - simpler, and correct regardless of where in the DOM
+    // the portaled content actually lives.
     const [modelPickerOpen, setModelPickerOpen] = useState(false);
     const [contextOpen, setContextOpen] = useState(false);
     const [coachPickerOpen, setCoachPickerOpen] = useState(false);
+    const [modelPickerPosition, setModelPickerPosition] = useState({ top: 0, left: 0 });
+    const [contextPopoverPosition, setContextPopoverPosition] = useState({ top: 0, left: 0 });
+    const [coachPickerPosition, setCoachPickerPosition] = useState({ top: 0, left: 0 });
     const modelPickerRef = useRef(null);
     const contextPopoverRef = useRef(null);
     const coachPickerRef = useRef(null);
 
-    useEffect(() => {
-        if (!contextOpen && !modelPickerOpen && !coachPickerOpen) return;
-        const onOutsideClick = (e) => {
-            if (contextOpen && contextPopoverRef.current && !contextPopoverRef.current.contains(e.target)) setContextOpen(false);
-            if (modelPickerOpen && modelPickerRef.current && !modelPickerRef.current.contains(e.target)) setModelPickerOpen(false);
-            if (coachPickerOpen && coachPickerRef.current && !coachPickerRef.current.contains(e.target)) setCoachPickerOpen(false);
+    // Anchors a popover just below its own trigger, clamped so a wide
+    // popover (240px) can never overflow past the real right edge of the
+    // viewport even when the trigger itself sits close to it.
+    const positionBelow = (ref, popoverWidth) => {
+        const rect = ref.current?.getBoundingClientRect();
+        if (!rect) return { top: 0, left: 0 };
+        return {
+            top: rect.bottom + 8,
+            left: Math.min(rect.left, window.innerWidth - popoverWidth - 16),
         };
-        document.addEventListener('mousedown', onOutsideClick);
-        return () => document.removeEventListener('mousedown', onOutsideClick);
-    }, [contextOpen, modelPickerOpen, coachPickerOpen]);
+    };
+    const openModelPicker = () => { setModelPickerPosition(positionBelow(modelPickerRef, 220)); setModelPickerOpen((v) => !v); };
+    const openContextPopover = () => { setContextPopoverPosition(positionBelow(contextPopoverRef, 240)); setContextOpen((v) => !v); };
+    const openCoachPicker = () => { setCoachPickerPosition(positionBelow(coachPickerRef, 220)); setCoachPickerOpen((v) => !v); };
 
     // The coach actually driving THIS conversation - the compact picker
     // below shows this instead of the old, always-expanded "Specialized
@@ -319,30 +344,34 @@ const AISidebar = ({
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 2px 4px' }}>
                                 <div style={{ position: 'relative' }} ref={coachPickerRef}>
                                     <button
-                                        type="button" className="ai-coach-item" onClick={() => setCoachPickerOpen((v) => !v)}
+                                        type="button" className="ai-coach-item" onClick={openCoachPicker}
                                         title="Switch AI coach" aria-label="Switch AI coach" aria-expanded={coachPickerOpen}
                                     >
                                         <span className="ai-coach-item-icon" style={{ color: activeCoach?.accent }}><ActiveCoachIcon size={15} /></span>
                                         <span className="ai-coach-item-label">{activeCoach?.label || 'General OS Assistant'}</span>
                                         <ChevronDown size={13} style={{ marginLeft: 'auto', flexShrink: 0, transform: coachPickerOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s ease' }} />
                                     </button>
-                                    {coachPickerOpen && (
-                                        <div className="ai-model-picker-popover">
-                                            {coaches.map((coach) => {
-                                                const CoachIcon = coach.icon;
-                                                const isActive = selectedCoachId === coach.id;
-                                                return (
-                                                    <button
-                                                        key={coach.id} type="button"
-                                                        className={`ai-model-picker-item${isActive ? ' is-selected' : ''}`}
-                                                        onClick={() => { onSelectCoach(coach.id); setCoachPickerOpen(false); }}
-                                                    >
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CoachIcon size={14} color={coach.accent} /> {coach.label}</span>
-                                                        {isActive && <Check size={13} />}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                    {coachPickerOpen && createPortal(
+                                        <>
+                                            <div onClick={() => setCoachPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999 }} />
+                                            <div className="ai-model-picker-popover" style={{ top: coachPickerPosition.top, left: coachPickerPosition.left }}>
+                                                {coaches.map((coach) => {
+                                                    const CoachIcon = coach.icon;
+                                                    const isActive = selectedCoachId === coach.id;
+                                                    return (
+                                                        <button
+                                                            key={coach.id} type="button"
+                                                            className={`ai-model-picker-item${isActive ? ' is-selected' : ''}`}
+                                                            onClick={() => { onSelectCoach(coach.id); setCoachPickerOpen(false); }}
+                                                        >
+                                                            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CoachIcon size={14} color={coach.accent} /> {coach.label}</span>
+                                                            {isActive && <Check size={13} />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </>,
+                                        document.body,
                                     )}
                                 </div>
 
@@ -374,26 +403,30 @@ const AISidebar = ({
                                                         <button
                                                             type="button"
                                                             className={`ai-model-picker-btn${modelPickerOpen ? ' is-open' : ''}`}
-                                                            onClick={() => setModelPickerOpen((v) => !v)}
+                                                            onClick={openModelPicker}
                                                             title={`Pick which ${p.label} model to use (currently ${activeModelLabel})`}
                                                             aria-label="Choose model" aria-expanded={modelPickerOpen}
                                                         >
                                                             <ChevronDown size={13} />
                                                         </button>
                                                     )}
-                                                    {hasModels && modelPickerOpen && (
-                                                        <div className="ai-model-picker-popover">
-                                                            {p.models.map((modelId) => (
-                                                                <button
-                                                                    key={modelId} type="button"
-                                                                    className={`ai-model-picker-item${modelId === activeModelLabel ? ' is-selected' : ''}`}
-                                                                    onClick={() => { onSelectModel(p.id, modelId); setModelPickerOpen(false); }}
-                                                                >
-                                                                    {modelId}
-                                                                    {modelId === activeModelLabel && <Check size={13} />}
-                                                                </button>
-                                                            ))}
-                                                        </div>
+                                                    {hasModels && modelPickerOpen && createPortal(
+                                                        <>
+                                                            <div onClick={() => setModelPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999 }} />
+                                                            <div className="ai-model-picker-popover" style={{ top: modelPickerPosition.top, left: modelPickerPosition.left }}>
+                                                                {p.models.map((modelId) => (
+                                                                    <button
+                                                                        key={modelId} type="button"
+                                                                        className={`ai-model-picker-item${modelId === activeModelLabel ? ' is-selected' : ''}`}
+                                                                        onClick={() => { onSelectModel(p.id, modelId); setModelPickerOpen(false); }}
+                                                                    >
+                                                                        {modelId}
+                                                                        {modelId === activeModelLabel && <Check size={13} />}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        </>,
+                                                        document.body,
                                                     )}
                                                 </div>
                                             );
@@ -403,22 +436,26 @@ const AISidebar = ({
 
                                 <div style={{ position: 'relative' }} ref={contextPopoverRef}>
                                     <button
-                                        type="button" className="ai-coach-item" onClick={() => setContextOpen((v) => !v)}
+                                        type="button" className="ai-coach-item" onClick={openContextPopover}
                                         title="Live Context" aria-label="Show live context" aria-expanded={contextOpen}
                                     >
                                         <span className="ai-coach-item-icon"><ShieldCheck size={15} /></span>
                                         <span className="ai-coach-item-label">Live Context</span>
                                     </button>
-                                    {contextOpen && (
-                                        <div className="ai-context-popover">
-                                            <span className="ai-context-popover-title"><ShieldCheck size={14} color="#10B981" /> Live Context</span>
-                                            {liveContext.map((ctx) => (
-                                                <div key={ctx.label} className="ai-context-card">
-                                                    <span className="ai-context-card-label" title={ctx.label}><ctx.icon size={12} color="var(--accent)" /> {ctx.label}</span>
-                                                    <span className="ai-context-card-value" title={ctx.value}>{ctx.value}</span>
-                                                </div>
-                                            ))}
-                                        </div>
+                                    {contextOpen && createPortal(
+                                        <>
+                                            <div onClick={() => setContextOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9999 }} />
+                                            <div className="ai-context-popover" style={{ top: contextPopoverPosition.top, left: contextPopoverPosition.left }}>
+                                                <span className="ai-context-popover-title"><ShieldCheck size={14} color="#10B981" /> Live Context</span>
+                                                {liveContext.map((ctx) => (
+                                                    <div key={ctx.label} className="ai-context-card">
+                                                        <span className="ai-context-card-label" title={ctx.label}><ctx.icon size={12} color="var(--accent)" /> {ctx.label}</span>
+                                                        <span className="ai-context-card-value" title={ctx.value}>{ctx.value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>,
+                                        document.body,
                                     )}
                                 </div>
 

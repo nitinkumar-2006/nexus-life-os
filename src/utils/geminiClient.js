@@ -102,6 +102,26 @@ const describeHttpError = async (response) => {
     if (response.status === 400 && /API key not valid/i.test(detail)) {
         return new GeminiApiError('Your Gemini API key is invalid. Update it in Settings → Security & API Integrations.', 'invalid_key');
     }
+    // Real, currently-widespread Google-side issue (not a Nexus bug):
+    // some accounts are only issued newer "AQ."-prefixed API keys instead
+    // of the classic "AIzaSy..." format, and Google's own
+    // generativelanguage.googleapis.com backend rejects those AQ. keys on
+    // generateContent/streamGenerateContent with exactly this 401 -
+    // Google's generic "expects OAuth2" message - even though the same
+    // key checks out fine against the read-only models.list endpoint
+    // (see SettingsPage.jsx's own key-check, which can show "Connected"
+    // for a key that still fails here). Confirmed via multiple live
+    // reports on Google's own AI Developers Forum as of this writing.
+    // Surfacing THIS explanation instead of Google's raw, misleading
+    // "OAuth 2 access token" text turns an app-looks-broken support
+    // question into an actionable one - there is no code-side fix since
+    // the request itself is correctly formed.
+    if (response.status === 401) {
+        return new GeminiApiError(
+            'Google rejected this Gemini API key (401 Unauthorized) - this is a known issue on Google\'s side, not Nexus: some accounts are currently issued newer API keys starting with "AQ." instead of the classic "AIzaSy...", and Google\'s API is rejecting those for chat requests even when they look valid in AI Studio. Open Google AI Studio, generate a fresh key, and confirm it starts with "AIzaSy" - if it still starts with "AQ.", this is Google\'s bug to fix, not something Nexus (or you) can work around yet.',
+            'unauthenticated'
+        );
+    }
     if (response.status === 403) {
         return new GeminiApiError(detail || 'This Gemini API key does not have permission for this request.', 'forbidden');
     }
