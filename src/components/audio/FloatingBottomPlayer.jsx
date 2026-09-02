@@ -109,7 +109,26 @@ const FloatingBottomPlayer = ({
 
     return (
         <div style={{
-            position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+            // Real, reported bug (measured, not guessed): on mobile this
+            // was `position: absolute` against AudioHubPage's own nearest
+            // positioned ancestor - which turned out to itself sit inside
+            // a page wrapper with real 12px horizontal padding
+            // (`padding: 16px 12px 0px`). This component's own "tight"
+            // 6px-per-side margin (width: calc(100% - 12px)) then measured
+            // as a genuine 18px gap from the real screen edge (12px parent
+            // padding + 6px own margin stacking), not the 6px it looks
+            // like from the style alone - confirmed live via
+            // getBoundingClientRect against the real deployed page, not a
+            // screenshot guess. `position: fixed` on mobile anchors this
+            // to the true viewport instead (confirmed no ancestor here
+            // has a transform/filter/perspective that would trap a fixed
+            // child - it genuinely escapes to the real screen edge), so
+            // the existing width/left/transform math below - unchanged -
+            // now actually produces the tight edge-hugging gap it always
+            // intended, matching Spotify's own mobile mini-bar. Desktop
+            // keeps `absolute` exactly as before; this was never reported
+            // there.
+            position: isMobile ? 'fixed' : 'absolute', left: '50%', transform: 'translateX(-50%)',
             // Bottom offset confirmed by live-inspecting Apple's own real
             // site: `.player-bar__floating-player` has `margin-bottom:
             // 20px` (confirmed via getComputedStyle, and the actual
@@ -128,10 +147,14 @@ const FloatingBottomPlayer = ({
             // across a 1300px AND a 1997px window - it never grows past
             // that regardless of available space, just stays centered.
             // Real, reported feedback: too much empty side space on mobile
-            // - tightened from a 10px-per-side margin to 6px, filling more
-            // of the real available width, closer to Spotify's own mobile
-            // mini bar (which sits nearly edge-to-edge).
-            width: isMobile ? 'calc(100% - 12px)' : 'min(668px, calc(100% - 40px))',
+            // - tightened again, from 6px per side to 4px, now that the
+            // `position: fixed` fix above (see its own comment) means this
+            // margin is finally measured against the real screen edge
+            // instead of stacking on top of a parent's own 12px padding -
+            // 4px reads as genuinely tight/edge-hugging the way Spotify's
+            // own mobile mini bar does, without the rounded corners
+            // getting clipped by the real screen edge.
+            width: isMobile ? 'calc(100% - 8px)' : 'min(668px, calc(100% - 40px))',
             zIndex: 100,
         }}>
             <div style={{
