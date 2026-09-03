@@ -946,6 +946,10 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                     localStorage.setItem('nexus_global_settings', JSON.stringify(next));
                     return next;
                 });
+                // Same shared-blob data-loss fix as the other writers in
+                // this file - a one-time migration write is still a write
+                // CloudSync needs to know about.
+                window.dispatchEvent(new Event('storage'));
             } catch (err) {
                 // Non-fatal - the legacy plain-text PIN just stays
                 // unmigrated this session; the app remains fully usable,
@@ -1229,6 +1233,16 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
         globalSettings.activeModules = nextActiveModules;
         localStorage.setItem('nexus_global_settings', JSON.stringify(globalSettings));
         window.dispatchEvent(new Event('nexus_settings_updated'));
+        // Real, reported data-loss bug (same root cause as header.jsx's
+        // theme-cycle button - see its own comment): this write to the
+        // SHARED nexus_global_settings blob never told CloudSync a local
+        // change was pending, so an incoming cloud pull landing right
+        // after could silently overwrite the WHOLE blob - unrelated
+        // fields like API keys included - with a stale snapshot. Every
+        // writer to this shared key must dispatch 'storage', not just
+        // its own more specific event, or CloudSync's own guard never
+        // engages for it.
+        window.dispatchEvent(new Event('storage'));
     };
 
     // Toggles a single module in/out of the set requiring the OS Lock PIN.
@@ -1246,6 +1260,12 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
             localStorage.setItem('nexus_global_settings', JSON.stringify(nextSettings));
             return nextSettings;
         });
+        // Same real data-loss bug, same fix, as header.jsx's theme-cycle
+        // button and handleModuleToggle above - this write to the SHARED
+        // nexus_global_settings blob previously dispatched nothing at
+        // all, leaving CloudSync's local-change guard completely unaware
+        // a write just happened here.
+        window.dispatchEvent(new Event('storage'));
     };
 
     const calculateCache = () => {

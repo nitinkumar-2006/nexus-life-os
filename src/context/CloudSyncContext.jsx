@@ -406,11 +406,37 @@ export const CloudSyncProvider = ({ children }) => {
             }
         };
 
+        // Real, reported data-loss bug: a hard reload/navigation (not a
+        // tab backgrounding) can tear the page down before
+        // 'visibilitychange' finishes being handled, killing this exact
+        // pending debounced push before pushToCloud() ever gets called -
+        // the fresh page load's own one-shot "pull once per sign-in"
+        // effect then restores the OLD cloud snapshot over freshly-
+        // changed local data (any field in the shared blob, not just
+        // whatever was just edited) that never made it to the cloud.
+        // 'pagehide' is the more direct "this page is actually being
+        // torn down" signal and fires reliably for real navigations,
+        // where 'visibilitychange' alone is more about backgrounding.
+        // Firestore's own persistentLocalCache (see firebase/config.js)
+        // means calling pushToCloud() here queues the write in IndexedDB
+        // essentially synchronously even if the network round-trip can't
+        // finish before the page unloads - the SDK flushes it on its own
+        // once the app is back online, surviving the reload itself.
+        const handlePageHide = () => {
+            if (pushDebounceRef.current) {
+                clearTimeout(pushDebounceRef.current);
+                pushDebounceRef.current = null;
+                pushToCloud();
+            }
+        };
+
         window.addEventListener('storage', handleLocalChange);
         document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('pagehide', handlePageHide);
         return () => {
             window.removeEventListener('storage', handleLocalChange);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('pagehide', handlePageHide);
             if (pushDebounceRef.current) clearTimeout(pushDebounceRef.current);
         };
     }, [isConfigured, user, pushToCloud, syncPaused]);

@@ -465,6 +465,23 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
             localStorage.setItem('nexus_global_settings', JSON.stringify(globalSettings));
             window.dispatchEvent(new Event('nexus_theme_changed'));
             window.dispatchEvent(new Event('nexus_settings_updated'));
+            // Real, reported data-loss bug: this write to the SHARED
+            // nexus_global_settings blob never dispatched 'storage', the
+            // one signal CloudSyncContext.jsx's own local-change listener
+            // actually watches for. Without it, CloudSync never knew a
+            // local edit was pending here - so its "don't apply an
+            // incoming cloud pull while a local change is in flight"
+            // guard (pushDebounceRef) never engaged for this write, and a
+            // pull landing in that window (the live onSnapshot listener,
+            // or a fresh sign-in pull after a reload) could silently
+            // overwrite the WHOLE shared blob - API keys included, not
+            // just themeMode - with a stale cloud snapshot. This is the
+            // theme-cycle button in the header, one of the most-clicked
+            // controls in the app, which made this a real, recurring,
+            // hard-to-pin-down way for unrelated settings (like a just-
+            // typed API key) to vanish. Matches the same dispatch
+            // convention every other writer to this key already uses.
+            window.dispatchEvent(new Event('storage'));
         } catch (e) {}
     };
 
