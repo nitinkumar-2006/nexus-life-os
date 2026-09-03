@@ -1066,22 +1066,35 @@ const HomePage = ({ setActiveTab }) => {
                         // matches this card's real position in
                         // widgetOrder instead of always assuming top.
                         position: 'sticky',
-                        // Real, reported bug: bottom:'0px' stuck this
-                        // card flush to .nexus-page-scroll's own bottom
-                        // scroll edge, which sits BEHIND MobileTabBar (a
-                        // separate fixed sibling reserving its own
-                        // ~76px+safe-area at the true screen bottom -
-                        // .glass-panel's matching bottom padding normally
-                        // clears it for ordinary flow content, but a
-                        // sticky offset is measured against the
-                        // scrollport itself, not an ancestor's padding).
-                        // The card was rendering right under the tab bar
-                        // instead of clearing it. Mirrors the same
-                        // clearance FloatingBottomPlayer.jsx already
-                        // uses for the identical real reason.
-                        ...(isGreetingFirst
-                            ? { top: '0px' }
-                            : { bottom: isMobile ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : '0px' }),
+                        // Real, reported bug, second correction: the
+                        // first fix (bottom: calc(76px+safe-area)) solved
+                        // the card rendering UNDER the tab bar, but
+                        // created a NEW, different real bug - that 76px
+                        // is empty space this wrapper's own box no
+                        // longer occupies at all once bottom is offset
+                        // away from 0, so Master Schedule content
+                        // scrolling underneath is genuinely uncovered
+                        // and visible in that exact gap (confirmed live:
+                        // "Sleep Time" from the next queue card visible
+                        // between the pinned card and the tab bar) - not
+                        // a transparency/blur problem on the card itself
+                        // (its own background is confirmed fully
+                        // opaque), just nothing occupying that strip at
+                        // all. Real fix: bottom stays flush at 0 (this
+                        // wrapper's own box - not just GreetingCard's
+                        // inner one - now extends the full way down),
+                        // and the tab-bar clearance moves to this
+                        // wrapper's own paddingBottom + background/blur
+                        // below, so the solid/blurred surface actually
+                        // covers that strip instead of leaving it empty.
+                        ...(isGreetingFirst ? { top: '0px' } : { bottom: '0px' }),
+                        ...(!isGreetingFirst && isMobile ? {
+                            paddingBottom: 'calc(76px + env(safe-area-inset-bottom, 0px))',
+                            background: 'var(--bg-surface)',
+                            backdropFilter: 'blur(20px)',
+                            WebkitBackdropFilter: 'blur(20px)',
+                            borderRadius: '24px 24px 0 0',
+                        } : {}),
                         zIndex: 20,
                         // Real fix, found by comparing against a working
                         // reference in this SAME app: header.jsx's own
