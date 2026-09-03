@@ -326,6 +326,29 @@ export const CloudSyncProvider = ({ children }) => {
             (snap) => {
                 if (snap.metadata.hasPendingWrites) return;
                 if (!snap.exists()) return;
+                // Real, reported data-loss bug, root-caused via live
+                // testing (not guessed): with persistentLocalCache
+                // enabled (see firebase/config.js), Firestore's SDK
+                // delivers a snapshot from its own local IndexedDB cache
+                // FIRST, on every single mount, before the server round-
+                // trip that would confirm/refresh it ever completes -
+                // metadata.fromCache is exactly how the SDK marks that.
+                // The moment real connectivity to Firebase degrades (a
+                // genuine "Sync timed out - no response from Firebase"
+                // was live-reproduced while diagnosing this), that cached
+                // snapshot can be arbitrarily stale - from before a
+                // user's own just-typed API keys, or any other change,
+                // ever reached the server - and this listener used to
+                // apply it unconditionally on every reload regardless,
+                // silently overwriting freshly-made local changes with
+                // old cloud data every time. The one-shot pullFromCloud
+                // above already does the deliberate "restore on a fresh
+                // sign-in" job; this listener's own real purpose (per its
+                // comment) is picking up a genuinely NEW update from
+                // another device while this one stays open - a fromCache
+                // snapshot is never that, so skipping it here closes the
+                // vulnerability without losing real multi-device sync.
+                if (snap.metadata.fromCache) return;
                 applyCloudData(snap.data().data || {});
                 setLastSyncedAt(new Date());
             },
