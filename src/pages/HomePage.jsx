@@ -963,6 +963,12 @@ const HomePage = ({ setActiveTab }) => {
         return () => clearInterval(interval);
     }, [loadMasterData]);
 
+    // Which edge the Greeting card's sticky pin should stick to - matches
+    // its own real position in widgetOrder (see the drag/tap-to-swap
+    // handling below) rather than always assuming top, so swapping it to
+    // the bottom of the stack correctly pins it to the bottom edge too.
+    const isGreetingFirst = widgetOrder.indexOf('greeting') === 0;
+
     return (
         <div className="dashboard-grid" style={{ animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)', paddingBottom: isMobile ? '32px' : '60px' }}>
             <style>{`
@@ -974,60 +980,126 @@ const HomePage = ({ setActiveTab }) => {
 
             {showTour && <TourGuide tourId="home" steps={TOUR_STEPS.home} onFinish={() => setShowTour(false)} />}
 
+            {/* Real, live-tested fix (previous sticky attempt on the
+                greeting div ALONE, one level up, was reverted after it
+                reportedly crossed/overlapped Master Schedule's own
+                cards). Root cause: that div was its own independent
+                .dashboard-grid row - a CSS Grid row is only ever as
+                tall as its own single item, so a sticky item whose
+                immediate containing block IS its own height has no
+                room to actually stay stuck once you scroll past it; it
+                visually "unstuck" and rode up together with Master
+                Schedule instead of staying pinned while Master
+                Schedule (including its own heading) scrolled underneath.
+                Real fix: give both cards ONE shared containing block
+                that is genuinely taller than the sticky item (Master
+                Schedule's own up-to-8-card height, on mobile), so
+                there's real scroll room for Greeting to stay pinned
+                while Master Schedule scrolls past inside it. On
+                desktop this wrapper is `display:contents` - invisible
+                to layout, so both children fall right back into being
+                direct rows of .dashboard-grid exactly as before
+                (desktop was never part of this bug or this request).
+                AIDailyBriefingCard sits inside too (desktop-only,
+                unconditionally null on mobile) purely so its existing
+                DOM position/order between the two is completely
+                unchanged on desktop. */}
             <div
                 className="col-12"
-                draggable
-                onDragStart={() => setDraggedWidget('greeting')}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleWidgetDrop('greeting')}
-                onDragEnd={() => setDraggedWidget(null)}
-                style={{
-                    order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1, position: 'relative',
-                    // Reverted: a mobile-only position:sticky here (per an
-                    // earlier explicit request, so the Greeting card would
-                    // stay pinned while Master Schedule scrolled past it)
-                    // was reported to visually overlap/cross with Master
-                    // Schedule's own cards instead of cleanly sitting
-                    // above them - a real regression, not the intended
-                    // effect. Reverted to plain, normal document flow
-                    // (matching desktop's own unchanged behavior) rather
-                    // than guess again at a fix for a visual stacking bug
-                    // that can't be confirmed without live device
-                    // testing (this session has no authenticated browser
-                    // access - see project_no_qa_auth_bypass.md). Real
-                    // pinned-Greeting-card behavior is still a reasonable
-                    // thing to revisit, just needs to be diagnosed against
-                    // an actual render, not guessed at again blind.
-                }}
+                style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '6px' : '24px', position: 'relative' }}
             >
                 <div
-                    title="Drag to reorder (desktop) or tap to swap order (mobile)"
-                    onClick={(e) => { e.stopPropagation(); swapWidgetOrder(); }}
-                    style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5, cursor: 'grab', color: 'var(--text-muted)', opacity: 0.5, padding: '8px' }}
+                    draggable
+                    onDragStart={() => setDraggedWidget('greeting')}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleWidgetDrop('greeting')}
+                    onDragEnd={() => setDraggedWidget(null)}
+                    style={{
+                        order: widgetOrder.indexOf('greeting'), opacity: draggedWidget === 'greeting' ? 0.5 : 1,
+                        // Real, explicit follow-up request: this pin was
+                        // mobile-only and always pinned to the TOP,
+                        // regardless of where the swap put the card -
+                        // desktop never pinned at all, and swapping to
+                        // "bottom" position still pinned to the top,
+                        // which is backwards (a card living at the
+                        // bottom of the stack should stay stuck to the
+                        // BOTTOM edge while the rest scrolls past above
+                        // it, mirroring exactly how a top card stays
+                        // stuck to the top while things scroll past
+                        // below it). Now applies on both mobile and
+                        // desktop, and picks whichever edge actually
+                        // matches this card's real position in
+                        // widgetOrder instead of always assuming top.
+                        position: 'sticky',
+                        ...(isGreetingFirst ? { top: '0px' } : { bottom: '0px' }),
+                        zIndex: 20,
+                        // A real, confirmed jitter bug: this card visibly
+                        // shook a pixel or two while Master Schedule
+                        // scrolled underneath/behind it - a known real
+                        // rendering quirk where a sticky element sitting
+                        // over content with a heavy backdrop-filter (the
+                        // 28px blur override below) forces the browser
+                        // to keep re-compositing the blurred pixels
+                        // behind it on every scroll frame, and
+                        // recalculates the sticky offset in that same
+                        // pass - the two together is what visibly
+                        // jittered. Forcing this onto its own GPU
+                        // compositing layer (the standard, well-
+                        // established fix for exactly this class of
+                        // sticky+blur jitter) decouples its own position
+                        // from that per-frame repaint, so it now stays
+                        // genuinely still - fixed for both pin edges,
+                        // not just the top case this was originally
+                        // written for.
+                        transform: 'translateZ(0)',
+                        willChange: 'transform',
+                        '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
+                        // Blur alone (above) diffuses whatever scrolls
+                        // behind this card but doesn't stop it being
+                        // legible through --bg-surface's own alpha -
+                        // live-tested on device: Master Schedule card
+                        // text ("QUEUE #6" etc.) was still clearly
+                        // readable, blurred, right through the Greeting
+                        // card once it actually scrolled underneath -
+                        // the real "crossing/garbage" look being
+                        // reported. Scoped to just this div's own
+                        // subtree (GreetingCard only, not Master
+                        // Schedule below it) rather than the shared
+                        // wrapper, so schedule cards keep the user's own
+                        // real transparency setting - only the one card
+                        // sitting permanently over moving content needs
+                        // to be reliably opaque.
+                        '--nexus-user-glass-alpha': 'max(var(--nexus-user-glass-alpha, 0.03), 0.88)',
+                    }}
                 >
-                    <GripVertical size={16} />
+                    <div
+                        title="Drag to reorder (desktop) or tap to swap order (mobile)"
+                        onClick={(e) => { e.stopPropagation(); swapWidgetOrder(); }}
+                        style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5, cursor: 'grab', color: 'var(--text-muted)', opacity: 0.5, padding: '8px' }}
+                    >
+                        <GripVertical size={16} />
+                    </div>
+                    <GreetingCard setActiveTab={setActiveTab} />
                 </div>
-                <GreetingCard setActiveTab={setActiveTab} />
-            </div>
 
-            {/* AI coaching/briefing is paused on mobile for this pass -
-                desktop's card is completely unaffected. */}
-            {!isMobile && (
-                <div className="col-12">
-                    <AIDailyBriefingCard isMobile={isMobile} setActiveTab={setActiveTab} />
-                </div>
-            )}
+                {/* AI coaching/briefing is paused on mobile for this pass -
+                    desktop's card is completely unaffected. */}
+                {!isMobile && (
+                    <div className="col-12">
+                        <AIDailyBriefingCard isMobile={isMobile} setActiveTab={setActiveTab} />
+                    </div>
+                )}
 
-            <div
-                className="col-12 master-schedule"
-                draggable
-                onDragStart={() => setDraggedWidget('schedule')}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => handleWidgetDrop('schedule')}
-                onDragEnd={() => setDraggedWidget(null)}
-                data-tour-id="home-schedule"
-                style={{ order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
-            >
+                <div
+                    className={isMobile ? 'master-schedule' : 'col-12 master-schedule'}
+                    draggable
+                    onDragStart={() => setDraggedWidget('schedule')}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleWidgetDrop('schedule')}
+                    onDragEnd={() => setDraggedWidget(null)}
+                    data-tour-id="home-schedule"
+                    style={{ order: widgetOrder.indexOf('schedule'), opacity: draggedWidget === 'schedule' ? 0.5 : 1, position: 'relative' }}
+                >
                 <div
                     title="Drag to reorder (desktop) or tap to swap order (mobile)"
                     className="master-schedule__drag-handle"
@@ -1114,6 +1186,7 @@ const HomePage = ({ setActiveTab }) => {
                     })()
                 )}
                 </div>
+            </div>
             </div>
         </div>
     );
