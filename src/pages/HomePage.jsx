@@ -983,7 +983,12 @@ const HomePage = ({ setActiveTab }) => {
             // that shared padding, which every other module also relies
             // on. Negative margin pulls this specific page's content up
             // to close that gap without affecting anything else.
-            marginTop: isMobile ? '-10px' : '-20px',
+            // Retuned against a real live measurement (getBoundingClientRect,
+            // not a screenshot guess): -20px only got the header-to-title
+            // gap down to 46px, nowhere near the ~16px card-to-card gap
+            // this was supposed to match. -46px is what the real numbers
+            // say is needed on desktop.
+            marginTop: isMobile ? '-10px' : '-46px',
         }}>
             <style>{`
                 @keyframes fadeInScale {
@@ -1065,53 +1070,43 @@ const HomePage = ({ setActiveTab }) => {
                         // A real, confirmed jitter bug: this card visibly
                         // shook a pixel or two while Master Schedule
                         // scrolled underneath/behind it - a known real
-                        // rendering quirk where a sticky element sitting
-                        // over content with a heavy backdrop-filter (the
-                        // 28px blur override below) forces the browser
-                        // to keep re-compositing the blurred pixels
-                        // behind it on every scroll frame, and
-                        // recalculates the sticky offset in that same
-                        // pass - the two together is what visibly
-                        // jittered. Forcing this onto its own GPU
-                        // compositing layer (the standard, well-
-                        // established fix for exactly this class of
-                        // sticky+blur jitter) decouples its own position
-                        // from that per-frame repaint, so it now stays
-                        // genuinely still - fixed for both pin edges,
-                        // not just the top case this was originally
-                        // written for. Real, reported follow-up: the
-                        // wobble was still visible after the first
-                        // attempt at this - translateZ(0) alone doesn't
-                        // reliably promote a stable compositing layer in
-                        // every engine, and .nexus-page-scroll's own
+                        // rendering quirk. CORRECTION after live-inspecting
+                        // the actual rendered DOM (getComputedStyle, not a
+                        // guess): the previous two attempts here were both
+                        // built on a false premise inherited from an
+                        // earlier comment - GreetingCard.jsx's own root has
+                        // NO backdrop-filter at all (confirmed: computed
+                        // backdropFilter is 'none', and zero descendants
+                        // have one either), so a "sticky+blur recompositing"
+                        // explanation was never actually possible here; the
+                        // '--glass-blur' override below was dead - nothing
+                        // in GreetingCard.jsx reads that variable. Removed
+                        // it. The real, still-unconfirmed cause is more
+                        // likely .nexus-page-scroll's own
                         // willChange:'scroll-position' (DashboardLayout.
-                        // jsx) can compete with a single-axis transform
-                        // hint on a nested sticky child for which layer
-                        // "owns" repaint each frame. translate3d + an
-                        // explicit backface-visibility/contain forces an
-                        // unambiguous, isolated layer that never needs
-                        // to renegotiate with the ancestor scroll
-                        // container's own hint.
+                        // jsx) competing with this sticky child for which
+                        // layer owns repaint - translate3d + backface-
+                        // visibility/contain (kept from the previous
+                        // attempt) plus isolation:'isolate' here (a new,
+                        // stronger stacking-context boundary) is the next
+                        // reasonable attempt at that theory, but this
+                        // still could not be verified against a real
+                        // scroll gesture (requestAnimationFrame sampling
+                        // doesn't run in a backgrounded/hidden browser
+                        // pane, which is what was available) - please
+                        // check this directly again.
                         transform: 'translate3d(0,0,0)',
                         backfaceVisibility: 'hidden',
                         contain: 'layout',
+                        isolation: 'isolate',
                         willChange: 'transform',
-                        '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
-                        // Blur alone (above) diffuses whatever scrolls
-                        // behind this card but doesn't stop it being
-                        // legible through --bg-surface's own alpha -
-                        // live-tested on device: Master Schedule card
-                        // text ("QUEUE #6" etc.) was still clearly
-                        // readable, blurred, right through the Greeting
-                        // card once it actually scrolled underneath -
-                        // the real "crossing/garbage" look being
-                        // reported. Scoped to just this div's own
-                        // subtree (GreetingCard only, not Master
-                        // Schedule below it) rather than the shared
-                        // wrapper, so schedule cards keep the user's own
-                        // real transparency setting - only the one card
-                        // sitting permanently over moving content needs
-                        // to be reliably opaque.
+                        // Still real and still used (confirmed:
+                        // --bg-surface's own alpha channel in variables.css/
+                        // style.css reads this) - keeps the card's
+                        // background reliably opaque so Master Schedule
+                        // text scrolling underneath never bleeds through
+                        // it, independent of the jitter investigation
+                        // above.
                         '--nexus-user-glass-alpha': 'max(var(--nexus-user-glass-alpha, 0.03), 0.88)',
                     }}
                 >
