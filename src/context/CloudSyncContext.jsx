@@ -271,6 +271,29 @@ export const CloudSyncProvider = ({ children }) => {
         try {
             const snap = await withTimeout(getDoc(doc(db, 'nexusUsers', user.uid)), SYNC_TIMEOUT_MS);
             if (snap.exists()) {
+                // Same real bug as the onSnapshot listener above (see its
+                // own comment) - missed here the first time this was
+                // fixed. getDoc() with persistentLocalCache enabled can
+                // resolve from the LOCAL cache without ever confirming
+                // against the server, especially once real connectivity
+                // has been degrading (a genuine, live-reproduced "Sync
+                // timed out" was observed while diagnosing this) - and
+                // this is the exact call that fires automatically on
+                // every fresh sign-in/reload (see the effect below),
+                // silently restoring stale data over fresh local changes
+                // every single time, independent of the onSnapshot fix.
+                // Only trust a fromCache result when there's genuinely
+                // nothing local to protect yet (a real new-device
+                // restore) - otherwise leave local data alone and surface
+                // this honestly instead of silently no-op'ing, so a
+                // manual "Pull from Cloud" click doesn't look like it did
+                // nothing for no reason.
+                const hasLocalData = SYNCED_KEYS.some((k) => localStorage.getItem(k) !== null);
+                if (snap.metadata.fromCache && hasLocalData) {
+                    setSyncStatus(SYNC_STATUS.ERROR);
+                    setSyncError('Cloud data is not confirmed fresh yet (still offline/reconnecting) - kept your local data as-is rather than risk overwriting it with a stale cached copy.');
+                    return;
+                }
                 applyCloudData(snap.data().data || {});
             }
             setLastSyncedAt(new Date());
