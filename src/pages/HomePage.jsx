@@ -970,7 +970,21 @@ const HomePage = ({ setActiveTab }) => {
     const isGreetingFirst = widgetOrder.indexOf('greeting') === 0;
 
     return (
-        <div className="dashboard-grid" style={{ animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)', paddingBottom: isMobile ? '32px' : '60px' }}>
+        <div className="dashboard-grid" style={{
+            animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)', paddingBottom: isMobile ? '32px' : '60px',
+            // Real, reported request: the gap between the app header and
+            // whichever card renders first here (Master Schedule, when
+            // it's been swapped ahead of Greeting) read as much larger
+            // than the ~16px gap between two queue cards - DashboardLayout.
+            // jsx's own shared container padding (32px desktop / 16px
+            // mobile top) plus .master-schedule's own 10px margin-top
+            // compounded into real extra space. Scoped here (this class
+            // is Home-only - no other page uses it) rather than touching
+            // that shared padding, which every other module also relies
+            // on. Negative margin pulls this specific page's content up
+            // to close that gap without affecting anything else.
+            marginTop: isMobile ? '-10px' : '-20px',
+        }}>
             <style>{`
                 @keyframes fadeInScale {
                     0% { opacity: 0; transform: scale(0.98) translateY(10px); }
@@ -1031,7 +1045,22 @@ const HomePage = ({ setActiveTab }) => {
                         // matches this card's real position in
                         // widgetOrder instead of always assuming top.
                         position: 'sticky',
-                        ...(isGreetingFirst ? { top: '0px' } : { bottom: '0px' }),
+                        // Real, reported bug: bottom:'0px' stuck this
+                        // card flush to .nexus-page-scroll's own bottom
+                        // scroll edge, which sits BEHIND MobileTabBar (a
+                        // separate fixed sibling reserving its own
+                        // ~76px+safe-area at the true screen bottom -
+                        // .glass-panel's matching bottom padding normally
+                        // clears it for ordinary flow content, but a
+                        // sticky offset is measured against the
+                        // scrollport itself, not an ancestor's padding).
+                        // The card was rendering right under the tab bar
+                        // instead of clearing it. Mirrors the same
+                        // clearance FloatingBottomPlayer.jsx already
+                        // uses for the identical real reason.
+                        ...(isGreetingFirst
+                            ? { top: '0px' }
+                            : { bottom: isMobile ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : '0px' }),
                         zIndex: 20,
                         // A real, confirmed jitter bug: this card visibly
                         // shook a pixel or two while Master Schedule
@@ -1050,8 +1079,22 @@ const HomePage = ({ setActiveTab }) => {
                         // from that per-frame repaint, so it now stays
                         // genuinely still - fixed for both pin edges,
                         // not just the top case this was originally
-                        // written for.
-                        transform: 'translateZ(0)',
+                        // written for. Real, reported follow-up: the
+                        // wobble was still visible after the first
+                        // attempt at this - translateZ(0) alone doesn't
+                        // reliably promote a stable compositing layer in
+                        // every engine, and .nexus-page-scroll's own
+                        // willChange:'scroll-position' (DashboardLayout.
+                        // jsx) can compete with a single-axis transform
+                        // hint on a nested sticky child for which layer
+                        // "owns" repaint each frame. translate3d + an
+                        // explicit backface-visibility/contain forces an
+                        // unambiguous, isolated layer that never needs
+                        // to renegotiate with the ancestor scroll
+                        // container's own hint.
+                        transform: 'translate3d(0,0,0)',
+                        backfaceVisibility: 'hidden',
+                        contain: 'layout',
                         willChange: 'transform',
                         '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
                         // Blur alone (above) diffuses whatever scrolls
@@ -1120,7 +1163,14 @@ const HomePage = ({ setActiveTab }) => {
                             title unchanged - real room to spare there. */}
                         <h2 className="master-schedule__title">{isMobile ? 'Master Schedule' : 'Master Schedule Flow & Active Timeline'}</h2>
                     </div>
-                    <span className="master-schedule__count">{masterQueue.length} Master Queue Blocks Active</span>
+                    {/* Real, reported request: shortened from "N Master
+                        Queue Blocks Active" - "Master" was redundant
+                        with the title right next to it ("Master
+                        Schedule..."), and trimming it lets this header
+                        row sit more compactly, especially on mobile
+                        where every extra word here pushed the visible
+                        queue content down further from the app header. */}
+                    <span className="master-schedule__count">{masterQueue.length} Queue Blocks Active</span>
                 </div>
 
                 {/* master-schedule__queue is a plain passthrough wrapper on
