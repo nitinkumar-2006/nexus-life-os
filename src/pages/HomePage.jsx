@@ -971,7 +971,23 @@ const HomePage = ({ setActiveTab }) => {
 
     return (
         <div className="dashboard-grid" style={{
-            animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)', paddingBottom: isMobile ? '32px' : '60px',
+            animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            // Real root cause of the "still moving near the bottom"
+            // report, found via a live, controlled experiment (fixed
+            // scrollTop values, padding toggled on/off, not a guess):
+            // this trailing padding sits AFTER the Greeting/Schedule
+            // flex wrapper, and once scrolling reaches within ~24-32px
+            // of the true end, the sticky-pinned card's own "stuck"
+            // region runs out and it briefly starts tracking normal
+            // scroll again before the page bottoms out - a real,
+            // measured position shift, not imagined. Confirmed live:
+            // zeroing this padding made the shift disappear entirely.
+            // When Greeting is pinned at the bottom, this trailing
+            // space serves no purpose anyway (the pinned card already
+            // reads as the true end of the page) - dropped to 0 only in
+            // that case; the top-pinned case (never reported broken)
+            // keeps its original value unchanged.
+            paddingBottom: isGreetingFirst ? (isMobile ? '32px' : '60px') : '0px',
             // Real, reported request: the gap between the app header and
             // whichever card renders first here (Master Schedule, when
             // it's been swapped ahead of Greeting) read as much larger
