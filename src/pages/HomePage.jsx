@@ -1005,6 +1005,21 @@ const HomePage = ({ setActiveTab }) => {
             // this was supposed to match. -46px is what the real numbers
             // say is needed on desktop.
             marginTop: isMobile ? '-10px' : '-46px',
+            // Real, reported bug (confirmed via two live screenshots
+            // showing an uncovered gap below the pinned card): the
+            // wrapper's own paddingBottom+background fix below covers
+            // ITS OWN clearance zone, but .glass-panel (DashboardLayout.
+            // jsx, shared by every page) ALSO reserves the identical
+            // calc(76px+safe-area) as its own trailing bottom padding -
+            // the two stacked, leaving a second, genuinely empty ~76px
+            // strip between this wrapper's now-solid bottom edge and the
+            // real tab bar that nothing covers. Can't zero glass-panel's
+            // own padding globally (every other page still needs it) -
+            // cancels it out with a matching negative margin here
+            // instead, scoped to this Home-only class, only when
+            // Greeting is bottom-pinned on mobile (the only case this
+            // was ever a problem for).
+            marginBottom: (isMobile && !isGreetingFirst) ? 'calc(-76px - env(safe-area-inset-bottom, 0px))' : '0px',
         }}>
             <style>{`
                 @keyframes fadeInScale {
