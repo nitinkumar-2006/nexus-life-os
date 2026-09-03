@@ -1067,39 +1067,27 @@ const HomePage = ({ setActiveTab }) => {
                             ? { top: '0px' }
                             : { bottom: isMobile ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : '0px' }),
                         zIndex: 20,
-                        // A real, confirmed jitter bug: this card visibly
-                        // shook a pixel or two while Master Schedule
-                        // scrolled underneath/behind it - a known real
-                        // rendering quirk. CORRECTION after live-inspecting
-                        // the actual rendered DOM (getComputedStyle, not a
-                        // guess): the previous two attempts here were both
-                        // built on a false premise inherited from an
-                        // earlier comment - GreetingCard.jsx's own root has
-                        // NO backdrop-filter at all (confirmed: computed
-                        // backdropFilter is 'none', and zero descendants
-                        // have one either), so a "sticky+blur recompositing"
-                        // explanation was never actually possible here; the
-                        // '--glass-blur' override below was dead - nothing
-                        // in GreetingCard.jsx reads that variable. Removed
-                        // it. The real, still-unconfirmed cause is more
-                        // likely .nexus-page-scroll's own
-                        // willChange:'scroll-position' (DashboardLayout.
-                        // jsx) competing with this sticky child for which
-                        // layer owns repaint - translate3d + backface-
-                        // visibility/contain (kept from the previous
-                        // attempt) plus isolation:'isolate' here (a new,
-                        // stronger stacking-context boundary) is the next
-                        // reasonable attempt at that theory, but this
-                        // still could not be verified against a real
-                        // scroll gesture (requestAnimationFrame sampling
-                        // doesn't run in a backgrounded/hidden browser
-                        // pane, which is what was available) - please
-                        // check this directly again.
-                        transform: 'translate3d(0,0,0)',
-                        backfaceVisibility: 'hidden',
-                        contain: 'layout',
-                        isolation: 'isolate',
-                        willChange: 'transform',
+                        // Real fix, found by comparing against a working
+                        // reference in this SAME app: header.jsx's own
+                        // sticky bar (position:'sticky', top:0, zIndex -
+                        // nothing else) never jitters while scrolling,
+                        // confirmed directly by the user. Every "jitter
+                        // fix" attempted here across three earlier rounds
+                        // (translateZ/translate3d, backface-visibility,
+                        // contain, isolation, a blur override that turned
+                        // out to be dead code) was added on top of plain
+                        // sticky positioning and never actually removed -
+                        // if the identical plain-sticky technique is
+                        // rock-solid elsewhere in this exact app, those
+                        // additions were never the fix and were at least
+                        // as likely to be fighting the browser's own
+                        // sticky-positioning logic as helping it (contain
+                        // and isolation both create new formatting/
+                        // stacking contexts that can genuinely interact
+                        // oddly with position:sticky's own scroll-anchor
+                        // math). Stripped back to match header.jsx
+                        // exactly - plain sticky, an offset, and a
+                        // z-index, nothing more.
                         // Still real and still used (confirmed:
                         // --bg-surface's own alpha channel in variables.css/
                         // style.css reads this) - keeps the card's
