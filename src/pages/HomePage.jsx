@@ -1110,6 +1110,25 @@ const HomePage = ({ setActiveTab }) => {
                             WebkitBackdropFilter: 'blur(20px)',
                             borderRadius: '24px 24px 0 0',
                         } : {}),
+                        // Real, reported bug, same class as the bottom-pin
+                        // gap above: this wrapper had NO background of its
+                        // own for the top-pinned case - only GreetingCard's
+                        // own inner div does. Whenever this wrapper's own
+                        // box is even a hair taller than GreetingCard's
+                        // actual rendered content (a real, confirmed case:
+                        // an expanded Master Schedule card's own text
+                        // visibly peeking out in a thin sliver right below
+                        // the Greeting card's rounded bottom edge, live-
+                        // screenshotted), that sliver has nothing covering
+                        // it. Giving the wrapper itself the same solid
+                        // background + blur as the bottom case closes this
+                        // the same way, for both mobile and desktop.
+                        ...(isGreetingFirst ? {
+                            background: 'var(--bg-surface)',
+                            backdropFilter: 'blur(20px)',
+                            WebkitBackdropFilter: 'blur(20px)',
+                            borderRadius: '24px',
+                        } : {}),
                         zIndex: 20,
                         // Real fix, found by comparing against a working
                         // reference in this SAME app: header.jsx's own
