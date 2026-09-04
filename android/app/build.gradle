@@ -7,8 +7,28 @@ android {
         applicationId "com.nexus.lifeos"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Real answer to "APK pe tap karne par Update dikhna chahiye":
+        // this is genuinely native Android behavior, no server/backend
+        // needed for it - Android's own package installer offers
+        // "Update" (preserving app data) instead of "Install" ONLY when
+        // a newly-tapped APK's versionCode is HIGHER than what's
+        // currently installed, with the SAME signing key. This was
+        // hardcoded at 1 forever, so every single build looked
+        // identical to Android - never triggering the "Update" flow
+        // this was asked about. Bumped to 2 here; increment this by at
+        // least 1 (and versionName below, for the human-readable
+        // number users actually see) before building and sharing each
+        // future APK for this to keep working. Signing key note: if
+        // this project doesn't yet have its own explicit signingConfig
+        // (uses the Android Gradle Plugin's own auto-generated debug
+        // keystore by default), that keystore is usually stable across
+        // builds on the SAME machine, but switching machines or
+        // deleting it produces a different key - Android silently
+        // refuses an "update" from a differently-signed APK (shows a
+        // signature-conflict install failure instead), so keep building
+        // from the same machine/keystore for this to work reliably.
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
