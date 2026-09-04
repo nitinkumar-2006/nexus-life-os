@@ -1120,7 +1120,17 @@ const HomePage = ({ setActiveTab }) => {
                         // covers that strip instead of leaving it empty.
                         ...(isGreetingFirst ? { top: '0px' } : { bottom: '0px' }),
                         ...(!isGreetingFirst && isMobile ? {
-                            paddingBottom: 'calc(76px + env(safe-area-inset-bottom, 0px))',
+                            // Retuned against a real measurement, not a
+                            // guess: MobileTabBar's own real height is
+                            // exactly 57px (getBoundingClientRect,
+                            // confirmed live) - 76px left a real ~19px of
+                            // excess solid buffer beyond what's actually
+                            // needed to clear it, which is what still
+                            // read as "too much spacing" after the
+                            // bleed-through fix. 58px (57 + a 1px safety
+                            // margin) is the tightest value that still
+                            // genuinely clears the tab bar.
+                            paddingBottom: 'calc(58px + env(safe-area-inset-bottom, 0px))',
                             background: 'var(--bg-surface)',
                             backdropFilter: 'blur(20px)',
                             WebkitBackdropFilter: 'blur(20px)',
