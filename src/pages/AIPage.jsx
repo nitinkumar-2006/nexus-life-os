@@ -51,6 +51,17 @@ const TOOL_USAGE_SYSTEM_SUFFIX = `
 
 You also have real tools to directly create things in the user's Nexus OS: a new Planner task, a new Finance transaction (which also updates the matching account's real balance), a logged Gym workout, a logged Diet meal, a new Study assignment, or a new Calendar event. Use them conversationally - ask for whatever details you genuinely need one at a time (not all at once), discuss or confirm details naturally if the user seems unsure, and only call a tool once the user has clearly confirmed they want it saved. After a tool call's result comes back, tell the user what happened in one short, natural sentence - don't just repeat the raw result, and if it failed, explain why in plain language.`;
 
+// Real bug found live: Date.now() alone collides when two sessions are
+// minted in the same millisecond (confirmed by rapid-clicking "New
+// Chat" - two entries landed on the literal same `session_<ms>` id).
+// Since every session list below is keyed by this id, a collision means
+// duplicate React keys (a real "each child needs a unique key" case,
+// not the usual harmless dev warning) and a delete on either row
+// removing both at once via the `s.id !== sessionId` filter. A random
+// suffix makes two calls in the same millisecond resolve to different
+// ids without changing anything about how ids already look/sort.
+const makeSessionId = () => `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
 const AIPage = ({ setActiveTab: setAppActiveTab }) => {
     const isMobile = useIsMobile();
     // Contextual first-visit tour (see TourGuide.jsx) - mobile only; the
@@ -208,7 +219,7 @@ const AIPage = ({ setActiveTab: setAppActiveTab }) => {
     // wiping the current one, so past conversations stay in the sidebar.
     const createNewSession = (personaId = activePersona) => {
         const now = Date.now();
-        const newSession = { id: `session_${now}`, title: 'New Chat', persona: personaId, messages: [getDefaultGreeting(personaId)], createdAt: now, updatedAt: now };
+        const newSession = { id: makeSessionId(), title: 'New Chat', persona: personaId, messages: [getDefaultGreeting(personaId)], createdAt: now, updatedAt: now };
         setSessions((prev) => [...prev, newSession]);
         setActiveSessionId(newSession.id);
     };
@@ -222,7 +233,7 @@ const AIPage = ({ setActiveTab: setAppActiveTab }) => {
             const next = prev.filter((s) => s.id !== sessionId);
             if (next.length === 0) {
                 const now = Date.now();
-                return [{ id: `session_${now}`, title: 'New Chat', persona: 'general', messages: [getDefaultGreeting('general')], createdAt: now, updatedAt: now }];
+                return [{ id: makeSessionId(), title: 'New Chat', persona: 'general', messages: [getDefaultGreeting('general')], createdAt: now, updatedAt: now }];
             }
             return next;
         });
@@ -673,7 +684,7 @@ const AIPage = ({ setActiveTab: setAppActiveTab }) => {
         const now = Date.now();
         const firstUserMsg = branchedMessages.find((m) => m.sender === 'user');
         const newSession = {
-            id: `session_${now}`,
+            id: makeSessionId(),
             title: firstUserMsg ? `${firstUserMsg.text.slice(0, 34)} (branch)` : 'Branched Chat',
             persona: activeSession?.persona || 'general',
             messages: branchedMessages, createdAt: now, updatedAt: now,
@@ -762,7 +773,13 @@ const AIPage = ({ setActiveTab: setAppActiveTab }) => {
                 onConfirmClear={confirmClearChat}
                 showTour={showTour}
                 onFinishTour={() => setShowTour(false)}
-                onOpenSettings={typeof setAppActiveTab === 'function' ? () => setAppActiveTab('Settings') : undefined}
+                onOpenSettings={typeof setAppActiveTab === 'function' ? () => {
+                    // Actually land on API Integrations, not just Settings'
+                    // default Account tab - see the matching read in
+                    // SettingsPage.jsx's activeCategory initializer.
+                    sessionStorage.setItem('nexus_settings_open_section', 'api');
+                    setAppActiveTab('Settings');
+                } : undefined}
             />
         </div>
     );

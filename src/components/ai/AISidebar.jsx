@@ -96,14 +96,21 @@ const AISidebar = ({
     const coachPickerRef = useRef(null);
 
     // Anchors a popover just below its own trigger, clamped so a wide
-    // popover (240px) can never overflow past the real right edge of the
-    // viewport even when the trigger itself sits close to it.
+    // popover (240px) can never overflow past the real right OR left
+    // edge of the viewport even when the trigger itself sits close to
+    // one. The left-edge floor is real, not just defensive: a trigger
+    // near the sidebar's own left padding (the coach picker's full-
+    // width row, on a narrow mobile screen) could otherwise still clamp
+    // to a small-but-positive left value from the right-edge Math.min
+    // alone - genuinely fine on its own, but this also guards against
+    // any future trigger that legitimately sits flush against the left
+    // edge, which the old Math.min-only version had no protection for.
     const positionBelow = (ref, popoverWidth) => {
         const rect = ref.current?.getBoundingClientRect();
         if (!rect) return { top: 0, left: 0 };
         return {
             top: rect.bottom + 8,
-            left: Math.min(rect.left, window.innerWidth - popoverWidth - 16),
+            left: Math.max(16, Math.min(rect.left, window.innerWidth - popoverWidth - 16)),
         };
     };
     const openModelPicker = () => { setModelPickerPosition(positionBelow(modelPickerRef, 220)); setModelPickerOpen((v) => !v); };

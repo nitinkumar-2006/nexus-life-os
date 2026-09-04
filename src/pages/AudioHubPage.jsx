@@ -14,6 +14,7 @@ import {
     Disc, ArrowUp, ArrowDown, UploadCloud,
     Search, Shuffle, Heart, ListMusic, X, ChevronLeft, Radio,
     Apple, Check, Loader2, Video, Music2, Pin, Mic2, Clock, Home, FolderOpen,
+    Library, ChevronRight,
 } from 'lucide-react';
 import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { useStreaming } from '../context/StreamingContext.jsx';
@@ -25,7 +26,6 @@ import { useResizableSidebar } from '../hooks/useResizableSidebar.js';
 import { AUDIO_LIBRARY, getAllLibraryTracks } from '../data/audioLibraryMock.js';
 import EqualizerBars from '../components/audio/EqualizerBars.jsx';
 import AudioSidebar from '../components/audio/AudioSidebar.jsx';
-import FloatingBottomPlayer from '../components/audio/FloatingBottomPlayer.jsx';
 import ProfileMenu from '../components/audio/ProfileMenu.jsx';
 import StreamingSetupModal from '../components/audio/StreamingSetupModal.jsx';
 import AudioSettingsView from '../components/audio/AudioSettingsView.jsx';
@@ -257,6 +257,58 @@ const SpotifyPlaylistCard = React.memo(({ playlist, isFavorite, onOpen, onToggle
     );
 });
 
+// Fisher-Yates - used only by PlaylistPlayButtons' Shuffle Play below, to
+// send Spotify's device a genuinely randomized queue (not just a fake
+// "shuffle" label on the same fixed order).
+const shuffleArray = (arr) => {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+};
+
+// Real "Play" / "Shuffle Play" row, matched against the Apple Music
+// reference screenshots (a big Play pill + a separate round shuffle
+// button, above the track list) - shared by every Spotify list/detail
+// view below (Genre/Playlist/Album) rather than tripling the same JSX.
+// Genuinely queues every track on Spotify's own device via
+// spotifyPlayUri's queueUris arg (see StreamingContext.jsx) - this is
+// what actually makes Next/Previous work afterward, not just a visual
+// addition. Only rendered once there's a real device + tracks to queue;
+// local-preview-only playback has no equivalent "hand the whole list to
+// the device" concept to offer.
+const PlaylistPlayButtons = ({ tracks, spotifyDeviceId, spotifyAuth, activeSource, setActiveSource, spotifyPlayUri }) => {
+    // Capped at 100 - Spotify's own /player/play endpoint rejects a
+    // longer `uris` array; most real playlists here are well under that,
+    // but a genre search (up to 200) or a large real Spotify playlist
+    // isn't guaranteed to be.
+    const uris = useMemo(() => tracks.map((t) => t.uri).filter(Boolean).slice(0, 100), [tracks]);
+    if (!spotifyDeviceId || !spotifyAuth.connected || uris.length === 0) return null;
+    const start = (list) => {
+        if (activeSource !== 'spotify') setActiveSource('spotify');
+        spotifyPlayUri(list[0], list);
+    };
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+                onClick={() => start(uris)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 22px', borderRadius: '9999px', border: 'none', background: 'var(--primary)', color: 'var(--text-on-primary)', fontSize: '13px', fontWeight: '800', cursor: 'pointer' }}
+            >
+                <Play size={14} fill="currentColor" /> Play
+            </button>
+            <button
+                onClick={() => start(shuffleArray(uris))}
+                title="Shuffle Play" aria-label="Shuffle Play"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', borderRadius: '50%', border: '1px solid var(--border-premium)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >
+                <Shuffle size={16} />
+            </button>
+        </div>
+    );
+};
+
 // Real playlist detail view for a genuine Spotify playlist - fetches its
 // actual tracks lazily (only once opened), and plays them through the
 // exact same mechanism GlobalSearchTab's own Spotify results already use
@@ -278,10 +330,14 @@ const SpotifyPlaylistDetailView = React.memo(({ playlist, onBack, playTrackNow, 
         return () => { cancelled = true; };
     }, [playlist.id, spotifyAuth.accessToken]);
 
+    // Real bug fixed: used to always start Spotify's device on JUST this
+    // one track (no queue) - Next then genuinely had nothing to advance
+    // to. Now hands the device the WHOLE playlist + which one to start
+    // on, so tapping any row also queues everything after it.
     const handleTrackClick = (track) => {
         if (spotifyDeviceId && spotifyAuth.connected) {
             if (activeSource !== 'spotify') setActiveSource('spotify');
-            spotifyPlayUri(track.uri);
+            spotifyPlayUri(track.uri, tracks.map((t) => t.uri).filter(Boolean).slice(0, 100));
         } else if (track.previewUrl) {
             playTrackNow(track.title, track.previewUrl);
         }
@@ -303,6 +359,9 @@ const SpotifyPlaylistDetailView = React.memo(({ playlist, onBack, playTrackNow, 
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>{playlist.trackCount} tracks · Spotify</p>
                 </div>
             </div>
+            {!loading && !error && (
+                <PlaylistPlayButtons tracks={tracks} spotifyDeviceId={spotifyDeviceId} spotifyAuth={spotifyAuth} activeSource={activeSource} setActiveSource={setActiveSource} spotifyPlayUri={spotifyPlayUri} />
+            )}
             {loading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Loading tracks…</p>}
             {error && <p style={{ fontSize: '13px', color: '#fca5a5', textAlign: 'center', padding: '20px 0' }}>{error}</p>}
             {!loading && !error && (
@@ -348,10 +407,12 @@ const AlbumDetailView = React.memo(({ album, onBack, playTrackNow, spotifyAuth, 
         return () => { cancelled = true; };
     }, [album.id, album.artworkUrl, spotifyAuth.accessToken]);
 
+    // Same real fix as SpotifyPlaylistDetailView/GenreDetailView - queues
+    // the whole album on Spotify's device instead of just one track.
     const handleTrackClick = (track) => {
         if (spotifyDeviceId && spotifyAuth.connected) {
             if (activeSource !== 'spotify') setActiveSource('spotify');
-            spotifyPlayUri(track.uri);
+            spotifyPlayUri(track.uri, tracks.map((t) => t.uri).filter(Boolean).slice(0, 100));
         } else if (track.previewUrl) {
             playTrackNow(track.title, track.previewUrl);
         }
@@ -373,6 +434,9 @@ const AlbumDetailView = React.memo(({ album, onBack, playTrackNow, spotifyAuth, 
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>{album.artist} · New Release</p>
                 </div>
             </div>
+            {!loading && !error && (
+                <PlaylistPlayButtons tracks={tracks} spotifyDeviceId={spotifyDeviceId} spotifyAuth={spotifyAuth} activeSource={activeSource} setActiveSource={setActiveSource} spotifyPlayUri={spotifyPlayUri} />
+            )}
             {loading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Loading tracks…</p>}
             {error && <p style={{ fontSize: '13px', color: '#fca5a5', textAlign: 'center', padding: '20px 0' }}>{error}</p>}
             {!loading && !error && (
@@ -518,10 +582,15 @@ const GenreDetailView = React.memo(({ tile, onBack, playTrackNow, spotifyAuth, s
         return () => { cancelled = true; };
     }, [tile.query, spotifyAuth.accessToken]);
 
+    // Same real fix as the other detail views - queues the rest of this
+    // genre's tracks on Spotify's device instead of just the one clicked.
+    // Spotify's own /player/play endpoint caps `uris` at 100 - this list
+    // can run up to 200 (see searchManySpotifyTracks above), so it's
+    // capped here too rather than sending a request Spotify would reject.
     const handleTrackClick = (track) => {
         if (spotifyDeviceId && spotifyAuth.connected) {
             if (activeSource !== 'spotify') setActiveSource('spotify');
-            spotifyPlayUri(track.uri);
+            spotifyPlayUri(track.uri, tracks.map((t) => t.uri).filter(Boolean).slice(0, 100));
         } else if (track.previewUrl) {
             playTrackNow(track.title, track.previewUrl);
         }
@@ -539,6 +608,9 @@ const GenreDetailView = React.memo(({ tile, onBack, playTrackNow, spotifyAuth, s
                     <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>Live Spotify search · {tracks.length || '…'} tracks</p>
                 </div>
             </div>
+            {!loading && !error && (
+                <PlaylistPlayButtons tracks={tracks.slice(0, 100)} spotifyDeviceId={spotifyDeviceId} spotifyAuth={spotifyAuth} activeSource={activeSource} setActiveSource={setActiveSource} spotifyPlayUri={spotifyPlayUri} />
+            )}
             {loading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Searching…</p>}
             {error && <p style={{ fontSize: '13px', color: '#fca5a5', textAlign: 'center', padding: '20px 0' }}>{error}</p>}
             {!loading && !error && (
@@ -1212,7 +1284,11 @@ const GlobalSearchTab = React.memo(({ playlist: queue, playTrackNow }) => {
             // real to listen to instead of a dead click.
             if (spotifyDeviceId && spotifyAuth.connected) {
                 if (activeSource !== 'spotify') setActiveSource('spotify');
-                spotifyPlayUri(track.uri);
+                // Same real fix as the genre/playlist/album detail views -
+                // queues the rest of the visible Spotify results too, so
+                // Next actually has somewhere to go instead of stopping
+                // dead after this one track.
+                spotifyPlayUri(track.uri, spotifyResults.map((t) => t.uri).filter(Boolean).slice(0, 100));
             } else if (track.previewUrl) {
                 playTrackNow(track.title, track.previewUrl);
             }
@@ -1627,6 +1703,10 @@ const RecentlyPlayedView = React.memo(({ recentlyPlayed, currentTrack, isPlaying
 // title if possible (the only source with a stable, guessable url).
 const FavoritesView = React.memo(({ favoriteTrackTitles, favoriteTrackDetails, toggleFavoriteTrack, playTrackNow, currentTrack, isPlaying, togglePlay }) => {
     const allTracks = useMemo(getAllLibraryTracks, []);
+    // spotifyAuth/activeSource/setActiveSource/spotifyDeviceId/spotifyPlayUri
+    // are already destructured from useStreaming() further down in this
+    // same component (see handleSpotifyTrackClick's own block) - reused
+    // here rather than a second, colliding declaration.
     // Real fix for a real bug ("bahut sara song gayab hai" - many
     // favorited songs missing): favoriteTrackTitles now holds composite
     // source+artist-aware KEYS for non-local tracks, not literal titles
@@ -1670,10 +1750,13 @@ const FavoritesView = React.memo(({ favoriteTrackTitles, favoriteTrackDetails, t
         return () => { cancelled = true; };
     }, [spotifyAuth.connected, spotifyAuth.accessToken]);
 
+    // Same real fix as the detail views - Liked Songs is a genuine
+    // ordered playlist too, so it queues the same way instead of
+    // stranding Next with nothing to advance to.
     const handleSpotifyTrackClick = (track) => {
         if (spotifyDeviceId && spotifyAuth.connected) {
             if (activeSource !== 'spotify') setActiveSource('spotify');
-            spotifyPlayUri(track.uri);
+            spotifyPlayUri(track.uri, spotifyLiked.map((t) => t.uri).filter(Boolean).slice(0, 100));
         } else if (track.previewUrl) {
             playTrackNow(track.title, track.previewUrl);
         }
@@ -1733,12 +1816,33 @@ const FavoritesView = React.memo(({ favoriteTrackTitles, favoriteTrackDetails, t
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {rows.map((t) => {
                             const isActive = currentTrack && currentTrack.title === t.title;
-                            const playable = !!t.url;
+                            // Real, reported bug fixed: a track favourited
+                            // from Spotify (this app's own heart buttons on
+                            // Recently Played/the header popup/etc.) never
+                            // stored a `url` at all - Spotify plays through
+                            // its own SDK, not a normal <audio src>. This
+                            // row's own playability check only ever looked
+                            // at `t.url`, so it honestly (if uselessly)
+                            // showed "Search to replay" for every single
+                            // Spotify favourite, even ones favourited
+                            // moments ago. Same real canPlaySpotify pattern
+                            // RecentlyPlayedView/LibraryTab's own Recently
+                            // Played row already use.
+                            const canPlaySpotify = t.source === 'spotify' && !!t.uri && spotifyDeviceId && spotifyAuth.connected;
+                            const playable = !!t.url || canPlaySpotify;
+                            const doPlay = () => {
+                                if (canPlaySpotify) {
+                                    if (activeSource !== 'spotify') setActiveSource('spotify');
+                                    spotifyPlayUri(t.uri);
+                                } else if (t.url) {
+                                    playTrackNow(t.title, t.url);
+                                }
+                            };
                             const badge = SOURCE_BADGE_STYLE[t.source] || SOURCE_BADGE_STYLE.local;
                             return (
                                 <div
                                     key={t.key}
-                                    onClick={() => { if (playable) (isActive ? togglePlay() : playTrackNow(t.title, t.url)); }}
+                                    onClick={() => { if (playable) (isActive ? togglePlay() : doPlay()); }}
                                     style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', background: isActive ? 'var(--primary-muted)' : 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '12px', cursor: playable ? 'pointer' : 'default', opacity: playable ? 1 : 0.6 }}
                                 >
                                     {t.artworkUrl ? (
@@ -1890,19 +1994,110 @@ const ArtistsView = React.memo(({ playTrackNow, currentTrack, isPlaying, toggleP
 // (e.g. Notifications' anchored dropdown becoming a full-width bottom
 // sheet on mobile): the same real destinations, a layout suited to the
 // viewport.
+// Local Files removed from this row per explicit request - it now lives
+// in the profile menu instead (see ProfileMenu's own onOpenLocalFiles),
+// keeping this scrollable strip shorter/more relevant for the common
+// case (browsing genres/playlists), the same real reasoning the profile
+// avatar/Connections move above already follows.
+//
+// Cut down again, from 6 pills to 3 (Search/Home/Library), per explicit
+// live confirmation against Apple Music's own mobile Library tab
+// (screenshot reference) - Pins/Recent/Artists/Songs/Favourites are real
+// destinations, not removed, just no longer flat top-level pills; they
+// now live as rows inside the new 'library' view (see LibraryMenuView
+// below), the same consolidation Apple Music/Spotify's own mobile nav
+// uses (a single Library entry point, not one tab per collection type).
 const MOBILE_NAV_ITEMS = [
     { id: 'search', label: 'Search', icon: Search },
     { id: 'home', label: 'Home', icon: Home },
-    { id: 'local', label: 'Local Files', icon: FolderOpen },
-    { id: 'pins', label: 'Pins', icon: Pin },
-    { id: 'recent', label: 'Recent', icon: Clock },
-    { id: 'artists', label: 'Artists', icon: Mic2 },
-    { id: 'songs', label: 'Songs', icon: Music2 },
+    { id: 'library', label: 'Library', icon: Library },
 ];
 
+// Any activeView reachable FROM the Library screen - used so the
+// "Library" pill still reads as selected while browsing inside one of
+// its rows (Pins/Recent/Artists/Songs/Favourites), not just when
+// activeView is literally 'library' itself.
+const LIBRARY_VIEWS = ['library', 'pins', 'recent', 'artists', 'songs', 'favorites'];
+
 const VIEW_TITLES = {
-    search: 'Search', home: 'Home', local: 'Local Files',
+    search: 'Search', home: 'Home', local: 'Local Files', library: 'Library',
     pins: 'Pins', favorites: 'Favourites', recent: 'Recently Played', artists: 'Artists', songs: 'Songs', settings: 'Music Settings',
+};
+
+// New mobile "Library" landing screen - the real replacement for the 4
+// pills (Pins/Recent/Artists/Songs) this consolidates, plus Favourites
+// which never had its own top-level pill at all before. Matches Apple
+// Music's own Library tab shape from the reference screenshot: a row of
+// featured square tiles up top (Favourite Songs / Recently Played -
+// Apple's own reference shows 3 tiles, but the other two in that
+// screenshot are "P-POP CULTURE" and "Replay All Time", a curated
+// playlist and a Spotify-Wrapped-style yearly recap - neither has any
+// real backing feature in this app, so only the two genuinely real ones
+// are shown rather than inventing fake tiles just to fill the row), then
+// a plain list below for the rest (Pins/Artists/Songs) - each row's
+// count is a live number pulled from real app state, never fabricated.
+// Local Files is deliberately NOT duplicated here - it already has a
+// real, dedicated entry point in the profile menu (see ProfileMenu's
+// onOpenLocalFiles) and listing it twice would just be redundant.
+const LIBRARY_CARDS = [
+    { id: 'favorites', label: 'Favourite Songs', icon: Heart, gradient: 'linear-gradient(135deg, #F43F5E, #EC4899)' },
+    { id: 'recent', label: 'Recently Played', icon: Clock, gradient: 'linear-gradient(135deg, #6366F1, #3B82F6)' },
+];
+const LibraryMenuView = ({ setActiveView, favoritePlaylistIds, playlist }) => {
+    const rows = [
+        { id: 'pins', label: 'Pins', icon: Pin, count: favoritePlaylistIds?.length ?? 0 },
+        { id: 'artists', label: 'Artists', icon: Mic2, count: null },
+        { id: 'songs', label: 'Songs', icon: Music2, count: playlist?.length ?? 0 },
+    ];
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {LIBRARY_CARDS.map((card) => {
+                    const Icon = card.icon;
+                    return (
+                        <button
+                            key={card.id}
+                            onClick={() => setActiveView(card.id)}
+                            style={{
+                                aspectRatio: '1.6', borderRadius: '14px', border: 'none', cursor: 'pointer',
+                                background: card.gradient, position: 'relative', overflow: 'hidden',
+                                display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                                padding: '12px', textAlign: 'left',
+                            }}
+                        >
+                            <Icon size={20} color="rgba(255,255,255,0.95)" fill={card.id === 'favorites' ? 'rgba(255,255,255,0.95)' : 'none'} />
+                            <span style={{ fontSize: '13px', fontWeight: '800', color: '#fff' }}>{card.label}</span>
+                        </button>
+                    );
+                })}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                {rows.map((row) => {
+                    const Icon = row.icon;
+                    return (
+                        <button
+                            key={row.id}
+                            onClick={() => setActiveView(row.id)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '14px', width: '100%',
+                                padding: '13px 4px', background: 'transparent', border: 'none',
+                                borderBottom: '1px solid var(--border-premium)', cursor: 'pointer', textAlign: 'left',
+                            }}
+                        >
+                            <div style={{ width: '34px', height: '34px', borderRadius: '9px', background: 'var(--widget-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Icon size={16} color="var(--primary)" />
+                            </div>
+                            <span style={{ flex: 1, fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>{row.label}</span>
+                            {row.count !== null && (
+                                <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>{row.count}</span>
+                            )}
+                            <ChevronRight size={16} color="var(--text-muted)" />
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
 };
 
 const AudioHubPage = ({ setActiveTab }) => {
@@ -1925,7 +2120,7 @@ const AudioHubPage = ({ setActiveTab }) => {
     // needed here anymore. Only volume still needs a small wrapper: the
     // SDK has its own separate volume the local <audio> element's setVolume
     // never touches.
-    const { activeSource, spotifySetVolume } = useStreaming();
+    const { activeSource, spotifySetVolume, spotifyAuth, appleMusicAuth, youtubeAuth, saavnAuth } = useStreaming();
     const setVolume = (v) => {
         setLocalVolume(v);
         if (activeSource === 'spotify') spotifySetVolume(v);
@@ -1954,27 +2149,27 @@ const AudioHubPage = ({ setActiveTab }) => {
             return 'U';
         }
     }, []);
-
-    // Bundled once so both the Up Next drawer (opened from the floating
-    // player) and this page's own inline queue get the exact same props -
-    // one source of truth instead of two call sites drifting apart.
-    const queueProps = {
-        playlist, currentSongIndex, isPlaying,
-        togglePlay, playAt, deleteSong, moveSong,
-        favoriteTrackTitles, toggleFavoriteTrack, durationsByUrl,
-        // Real, reported bug fixed: QueueManager's own "which row is
-        // active" check used to compare currentSongIndex alone - when
-        // Spotify/YouTube was the real active source, `isPlaying` (the
-        // effective one) was correctly true, but currentSongIndex still
-        // pointed at whatever LOCAL track was last selected, so THAT row
-        // showed as falsely "active + playing" - and clicking its own
-        // Play/Pause button then called togglePlay() (which respects
-        // activeSource, so toggled Spotify) instead of actually starting
-        // the local track, which is exactly what read as "local song
-        // won't play any more". activeSource lets QueueManager gate its
-        // own active-row detection correctly.
-        activeSource,
-    };
+    // Real, reported bug: this avatar always showed the generic Nexus OS
+    // "N" initial on a fixed purple/blue/pink gradient, even with a real
+    // music account connected - desktop's own AudioSidebar footer already
+    // shows which SERVICE is connected via a brand-colored icon, but
+    // mobile had no such signal at all. Mirrors that same real connected-
+    // service identity here instead, using each service's own real brand
+    // color (matching TransferMusicModal/AudioSettingsView's own SERVICES
+    // colors, so this can never drift from what those already show) and,
+    // for Spotify, its own real profile name's first letter (the only
+    // service this app actually has a real profile name for) rather than
+    // a fabricated one for services that don't expose it.
+    const mobileConnectedService = useMemo(() => {
+        if (activeSource === 'spotify' && spotifyAuth.connected) return { name: spotifyAuth.profileName || 'Spotify', color: '#1DB954' };
+        if (activeSource === 'apple' && appleMusicAuth.connected) return { name: 'Apple Music', color: '#FA233B' };
+        if (activeSource === 'youtube' && youtubeAuth.connected) return { name: 'YouTube', color: '#FF0000' };
+        if (spotifyAuth.connected) return { name: spotifyAuth.profileName || 'Spotify', color: '#1DB954' };
+        if (appleMusicAuth.connected) return { name: 'Apple Music', color: '#FA233B' };
+        if (youtubeAuth.connected) return { name: 'YouTube', color: '#FF0000' };
+        if (saavnAuth.connected) return { name: 'Saavn', color: '#2BC5B4' };
+        return null;
+    }, [activeSource, spotifyAuth.connected, spotifyAuth.profileName, appleMusicAuth.connected, youtubeAuth.connected, saavnAuth.connected]);
 
     // Views render directly on the page background now (no per-view boxed
     // card wrapper) - real, explicit feedback that the "Playlists & Albums"
@@ -1993,6 +2188,7 @@ const AudioHubPage = ({ setActiveTab }) => {
                 />
             );
             case 'search': return <GlobalSearchTab playlist={playlist} playTrackNow={playTrackNow} />;
+            case 'library': return <LibraryMenuView setActiveView={setActiveView} favoritePlaylistIds={favoritePlaylistIds} playlist={playlist} />;
             case 'local': return <LocalFilesTab addSong={addSong} playlist={playlist} playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} deleteSong={deleteSong} />;
             case 'pins': return <PinsView favoritePlaylistIds={favoritePlaylistIds} toggleFavoritePlaylist={toggleFavoritePlaylist} queuePlaylistTracks={queuePlaylistTracks} playTrackNow={playTrackNow} isMobile={isMobile} />;
             case 'favorites': return <FavoritesView favoriteTrackTitles={favoriteTrackTitles} favoriteTrackDetails={favoriteTrackDetails} toggleFavoriteTrack={toggleFavoriteTrack} playTrackNow={playTrackNow} currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} />;
@@ -2059,6 +2255,19 @@ const AudioHubPage = ({ setActiveTab }) => {
                     <ChevronLeft size={15} /> Back to Home
                 </button>
             )}
+            {/* Real, confirmed fix: this used to be mounted only inside
+                the !isMobile branch just below, alongside AudioSidebar's
+                own desktop-only "Connections" button - the ONLY thing
+                that ever opened it. Mobile's own ProfileMenu now has a
+                real "Connections" entry too (see the mobile chrome
+                above), but that route did nothing at all until this
+                modal itself was moved out here to render regardless of
+                isMobile - it's a real position:fixed full-screen overlay
+                already, nothing about it actually depends on sitting
+                inside the desktop sidebar's own DOM subtree. */}
+            {connectionsPanelOpen && (
+                <ConnectionsPanel onClose={() => setConnectionsPanelOpen(false)} />
+            )}
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '14px' : 0 }}>
                 {!isMobile && (
                     <>
@@ -2069,9 +2278,6 @@ const AudioHubPage = ({ setActiveTab }) => {
                             width={sidebarWidth}
                             onOpenConnections={() => setConnectionsPanelOpen(true)}
                         />
-                        {connectionsPanelOpen && (
-                            <ConnectionsPanel onClose={() => setConnectionsPanelOpen(false)} />
-                        )}
                         {/* Drag-to-resize handle, same proven mechanism as
                             the AI page's own sidebar (useResizableSidebar) -
                             doubles as the sidebar's own "floating gap" from
@@ -2131,40 +2337,26 @@ const AudioHubPage = ({ setActiveTab }) => {
                         // are real navigation anchors that should always
                         // stay visible, never scrolled away.
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, padding: '0 0 10px 0' }}>
-                            <button
-                                type="button"
-                                onClick={() => typeof setActiveTab === 'function' && setActiveTab('Home')}
-                                aria-label="Back to Home" title="Back to Home"
-                                style={{
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                                    width: '38px', height: '38px', borderRadius: '9999px',
-                                    background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)', cursor: 'pointer',
-                                }}
-                            >
-                                <ChevronLeft size={18} />
-                            </button>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                                {MOBILE_NAV_ITEMS.map((item) => {
-                                    const Icon = item.icon;
-                                    const active = activeView === item.id;
-                                    return (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => setActiveView(item.id)}
-                                            style={{
-                                                display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
-                                                background: active ? 'var(--primary)' : 'var(--widget-bg)',
-                                                border: `1px solid ${active ? 'var(--primary)' : 'var(--border-premium)'}`,
-                                                borderRadius: '9999px',
-                                                color: active ? 'var(--text-on-primary)' : 'var(--text-secondary)', fontWeight: '700', fontSize: '12px', cursor: 'pointer',
-                                                whiteSpace: 'nowrap',
-                                            }}
-                                        >
-                                            <Icon size={14} /> {item.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            {/* Explicit "Back to Home" button removed - a
+                                real, confirmed report: mobile already has
+                                MobileTabBar's own Home tab always one tap
+                                away at the bottom, and none of the real
+                                reference apps (Spotify/Apple Music/
+                                JioSaavn) put an extra in-page back button
+                                in their own header either - they rely
+                                entirely on the OS/tab-bar navigation
+                                already available, same as this app's own
+                                bottom tab bar. */}
+                            {/* Profile avatar moved to the FRONT (before
+                                the scrollable pills, not after them) - a
+                                live, confirmed side-by-side comparison
+                                against Spotify's own mobile header: its
+                                profile circle sits first/leftmost and
+                                stays fixed while the "All/Music/Podcasts"
+                                pills scroll to its right. Still the same
+                                real, fixed (never-scrolls) anchor it
+                                already was - only its position in the row
+                                changed, not its behavior. */}
                             <div style={{ position: 'relative', flexShrink: 0 }}>
                                 <button
                                     ref={mobileProfileBtnRef}
@@ -2173,15 +2365,105 @@ const AudioHubPage = ({ setActiveTab }) => {
                                     style={{
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px',
                                         borderRadius: '50%', border: 'none', cursor: 'pointer',
-                                        background: 'linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899)', color: '#fff',
+                                        background: mobileConnectedService ? mobileConnectedService.color : 'linear-gradient(135deg, #3B82F6, #8B5CF6, #EC4899)',
+                                        color: '#fff',
                                         fontSize: '13px', fontWeight: '800', overflow: 'hidden',
                                     }}
                                 >
-                                    {mobileProfileInitial}
+                                    {mobileConnectedService ? mobileConnectedService.name.charAt(0).toUpperCase() : mobileProfileInitial}
                                 </button>
                                 {mobileProfileOpen && (
-                                    <ProfileMenu anchorRef={mobileProfileBtnRef} onClose={() => setMobileProfileOpen(false)} onOpenSettings={() => setActiveView('settings')} placement="bottom" />
+                                    <ProfileMenu
+                                        anchorRef={mobileProfileBtnRef} onClose={() => setMobileProfileOpen(false)}
+                                        onOpenSettings={() => setActiveView('settings')}
+                                        // Real, confirmed gap closed: ConnectionsPanel
+                                        // (the only place "Set Active" actually lives)
+                                        // used to be reachable only from AudioSidebar's
+                                        // own desktop-only footer button - mobile had
+                                        // no route to it at all, so a connected service
+                                        // there could never actually become the active
+                                        // playback source. Local Files also moved here
+                                        // off the mobile nav pill row itself (see
+                                        // MOBILE_NAV_ITEMS below), per explicit request.
+                                        onOpenConnections={() => setConnectionsPanelOpen(true)}
+                                        onOpenLocalFiles={() => setActiveView('local')}
+                                        placement="bottom-left"
+                                    />
                                 )}
+                            </div>
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+                                // A real, confirmed follow-up to the fix
+                                // above: Back/Profile no longer scroll away
+                                // with the pills, but the pill row itself
+                                // still visibly hard-clipped mid-label
+                                // right at its trailing edge (live-
+                                // confirmed: "Pins" cut to just "P") - no
+                                // signal that there was more to swipe to,
+                                // just an abrupt stop that read as broken/
+                                // "boxed off" rather than a genuine
+                                // horizontally-scrollable strip. A soft
+                                // fade-out mask on the trailing edge is the
+                                // standard fix for exactly this (same
+                                // pattern iOS/Android's own scrollable chip
+                                // rows use) - content now visibly fades
+                                // out toward the true edge instead of
+                                // being guillotined, reading as "swipe for
+                                // more" rather than a rendering glitch.
+                                WebkitMaskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent 100%)',
+                                maskImage: 'linear-gradient(to right, black calc(100% - 24px), transparent 100%)',
+                            }}>
+                                {MOBILE_NAV_ITEMS.map((item) => {
+                                    const Icon = item.icon;
+                                    // 'library' stays highlighted while browsing
+                                    // any of its own sub-views (Pins/Recent/
+                                    // Artists/Songs/Favourites), not just when
+                                    // activeView is literally 'library' - those
+                                    // are no longer separate top-level pills of
+                                    // their own for this to fall out of naturally.
+                                    const active = item.id === 'library' ? LIBRARY_VIEWS.includes(activeView) : activeView === item.id;
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => setActiveView(item.id)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 14px', flexShrink: 0,
+                                                borderRadius: '9999px',
+                                                fontWeight: '700', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
+                                                // Only the active/selected
+                                                // pill stays a real, solid
+                                                // primary-color chip - the
+                                                // same way Spotify/Apple
+                                                // Music's own selected tab
+                                                // is the one thing that gets
+                                                // emphasis. Every INACTIVE
+                                                // pill (and the Back button
+                                                // above) now has NO fill/
+                                                // border at all - a live,
+                                                // confirmed report: even
+                                                // with blur added,
+                                                // var(--widget-bg) still
+                                                // read as a distinct tinted
+                                                // "box" against a flat
+                                                // theme's own plain
+                                                // background (blur has
+                                                // nothing to diffuse when
+                                                // what's behind is one flat
+                                                // color) - none of the real
+                                                // reference apps put a
+                                                // colored chip behind an
+                                                // unselected tab either,
+                                                // just plain text/icon
+                                                // directly on the page.
+                                                ...(active
+                                                    ? { background: 'var(--primary)', border: '1px solid var(--primary)', color: 'var(--text-on-primary)' }
+                                                    : { background: 'transparent', border: 'none', color: 'var(--text-secondary)' }),
+                                            }}
+                                        >
+                                            <Icon size={14} /> {item.label}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -2210,6 +2492,29 @@ const AudioHubPage = ({ setActiveTab }) => {
                         {!isMobile && (
                             <h2 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, flexShrink: 0 }}>{VIEW_TITLES[activeView]}</h2>
                         )}
+                        {/* Real back-navigation gap closed: Pins/Recent/
+                            Artists/Songs/Favourites are no longer their own
+                            top-level mobile pills - they're only reachable
+                            by drilling into the new "Library" pill now, so
+                            without this there'd be no way back to that list
+                            short of tapping Library again from scratch. Not
+                            shown for 'library' itself (already the list,
+                            nothing to go "back" to) or on desktop (the real
+                            AudioSidebar there still lists every destination
+                            as its own permanent row, so there's never a
+                            "how do I get back" gap to begin with). */}
+                        {isMobile && activeView !== 'library' && LIBRARY_VIEWS.includes(activeView) && (
+                            <button
+                                onClick={() => setActiveView('library')}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '4px', alignSelf: 'flex-start',
+                                    background: 'transparent', border: 'none', color: 'var(--text-secondary)',
+                                    fontSize: '13px', fontWeight: '700', cursor: 'pointer', padding: '0', flexShrink: 0,
+                                }}
+                            >
+                                <ChevronLeft size={16} /> Library
+                            </button>
+                        )}
                         {activeViewContent}
                         {/* Real, reported gap closed: this "Playback Queue"
                             section used to render on EVERY browsing view
@@ -2232,24 +2537,15 @@ const AudioHubPage = ({ setActiveTab }) => {
                         (position:absolute) while the scroll div above it
                         scrolls past underneath, exactly as before - only
                         its horizontal centering anchor changed. */}
-                    <FloatingBottomPlayer
-                        // currentTrack/isPlaying/currentTime/duration/seek already
-                        // transparently reflect Spotify's real state when it's
-                        // active (see the useAudioPlayer() comment above) - no
-                        // per-call swap needed here anymore. Shuffle/repeat/
-                        // favorite/queue still point at the local playlist
-                        // mechanism regardless of source (Spotify tracks aren't
-                        // part of it, and the SDK's own shuffle/repeat state isn't
-                        // wired up yet) - a known, smaller gap, not this fix's scope.
-                        currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev}
-                        isMobile={isMobile}
-                        favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
-                        volume={volume} isMuted={isMuted} toggleMute={toggleMute} setVolume={setVolume}
-                        currentTime={currentTime} duration={duration} seek={seek}
-                        shuffleEnabled={shuffleEnabled} toggleShuffle={toggleShuffle}
-                        repeatMode={repeatMode} cycleRepeatMode={cycleRepeatMode}
-                        deleteSong={deleteSong} queueProps={queueProps}
-                    />
+                    {/* Real, reported bug fixed: FloatingBottomPlayer used
+                        to mount HERE, only ever visible while actually on
+                        this page - navigating to any other tab while a
+                        track kept playing made it (and every transport
+                        control) vanish entirely. It's now mounted once,
+                        globally, in DashboardLayout.jsx's own
+                        GlobalAudioMiniPlayer instead, so it stays visible
+                        across the whole app - nothing left to render
+                        here. */}
                 </div>
             </div>
         </div>

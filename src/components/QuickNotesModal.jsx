@@ -6,8 +6,14 @@
 // persisted to localStorage so notes survive reloads.
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, Trash2, FolderPlus, StickyNote, Check, Pencil, ArrowLeft, ChevronRight } from 'lucide-react';
+import { X, Plus, Trash2, FolderPlus, StickyNote, Check, Pencil, ArrowLeft, ChevronRight, FileText } from 'lucide-react';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+// Real "last edited" timestamps - notes already track updatedAt on every
+// create/save/rename (see addNote/saveActiveNote/commitNoteRename below),
+// it just never surfaced anywhere in the UI. Reuses the exact same relative-
+// time formatter the Notification Center already uses, rather than a
+// second, separately-maintained copy of the same "2h ago"/"3d ago" logic.
+import { formatRelativeTime } from '../hooks/useNotifications.js';
 
 const STORAGE_KEY = 'nexus_quick_notes';
 
@@ -515,15 +521,50 @@ const QuickNotesModal = ({ onClose, jumpTarget, onJumpConsumed }) => {
         // the viewport, positioned with position:fixed top/left px) still
         // rendered as a small floating card with visible page behind it
         // on a phone, not a real full-screen mobile modal.
+        //
+        // A second, real, confirmed bug found on review: both this outer
+        // sheet AND its header bar below used var(--bg-main)/var(--bg-
+        // surface) directly - deliberately near-transparent tokens on the
+        // Dynamic weather theme (0.03 alpha by default, so the live sky
+        // shows through the rest of the app), which is exactly the theme
+        // every live screenshot in this session has shown. That made this
+        // "full-screen" sheet genuinely see-through on that theme - live
+        // confirmed, the Home page's own Greeting card was clearly
+        // legible right behind/through it, not the opaque note-taking
+        // surface this is supposed to be. var(--popover-bg, var(--bg-
+        // surface)) is the same real, already-established fix this app
+        // uses everywhere else that needs guaranteed opacity regardless
+        // of theme (see notifications.css's own identical fallback,
+        // Audio Hub's popovers) - --popover-bg is a genuinely solid
+        // (0.85-0.9 alpha) token defined specifically for the glass
+        // themes; the themes that don't define it (Night/Day/Midnight)
+        // fall back to their own already-fully-opaque --bg-surface.
         const mobileTitle = mobileView === 'sections' ? 'Quick Notes' : mobileView === 'notes' ? (activeSection?.title || 'Notes') : (activeNote ? (draftTitle || 'Untitled') : 'New Note');
         const mobileBack = mobileView === 'notes' ? backToSectionsMobile : mobileView === 'note' ? backToNotesMobile : null;
 
+        // The real glassmorphism recipe this app uses everywhere else a
+        // floating surface needs genuine frosted-glass texture (AudioSidebar.
+        // jsx's own "standalone floating card" comment documents the exact
+        // same three values) - applied here explicitly rather than relying
+        // only on the Dynamic-theme-only global [style*="var(--bg-surface)"]
+        // rule (style.css), since --popover-bg's own alpha (0.85-0.9, not
+        // fully opaque) means there's real content underneath worth
+        // blurring on ANY theme, not just Dynamic. A theme where --popover-
+        // bg falls back to a fully opaque --bg-surface (Night/Day/Midnight)
+        // simply has nothing left to blur - harmless no-op there, not a
+        // visual regression.
+        const glassSurface = {
+            backdropFilter: 'blur(var(--glass-blur, 20px)) saturate(105%)',
+            WebkitBackdropFilter: 'blur(var(--glass-blur, 20px)) saturate(105%)',
+        };
+
         return createPortal(
-            <div style={{ position: 'fixed', inset: 0, zIndex: 200000, background: 'var(--bg-main)', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ position: 'fixed', inset: 0, zIndex: 200000, background: 'var(--popover-bg, var(--bg-surface))', ...glassSurface, display: 'flex', flexDirection: 'column' }}>
                 <div style={{
                     flexShrink: 0, display: 'flex', alignItems: 'center', gap: '10px',
                     padding: '12px 14px', paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))',
-                    borderBottom: '1px solid var(--border-premium)', background: 'var(--bg-surface)',
+                    borderBottom: '1px solid var(--border-premium)', background: 'var(--popover-bg, var(--bg-surface))',
+                    boxShadow: '0 1px 20px rgba(0,0,0,0.08)',
                 }}>
                     {mobileBack ? (
                         <button onClick={mobileBack} aria-label="Back" style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', padding: '4px', flexShrink: 0 }}>
@@ -546,21 +587,30 @@ const QuickNotesModal = ({ onClose, jumpTarget, onJumpConsumed }) => {
 
                 <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
                     {mobileView === 'sections' && (
-                        <div style={{ padding: '8px 4px' }}>
+                        <div style={{ padding: '14px 14px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <button
                                 onClick={addSection}
-                                style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '14px 16px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-premium)', color: 'var(--accent)', fontSize: '15px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '13px 16px', background: 'var(--primary-muted, var(--widget-bg))', border: '1px solid var(--border-premium)', borderRadius: '14px', color: 'var(--accent)', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
                             >
-                                <FolderPlus size={18} /> New Section
+                                <FolderPlus size={17} /> New Section
                             </button>
                             {data.sections.map((section) => (
                                 <div
                                     key={section.id}
                                     onClick={() => openSectionMobile(section.id)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderBottom: '1px solid var(--border-premium)', cursor: 'pointer' }}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 14px', cursor: 'pointer',
+                                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px',
+                                    }}
                                 >
+                                    <span style={{
+                                        width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
+                                        background: 'var(--surface-inset, var(--bg-surface))', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}>
+                                        <StickyNote size={16} color="var(--accent)" />
+                                    </span>
                                     <span style={{ flex: 1, minWidth: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{section.title}</span>
-                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0 }}>{section.notes.length}</span>
+                                    <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', flexShrink: 0, background: 'var(--surface-inset, var(--bg-surface))', borderRadius: '999px', padding: '3px 8px' }}>{section.notes.length}</span>
                                     <Pencil size={15} onClick={(e) => { e.stopPropagation(); renameSection(section.id); }} title="Rename section" style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                                     <Trash2 size={15} onClick={(e) => { e.stopPropagation(); deleteSection(section.id); }} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                                     <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
@@ -570,12 +620,12 @@ const QuickNotesModal = ({ onClose, jumpTarget, onJumpConsumed }) => {
                     )}
 
                     {mobileView === 'notes' && (
-                        <div style={{ padding: '8px 4px' }}>
+                        <div style={{ padding: '14px 14px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <button
                                 onClick={addNoteMobile}
-                                style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '14px 16px', background: 'transparent', border: 'none', borderBottom: '1px solid var(--border-premium)', color: 'var(--accent)', fontSize: '15px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '13px 16px', background: 'var(--primary-muted, var(--widget-bg))', border: '1px solid var(--border-premium)', borderRadius: '14px', color: 'var(--accent)', fontSize: '14px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
                             >
-                                <Plus size={18} /> New Note
+                                <Plus size={17} /> New Note
                             </button>
                             {(activeSection?.notes || []).length === 0 && (
                                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '20px 16px', textAlign: 'center' }}>No notes yet.</p>
@@ -584,7 +634,10 @@ const QuickNotesModal = ({ onClose, jumpTarget, onJumpConsumed }) => {
                                 <div
                                     key={note.id}
                                     onClick={() => { if (editingNoteId !== note.id) openNoteMobile(note.id); }}
-                                    style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-premium)', cursor: 'pointer' }}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 14px', cursor: 'pointer',
+                                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px',
+                                    }}
                                 >
                                     {editingNoteId === note.id ? (
                                         <input
@@ -598,17 +651,32 @@ const QuickNotesModal = ({ onClose, jumpTarget, onJumpConsumed }) => {
                                                 else if (e.key === 'Escape') { e.preventDefault(); setEditingNoteId(null); }
                                             }}
                                             aria-label="Note title"
-                                            style={{ width: '100%', fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', background: 'var(--widget-bg)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '6px 10px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                                            style={{ flex: 1, minWidth: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', background: 'var(--surface-inset, var(--bg-surface))', border: '1px solid var(--primary)', borderRadius: '8px', padding: '6px 10px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
                                         />
                                     ) : (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <>
+                                            <span style={{
+                                                width: '36px', height: '36px', borderRadius: '10px', flexShrink: 0,
+                                                background: 'var(--surface-inset, var(--bg-surface))', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            }}>
+                                                <FileText size={16} color="var(--accent)" />
+                                            </span>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{note.title}</div>
                                                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '2px' }}>{note.content || 'Empty note'}</div>
+                                                {note.updatedAt && (
+                                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', opacity: 0.75, marginTop: '3px' }}>
+                                                        {/* note.updatedAt is a raw Date.now() number - formatRelativeTime
+                                                            (shared with the Notification Center) expects a real Date
+                                                            object and calls .getTime() on it directly, so this must be
+                                                            wrapped or it throws. */}
+                                                        Edited {formatRelativeTime(new Date(note.updatedAt))}
+                                                    </div>
+                                                )}
                                             </div>
                                             <Pencil size={15} onClick={(e) => { e.stopPropagation(); startRenamingNote(note); }} title="Rename note" style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                                             <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                                        </div>
+                                        </>
                                     )}
                                 </div>
                             ))}
@@ -664,7 +732,11 @@ const QuickNotesModal = ({ onClose, jumpTarget, onJumpConsumed }) => {
                 {toastMessage && (
                     <div style={{
                         position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', zIndex: 220000,
-                        background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '14px',
+                        // Same var(--popover-bg, var(--bg-surface)) opacity
+                        // fix as the sheet/header above - a toast floating
+                        // over live app content needs the same guaranteed-
+                        // opaque background on the Dynamic theme.
+                        background: 'var(--popover-bg, var(--bg-surface))', border: '1px solid var(--border-premium)', borderRadius: '14px',
                         padding: '12px 20px', boxShadow: 'var(--premium-shadow)', color: 'var(--text-primary)',
                         fontSize: '13px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '10px',
                     }}>

@@ -31,7 +31,7 @@
 // and stays honestly disabled.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { HelpCircle, Settings as SettingsIcon, ArrowLeftRight, LogOut, LogIn } from 'lucide-react';
+import { HelpCircle, Settings as SettingsIcon, ArrowLeftRight, LogOut, LogIn, Link2, FolderOpen } from 'lucide-react';
 import { useStreaming } from '../../context/StreamingContext.jsx';
 import TransferMusicModal from './TransferMusicModal.jsx';
 import { useEnterTransition } from '../../hooks/useEnterTransition.js';
@@ -47,7 +47,17 @@ const connectionLabel = ({ activeSource, spotifyAuth, appleMusicAuth, youtubeAut
     return null;
 };
 
-const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, placement = 'top' }) => {
+// onOpenConnections/onOpenLocalFiles: new, real, previously-missing entry
+// points into features that only ever existed for desktop before this -
+// a real, confirmed gap: ConnectionsPanel (the ONLY place "Set Active"
+// actually lives, genuinely required for a connected service to power
+// real playback) was mounted exclusively inside AudioSidebar's own
+// desktop-only render branch in AudioHubPage.jsx, with literally no way
+// to reach it on mobile at all - connecting Spotify there had no way to
+// ever become the active source. Both are optional (the row simply
+// doesn't render without a real callback) so this component still works
+// wherever a caller hasn't wired them.
+const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, onOpenConnections, onOpenLocalFiles, placement = 'top' }) => {
     const streaming = useStreaming();
     const { disconnectSpotify, disconnectAppleMusic, disconnectYoutube, disconnectSaavn } = streaming;
     const connected = connectionLabel(streaming);
@@ -59,14 +69,37 @@ const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, placement = 'top' }) 
     useLayoutEffect(() => {
         if (!anchorRef?.current) return;
         const rect = anchorRef.current.getBoundingClientRect();
-        setCoords(
-            placement === 'top'
-                ? { bottom: window.innerHeight - rect.top + 8, left: rect.left }
-                : { top: rect.bottom + 8, right: window.innerWidth - rect.right }
-        );
+        // A real, confirmed bug found on review: 'bottom' (used to be the
+        // only "opens below the button" variant) always right-aligned via
+        // `right: window.innerWidth - rect.right` - correct back when the
+        // mobile profile button only ever sat on the right edge, but once
+        // it moved to the LEFT edge (see AudioHubPage.jsx's own mobile
+        // chrome reorder) that same math placed this menu almost entirely
+        // off-screen to the left (live-measured: left: -170px). This
+        // adds a genuinely separate 'bottom-left' variant (left-aligned,
+        // opens below) instead of reusing 'bottom' for a button that's no
+        // longer on the right - 'bottom' itself is untouched for any
+        // future caller whose own anchor really is right-aligned.
+        if (placement === 'top') {
+            setCoords({ bottom: window.innerHeight - rect.top + 8, left: rect.left });
+        } else if (placement === 'bottom-left') {
+            setCoords({ top: rect.bottom + 8, left: rect.left });
+        } else {
+            setCoords({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+        }
     }, [anchorRef, placement]);
 
     useEffect(() => {
+        // Real, confirmed bug: while transferOpen is true, this menu's own
+        // <div> is no longer rendered at all (see the return below) - so
+        // menuRef.current is null, and this "outside click" check fell
+        // through to treat EVERY click as outside, calling onClose() the
+        // instant the very first click landed anywhere inside
+        // TransferMusicModal (which owns its own backdrop-click/Escape
+        // handling already). Skipping this listener entirely while
+        // transferOpen is true hands that modal full, uninterrupted
+        // control until it closes itself.
+        if (transferOpen) return undefined;
         const handleClick = (e) => {
             if (menuRef.current && menuRef.current.contains(e.target)) return;
             if (anchorRef?.current && anchorRef.current.contains(e.target)) return;
@@ -79,7 +112,7 @@ const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, placement = 'top' }) 
             document.removeEventListener('mousedown', handleClick);
             document.removeEventListener('keydown', handleKey);
         };
-    }, [anchorRef, onClose]);
+    }, [anchorRef, onClose, transferOpen]);
 
     const handleSignOut = () => {
         onClose();
@@ -95,6 +128,22 @@ const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, placement = 'top' }) 
     };
 
     if (!coords) return null;
+
+    // Real, reported bug: this menu used to keep rendering itself
+    // (z-index 2050) ON TOP of TransferMusicModal (z-index 2000) once
+    // "Transfer Music" was tapped, since only `transferOpen` flipped true -
+    // the menu's own onClose was never called, so it never unmounted. The
+    // modal ended up trapped BEHIND this menu instead of being the thing
+    // actually on top, unusable. Now the menu itself stops rendering the
+    // instant Transfer Music opens - only the modal shows - and closing
+    // that modal (its own onClose below) closes this whole popover too,
+    // matching what tapping Transfer Music always visually implied.
+    if (transferOpen) {
+        return createPortal(
+            <TransferMusicModal onClose={() => { setTransferOpen(false); onClose(); }} />,
+            document.body
+        );
+    }
 
     return createPortal(
         <>
@@ -118,6 +167,16 @@ const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, placement = 'top' }) 
                         {connected ? connected.label : 'Not Connected'}
                     </div>
                 </div>
+                {typeof onOpenLocalFiles === 'function' && (
+                    <button role="menuitem" style={rowStyle} onClick={() => { onClose(); onOpenLocalFiles(); }}>
+                        <FolderOpen size={15} /> Local Files
+                    </button>
+                )}
+                {typeof onOpenConnections === 'function' && (
+                    <button role="menuitem" style={rowStyle} onClick={() => { onClose(); onOpenConnections(); }}>
+                        <Link2 size={15} /> Connections
+                    </button>
+                )}
                 <button role="menuitem" disabled style={{ ...rowStyle, color: 'var(--text-muted)', cursor: 'default', opacity: 0.55 }} title="Not available yet">
                     <HelpCircle size={15} /> Help
                 </button>
@@ -146,9 +205,6 @@ const ProfileMenu = ({ anchorRef, onClose, onOpenSettings, placement = 'top' }) 
                     </button>
                 )}
             </div>
-            {transferOpen && (
-                <TransferMusicModal onClose={() => { setTransferOpen(false); onClose(); }} />
-            )}
         </>,
         document.body
     );

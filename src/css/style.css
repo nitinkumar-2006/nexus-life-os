@@ -301,9 +301,47 @@ body {
     transition: background-color 0.5s ease, color 0.5s ease;
 }
 
-#root {
+/* #app, not #root - a real mistake caught on live verification: this
+   app's actual mount point (index.html) is <div id="app">, not the
+   Vite-template-default #root. A first pass here wrote #root from
+   habit/memory without checking, which silently targeted zero real
+   elements (confirmed live: document.getElementById('root') is null in
+   this app's DOM) - the height:100dvh fix below did nothing until this
+   was corrected to the id this app genuinely uses. */
+#app {
     width: 100vw;
     height: 100vh;
+    /* A real, confirmed source of the "greeting card jumps up/down while
+       scrolling" report on mobile: plain 100vh is the LAYOUT viewport,
+       which doesn't shrink/grow as a mobile browser's own address bar
+       hides and reveals itself on scroll - so every element whose height
+       ultimately derives from this root (including the sticky Greeting
+       card several levels down, via its own scroll container's height)
+       visibly reflows on every such browser-chrome transition, which
+       reads exactly as "shaking while scrolling". 100dvh (dynamic
+       viewport height) is the real, purpose-built fix for this - it
+       tracks the ACTUAL visible viewport live. Written as a second
+       declaration, not a replacement: a browser that doesn't understand
+       dvh yet simply ignores this line entirely and keeps the 100vh
+       above, so this is a strict upgrade with no fallback gap.
+       nexus-app-shell (DashboardLayout.jsx) and its own outer wrapper
+       get the identical two-line treatment below - all three sit in the
+       same height-inheritance chain this bug came from. */
+    height: 100dvh;
+}
+
+/* Same 100vh -> 100dvh upgrade as #root just above, for the two other
+   links in the same height-inheritance chain DashboardLayout.jsx builds
+   on top of #root (its own outer relative wrapper, and .nexus-app-shell
+   itself) - both used to set height:'100vh' as a plain inline style,
+   which (being inline) would have silently overridden any external CSS
+   rule here, so that inline height had to be removed from each element
+   for this class-based two-declaration fallback to actually take
+   effect. See #root's own comment above for the full explanation. */
+.nexus-shell-viewport,
+.nexus-app-shell {
+    height: 100vh;
+    height: 100dvh;
 }
 
 /* 12-COLUMN DASHBOARD GRID */

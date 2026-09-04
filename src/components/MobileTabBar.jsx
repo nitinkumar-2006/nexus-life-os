@@ -18,6 +18,7 @@
 // surface rendered below the mobile breakpoint (see
 // DashboardLayout.jsx); the desktop Sidebar never mounts on mobile at
 // all.
+import { useEffect, useRef } from 'react';
 import { Command, Wallet, Calendar, Cpu, Settings as SettingsIcon } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 
@@ -37,11 +38,39 @@ export const PRIMARY_TABS = [
 
 const MobileTabBar = ({ activeTab, setActiveTab }) => {
     const { tabSwitch } = useMicroFeedback();
+    const navRef = useRef(null);
 
     const handleNav = (tabName) => {
         tabSwitch();
         setActiveTab(tabName);
     };
+
+    // Real, measured height (not the sum of the padding/minHeight values
+    // read off this file, which don't actually add up to the live
+    // rendered box - flex `alignItems:stretch` plus content sizing makes
+    // the true number a runtime fact, not something safely hand-
+    // calculated - and it changes per device via
+    // env(safe-area-inset-bottom) on a notched phone). Published as a
+    // CSS custom property on the root element so FloatingBottomPlayer.jsx
+    // can dock its own mobile mini-player flush against this bar's real
+    // top edge (explicit request: the mini-player must sit directly on
+    // top of this bar, not float above it with a visible gap) without
+    // hardcoding a guessed pixel value that would drift out of sync the
+    // next time this bar's own padding/sizing changes. ResizeObserver
+    // (not a one-time effect) keeps it correct across an orientation
+    // change or a safe-area value that only becomes available after
+    // first paint.
+    useEffect(() => {
+        const el = navRef.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const setHeightVar = () => {
+            document.documentElement.style.setProperty('--mobile-tabbar-height', `${el.getBoundingClientRect().height}px`);
+        };
+        setHeightVar();
+        const observer = new ResizeObserver(setHeightVar);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
 
     const tabButtonStyle = (isActive) => ({
         flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -53,6 +82,7 @@ const MobileTabBar = ({ activeTab, setActiveTab }) => {
 
     return (
         <nav
+            ref={navRef}
             aria-label="Primary"
             style={{
                 position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,

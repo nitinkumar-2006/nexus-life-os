@@ -728,8 +728,14 @@ const GreetingCard = ({ setActiveTab }) => {
             <div style={isMobile ? {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', width: '100%',
             } : { display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: '12px', flexShrink: 0 }}>
-                <Clock size={isMobile ? 18 : 28} color="var(--accent)" />
-                <div style={{ fontSize: isMobile ? '16px' : '24px', fontWeight: '700', fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)', letterSpacing: '0.5px', lineHeight: '1' }}>
+                {/* Mobile clock bumped up (18px icon/16px text -> 22px/20px)
+                    - a real, direct comparison against the rest of this
+                    card on a phone showed everything else (greeting,
+                    music widget) reads at a confident size while this
+                    ambient readout looked noticeably undersized next to
+                    them. */}
+                <Clock size={isMobile ? 22 : 28} color="var(--accent)" />
+                <div style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '700', fontVariantNumeric: 'tabular-nums', color: 'var(--text-primary)', letterSpacing: '0.5px', lineHeight: '1' }}>
                     {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: is12Hour })}
                 </div>
             </div>

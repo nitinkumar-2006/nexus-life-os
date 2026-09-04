@@ -125,7 +125,7 @@ const FullPlayerView = ({
                         <div style={{ fontSize: '20px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.title}</div>
                         {currentTrack.artist && <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.artist}</div>}
                     </div>
-                    <button onClick={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })} title={isFav ? 'Unfavorite' : 'Favorite'} style={iconBtn({ flexShrink: 0 })}>
+                    <button onClick={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, uri: currentTrack.uri, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })} title={isFav ? 'Unfavorite' : 'Favorite'} style={iconBtn({ flexShrink: 0 })}>
                         <Heart size={20} color={isFav ? '#F43F5E' : 'var(--text-muted)'} fill={isFav ? '#F43F5E' : 'none'} />
                     </button>
                 </div>

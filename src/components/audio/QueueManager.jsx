@@ -33,8 +33,22 @@ const SpotifyQueueList = ({ compact }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Real, reported bug fixed: `loading` starts `true` (line above) so
+    // there's something to show before the first real load resolves - but
+    // this guard used to just `return` when there was no accessToken yet,
+    // never calling setLoading(false) in that branch. Whenever this
+    // mounted with activeSource==='spotify' but the token briefly (or
+    // permanently, e.g. this account's own SDK init failure) wasn't ready,
+    // the UI got stuck on "Loading Spotify's queue…" forever - exactly the
+    // reported symptom, live-confirmed via screenshot. Now resolves to an
+    // honest "not connected" state instead of spinning indefinitely.
     const load = () => {
-        if (!spotifyAuth.accessToken) return;
+        if (!spotifyAuth.accessToken) {
+            setLoading(false);
+            setData(null);
+            setError('Spotify is not connected right now.');
+            return;
+        }
         setLoading(true);
         setError(null);
         getSpotifyQueue(spotifyAuth.accessToken)

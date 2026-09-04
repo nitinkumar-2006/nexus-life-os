@@ -107,14 +107,41 @@ const TransferMusicModal = ({ onClose }) => {
                             {(activeSource === 'local' || !activeSource) && <Check size={16} color="var(--primary)" />}
                         </button>
 
-                        {SERVICES.map((service) => {
+                        {/* Only genuinely CONNECTED services render here now
+                            - a real, confirmed report: showing all 4 (Not
+                            connected/Not set up included) reads as "you can
+                            transfer to this", which you genuinely can't -
+                            there's nothing yet to switch TO. Connecting a
+                            new service is Connections' own job (real
+                            Connect/setup buttons live there); this modal is
+                            now honestly just "which of your ALREADY-
+                            connected services should play", matching what
+                            its own name promises. */}
+                        {SERVICES.filter((service) => authFor(service.id).connected).map((service) => {
                             const Icon = service.icon;
                             const auth = authFor(service.id);
-                            const isActive = activeSource === service.id && auth.connected;
+                            const isActive = activeSource === service.id;
                             const isConnecting = connecting === service.id;
-                            const subtitle = auth.connected
-                                ? (service.id === 'spotify' && spotifyAuth.profileName ? spotifyAuth.profileName : 'Connected')
-                                : (configuredFor(service.id) ? 'Not connected - tap to connect' : 'Not set up - tap for setup steps');
+                            // Real, confirmed root cause of "clicking Spotify
+                            // does nothing, stays on Local": setActiveSource
+                            // DOES switch immediately, but a separate effect
+                            // in StreamingContext.jsx then tries to actually
+                            // initialize a real Spotify Web Playback device
+                            // - and silently reverts back to 'local' if that
+                            // fails (e.g. "Premium required for playback",
+                            // a genuine Spotify API restriction, not a bug
+                            // in this app). That revert was real and
+                            // correct (you shouldn't stay "active" on a
+                            // source that can't actually play) - what was
+                            // missing was ever SHOWING why, so it just
+                            // looked like clicking silently did nothing.
+                            // auth.error already carries the real message
+                            // (see StreamingContext.jsx's own error
+                            // strings) - surfaced here instead of the
+                            // generic "Connected" subtitle whenever present.
+                            const subtitle = auth.error
+                                ? auth.error
+                                : (service.id === 'spotify' && spotifyAuth.profileName ? spotifyAuth.profileName : 'Connected');
                             return (
                                 <button
                                     key={service.id}
@@ -130,7 +157,7 @@ const TransferMusicModal = ({ onClose }) => {
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{service.label}</div>
-                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
+                                        <div style={{ fontSize: '11px', color: auth.error ? '#F87171' : 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: auth.error ? 'normal' : 'nowrap' }}>{subtitle}</div>
                                     </div>
                                     {isActive && <Check size={16} color="var(--primary)" />}
                                     {auth.connected && !isActive && (

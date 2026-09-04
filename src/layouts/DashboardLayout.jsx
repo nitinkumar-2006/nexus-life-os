@@ -23,9 +23,10 @@ import WeatherPage from '../pages/WeatherPage.jsx';
 import ProtectedModuleGate from '../components/ProtectedModuleGate.jsx';
 import DynamicBackground from '../components/DynamicBackground.jsx';
 import AlternateBackgrounds from '../components/AlternateBackgrounds.jsx';
-import { AudioPlayerProvider } from '../context/AudioPlayerContext.jsx';
+import { AudioPlayerProvider, useAudioPlayer } from '../context/AudioPlayerContext.jsx';
 import { SoundSettingsProvider } from '../context/SoundSettingsContext.jsx';
-import { StreamingProvider } from '../context/StreamingContext.jsx';
+import { StreamingProvider, useStreaming } from '../context/StreamingContext.jsx';
+import FloatingBottomPlayer from '../components/audio/FloatingBottomPlayer.jsx';
 import { TaskRegistryProvider } from '../context/TaskRegistryContext.jsx';
 import { GlobalUserSettingsProvider } from '../context/GlobalUserSettingsContext.jsx';
 import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
@@ -33,6 +34,71 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useResizableSidebar } from '../hooks/useResizableSidebar.js';
 import { Capacitor } from '@capacitor/core';
 import PermissionsOnboarding, { PERMISSIONS_ONBOARDING_KEY } from '../components/PermissionsOnboarding.jsx';
+
+// Explicit correction after a real, reported regression: this was briefly
+// made to render on EVERY page (a real attempt to fix the bottom bar
+// vanishing when you left the Audio Hub tab) - but that put a SECOND,
+// duplicate now-playing card on the Home page (right next to
+// GreetingCard's own mini-widget) and left a bar sitting over the bottom
+// of every other page too, which was never the ask. Gated back to ONLY
+// the Audio Hub tab - matching the app's real, explicit design: the big
+// bar belongs to that page alone; every OTHER page reaches "what's
+// playing" through the header's own compact Now Playing icon instead
+// (see header.jsx) - the same real, minimal pattern desktop's own header
+// headphone icon already used, now on mobile too.
+//
+// Still mounted here (not inside AudioHubPage.jsx) and still a separate
+// component (not inlined into DashboardLayout's own body): position:
+// fixed + a real document.body portal (see FloatingBottomPlayer.jsx) is
+// what actually keeps it correctly anchored to the true viewport instead
+// of getting trapped by an ancestor's backdrop-filter/transform - genuine
+// fixes worth keeping regardless of visibility scope. A component
+// consuming AudioPlayerProvider/StreamingProvider still can't BE the
+// component that renders those providers in the same pass, so this stays
+// its own child component either way.
+const GlobalAudioMiniPlayer = ({ isMobile, activeTab }) => {
+    const {
+        currentTrack, isPlaying, togglePlay, next, prev,
+        favoriteTrackTitles, toggleFavoriteTrack,
+        volume, isMuted, toggleMute, setVolume: setLocalVolume,
+        currentTime, duration, seek,
+        shuffleEnabled, toggleShuffle, repeatMode, cycleRepeatMode,
+        deleteSong, moveSong, playlist, currentSongIndex, playAt, durationsByUrl,
+    } = useAudioPlayer();
+    const { activeSource, spotifySetVolume } = useStreaming();
+    // Same Spotify-aware volume wrapper AudioHubPage's own copy used to
+    // carry - the SDK has its own separate volume the local <audio>
+    // element's setVolume never touches.
+    const setVolume = (v) => {
+        setLocalVolume(v);
+        if (activeSource === 'spotify') spotifySetVolume(v);
+    };
+    const queueProps = {
+        playlist, currentSongIndex, isPlaying,
+        togglePlay, playAt, deleteSong, moveSong,
+        favoriteTrackTitles, toggleFavoriteTrack, durationsByUrl,
+        activeSource,
+    };
+
+    // Only mounts once something is genuinely playing - matching every
+    // real reference app (Spotify/Apple Music/JioSaavn), none of which
+    // show a mini-player with nothing loaded - AND only on the Audio Hub
+    // tab itself (see the block comment above).
+    if (currentTrack.id === null || activeTab !== 'audio_hub') return null;
+
+    return (
+        <FloatingBottomPlayer
+            currentTrack={currentTrack} isPlaying={isPlaying} togglePlay={togglePlay} next={next} prev={prev}
+            isMobile={isMobile}
+            favoriteTrackTitles={favoriteTrackTitles} toggleFavoriteTrack={toggleFavoriteTrack}
+            volume={volume} isMuted={isMuted} toggleMute={toggleMute} setVolume={setVolume}
+            currentTime={currentTime} duration={duration} seek={seek}
+            shuffleEnabled={shuffleEnabled} toggleShuffle={toggleShuffle}
+            repeatMode={repeatMode} cycleRepeatMode={cycleRepeatMode}
+            deleteSong={deleteSong} queueProps={queueProps}
+        />
+    );
+};
 
 const DashboardLayout = () => {
     // Startup Launchpad: reads the real, saved landing-page preference and
@@ -341,7 +407,7 @@ const DashboardLayout = () => {
         <SoundSettingsProvider>
             <StreamingProvider>
             <AudioPlayerProvider>
-                <div style={{ position: 'relative', height: '100vh', width: '100vw', overflow: 'hidden' }}>
+                <div className="nexus-shell-viewport" style={{ position: 'relative', width: '100vw', overflow: 'hidden' }}>
                     {showPermissionsOnboarding && (
                         <PermissionsOnboarding onComplete={() => setShowPermissionsOnboarding(false)} />
                     )}
@@ -352,7 +418,16 @@ const DashboardLayout = () => {
                         data-custom-wallpaper={wallpaper !== 'sky' ? 'true' : 'false'}
                         style={{
                             position: 'relative', zIndex: 10,
-                            display: 'flex', height: '100vh',
+                            // height:'100vh' removed from here - it's an
+                            // inline style, which would always win over
+                            // the external .nexus-app-shell CSS rule
+                            // (style.css) that now provides the real
+                            // 100vh->100dvh mobile-scroll-jitter fix (see
+                            // that rule's own comment). The className was
+                            // already applied here for other styling;
+                            // this is the same class picking up one more
+                            // real rule, not a new one being added.
+                            display: 'flex',
                             backgroundColor: 'var(--bg-main)',
                             color: 'var(--text-primary)',
                             overflow: 'hidden', boxSizing: 'border-box',
@@ -546,6 +621,7 @@ const DashboardLayout = () => {
                                 setActiveTab={setActiveTab}
                             />
                         )}
+                        <GlobalAudioMiniPlayer isMobile={isMobile} activeTab={activeTab} />
                     </div>
                 </div>
             </AudioPlayerProvider>

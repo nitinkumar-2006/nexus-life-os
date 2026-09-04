@@ -11,9 +11,15 @@ import { useBodyScrollLock } from '../../hooks/useBodyScrollLock.js';
 import SettingsNav from './SettingsNav.jsx';
 import SettingsContent from './SettingsContent.jsx';
 
-const SettingsLayout = ({ categories, activeCategory, onSelectCategory, header, children, onMobileOverlayChange }) => {
+const SettingsLayout = ({ categories, activeCategory, onSelectCategory, header, children, onMobileOverlayChange, openMobileOnMount = false }) => {
     const isMobile = useIsMobile();
-    const [isMobileContentOpen, setIsMobileContentOpen] = useState(false);
+    // openMobileOnMount: true when SettingsPage's activeCategory came from
+    // a cross-page deep link (e.g. AIPage's "Manage AI Providers") rather
+    // than the ordinary default - so that landing here actually shows the
+    // requested section's real content immediately on mobile, instead of
+    // only pre-highlighting it in the nav list and leaving the user one
+    // more tap away from what they asked to open.
+    const [isMobileContentOpen, setIsMobileContentOpen] = useState(openMobileOnMount);
 
     // Real fix for "background scrolls underneath the active view" (and
     // the related "flashes solid white/black" - iOS Safari's genuine

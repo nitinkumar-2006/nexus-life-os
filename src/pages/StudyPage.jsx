@@ -953,7 +953,15 @@ const StudyPage = ({ setActiveTab }) => {
                 <form onSubmit={handleDoubtSubmit} style={{ display: 'flex', gap: '8px' }}>
                     <input
                         type="text" aria-label="Ask a question about your progress" value={doubtPrompt} onChange={(e) => setDoubtPrompt(e.target.value)}
-                        placeholder="Ask about your progress, e.g. &quot;How am I doing in Data Structures?&quot; or &quot;What's due soon?&quot;"
+                        // Real, measured mobile fix: the full placeholder is
+                        // genuinely useful copy, but this field only has
+                        // ~240px of width next to the "Ask" button on a
+                        // phone - it was visibly cutting off mid-word
+                        // ("...e.g. \"Ho") rather than showing a complete
+                        // thought. Desktop keeps the full text (real room
+                        // there); mobile gets a short version that still
+                        // fits as one complete sentence.
+                        placeholder={isMobile ? 'Ask about your progress...' : 'Ask about your progress, e.g. "How am I doing in Data Structures?" or "What\'s due soon?"'}
                         style={{ flex: 1, minWidth: 0, padding: '11px 16px', borderRadius: '9999px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none' }}
                     />
                     <button

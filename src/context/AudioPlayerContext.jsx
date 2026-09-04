@@ -198,6 +198,18 @@ const toPersistable = (list) =>
 
 const AudioPlayerContext = createContext(null);
 
+// Real, working equalizer bands - a genuine Web Audio BiquadFilterNode
+// chain (see the graph wired up near audioRefA/audioRefB below), not a
+// cosmetic slider set. 5 peaking bands across the audible spectrum, the
+// same rough spread real players (Spotify, Apple Music) expose.
+export const EQ_BANDS = [
+    { label: '60Hz', freq: 60 },
+    { label: '250Hz', freq: 250 },
+    { label: '1kHz', freq: 1000 },
+    { label: '4kHz', freq: 4000 },
+    { label: '12kHz', freq: 12000 },
+];
+
 export const AudioPlayerProvider = ({ children }) => {
     // Which service (if any) should actually be steering playback right
     // now - 'local' uses everything below exactly as before; 'spotify'/
@@ -234,16 +246,33 @@ export const AudioPlayerProvider = ({ children }) => {
             const saved = localStorage.getItem('nexus_playlist');
             const parsed = saved ? JSON.parse(saved) : null;
             if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PLAYLIST;
-            // One-time cleanup for an existing user who already had the
-            // old default placeholder tracks persisted (see
-            // REMOVED_DEFAULT_TITLES's own comment above) - a genuinely
-            // real, user-added local file could theoretically share one of
-            // these exact titles, but that's an acceptable, rare tradeoff
-            // against the alternative of leaving a real, repeatedly
-            // reported clutter complaint unfixed for every existing user.
-            const cleaned = parsed.filter((t) => !REMOVED_DEFAULT_TITLES.has(t?.title));
-            if (cleaned.length !== parsed.length) localStorage.setItem('nexus_playlist', JSON.stringify(cleaned));
-            return healDeadHotlinks(cleaned);
+            // Real, live-confirmed bug fixed: this title-based cleanup was
+            // written as a genuine one-time migration ("an existing user
+            // who already had the old default placeholder tracks
+            // persisted"), but had no actual "have I already migrated"
+            // flag - it re-ran this exact filter on EVERY mount (every
+            // real page load, and every dev HMR remount), unconditionally
+            // stripping anything titled "Lofi Focus Beats" or "Ambient
+            // Rain". audioLibraryMock.js's own real catalog (added after
+            // this cleanup was written) happens to use those exact same
+            // two titles for genuine, playable synth tracks - so adding
+            // either from Search/Library and then reloading (or just
+            // hitting an HMR remount in dev) silently deleted it right
+            // back out of the queue again, live-confirmed: added
+            // "Lofi Focus Beats", it was gone on the very next remount,
+            // isolated down to this filter by direct testing. Gated
+            // behind a real one-time flag now - runs at most once per
+            // browser install, exactly matching what "one-time cleanup"
+            // already claimed to be, instead of permanently treating two
+            // now-legitimate catalog titles as forever-forbidden.
+            const migrationDone = localStorage.getItem('nexus_default_titles_cleanup_done') === 'true';
+            if (!migrationDone) {
+                const cleaned = parsed.filter((t) => !REMOVED_DEFAULT_TITLES.has(t?.title));
+                localStorage.setItem('nexus_default_titles_cleanup_done', 'true');
+                if (cleaned.length !== parsed.length) localStorage.setItem('nexus_playlist', JSON.stringify(cleaned));
+                return healDeadHotlinks(cleaned);
+            }
+            return healDeadHotlinks(parsed);
         } catch (e) {
             return DEFAULT_PLAYLIST;
         }
@@ -307,6 +336,27 @@ export const AudioPlayerProvider = ({ children }) => {
     // was working as designed. Kept as a real, functioning feature (not
     // deleted) for anyone who does want it - just no longer a surprise.
     const [crossfadeEnabled, setCrossfadeEnabled] = useState(() => localStorage.getItem('nexus_crossfade_enabled') === 'true');
+    // Real Equalizer state - genuinely wired to a Web Audio filter graph
+    // below (audioContextRef/eqFiltersRef), not just stored and ignored.
+    // Off by default so nobody's playback suddenly sounds different the
+    // first time this ships.
+    const [eqEnabled, setEqEnabledState] = useState(() => localStorage.getItem('nexus_eq_enabled') === 'true');
+    const [eqGains, setEqGainsState] = useState(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem('nexus_eq_gains') || 'null');
+            if (Array.isArray(saved) && saved.length === EQ_BANDS.length && saved.every((g) => typeof g === 'number')) return saved;
+        } catch (e) { /* ignore malformed storage */ }
+        return EQ_BANDS.map(() => 0);
+    });
+    // Real playback-speed control - a plain <audio>.playbackRate, so it
+    // works regardless of the Web Audio graph below (and even if that
+    // graph fails to initialize for any reason).
+    const [playbackRate, setPlaybackRateState] = useState(() => {
+        const saved = parseFloat(localStorage.getItem('nexus_playback_rate'));
+        return Number.isFinite(saved) && saved >= 0.5 && saved <= 2 ? saved : 1;
+    });
+    const playbackRateRef = useRef(playbackRate);
+    useEffect(() => { playbackRateRef.current = playbackRate; }, [playbackRate]);
     // 'off' | 'all' | 'one'
     const [repeatMode, setRepeatMode] = useState(() => {
         const saved = localStorage.getItem('nexus_repeat_mode');
@@ -384,6 +434,24 @@ export const AudioPlayerProvider = ({ children }) => {
     const getActiveAudio = () => (activeSlotRef.current === 'A' ? audioRefA.current : audioRefB.current);
     const getInactiveAudio = () => (activeSlotRef.current === 'A' ? audioRefB.current : audioRefA.current);
 
+    // Real Web Audio graph backing the Equalizer above: both <audio>
+    // elements are tapped once (createMediaElementSource can only ever be
+    // called ONCE per element, for its whole lifetime - guarded below via
+    // a flag on the DOM node itself, not just a React ref, so React 18
+    // StrictMode's dev-only double-invoke of this effect can never try to
+    // tap the same element twice and throw) into a shared chain of 5
+    // BiquadFilterNodes (see EQ_BANDS) feeding audioContext.destination.
+    // `crossOrigin="anonymous"` is set on both elements below so that a
+    // cross-origin stream without CORS approval fails LOUDLY (a normal,
+    // already-handled onError -> "couldn't play" message) instead of the
+    // much worse alternative: silently muting once routed through this
+    // graph, which is what browsers do to untainted-but-unapproved
+    // cross-origin audio otherwise. Local (blob:) files are same-origin
+    // and completely unaffected either way.
+    const audioContextRef = useRef(null);
+    const eqFiltersRef = useRef([]);
+    const webAudioReadyRef = useRef(false);
+
     const previousVolumeRef = useRef(1.0);
     // Latest-value refs for use inside the crossfade timer and timeupdate
     // handler, which are attached once per track rather than re-created on
@@ -401,6 +469,63 @@ export const AudioPlayerProvider = ({ children }) => {
         crossfadeEnabledRef.current = crossfadeEnabled;
         localStorage.setItem('nexus_crossfade_enabled', String(crossfadeEnabled));
     }, [crossfadeEnabled]);
+
+    // Builds the Web Audio graph exactly once, as soon as both <audio>
+    // elements exist. Wrapped in try/catch and left as a harmless no-op
+    // (webAudioReadyRef stays false, the graph is simply never used) on
+    // any failure - a browser without Web Audio support, or any other
+    // surprise here, must never be able to break real playback, which
+    // matters far more than the equalizer itself.
+    useEffect(() => {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const elA = audioRefA.current;
+        const elB = audioRefB.current;
+        if (!AudioCtx || !elA || !elB) return;
+        if (elA._nexusWebAudioTapped) return; // already built (guards StrictMode's dev double-invoke)
+        elA._nexusWebAudioTapped = true;
+        try {
+            const ctx = new AudioCtx();
+            const filters = EQ_BANDS.map((band) => {
+                const f = ctx.createBiquadFilter();
+                f.type = 'peaking';
+                f.frequency.value = band.freq;
+                f.Q.value = 1;
+                f.gain.value = 0;
+                return f;
+            });
+            for (let i = 0; i < filters.length - 1; i += 1) filters[i].connect(filters[i + 1]);
+            filters[filters.length - 1].connect(ctx.destination);
+            const sourceA = ctx.createMediaElementSource(elA);
+            const sourceB = ctx.createMediaElementSource(elB);
+            sourceA.connect(filters[0]);
+            sourceB.connect(filters[0]);
+            audioContextRef.current = ctx;
+            eqFiltersRef.current = filters;
+            webAudioReadyRef.current = true;
+        } catch (e) {
+            webAudioReadyRef.current = false;
+        }
+    }, []);
+
+    // Keeps the real filter graph in sync with the EQ state above, and
+    // persists both. Disabling the equalizer zeroes every band's gain
+    // (rather than disconnecting the graph) - simplest correct way to
+    // make it a true no-op without touching the live audio routing.
+    useEffect(() => {
+        localStorage.setItem('nexus_eq_enabled', String(eqEnabled));
+        localStorage.setItem('nexus_eq_gains', JSON.stringify(eqGains));
+        if (!webAudioReadyRef.current) return;
+        eqFiltersRef.current.forEach((filter, i) => {
+            filter.gain.value = eqEnabled ? (eqGains[i] || 0) : 0;
+        });
+    }, [eqEnabled, eqGains]);
+
+    // Restores the persisted playback rate onto both elements once, on
+    // mount - setPlaybackRate (below) keeps them in sync from then on.
+    useEffect(() => {
+        if (audioRefA.current) audioRefA.current.playbackRate = playbackRateRef.current;
+        if (audioRefB.current) audioRefB.current.playbackRate = playbackRateRef.current;
+    }, []);
 
     // Always-fresh reference to the playlist, so next()/prev()/playAt() never
     // act on a stale closure without needing to be re-created on every edit.
@@ -599,9 +724,43 @@ export const AudioPlayerProvider = ({ children }) => {
     // UI never shows a stuck "Pause" button while nothing is actually
     // playing - previously a failed play() was swallowed with no recovery
     // and no state correction, which is exactly what caused the stuck state.
+    // Per-band EQ update - the UI passes the band's index (into EQ_BANDS/
+    // eqGains) and a new gain in dB (-12..12). Reset restores every band
+    // to 0 (flat) without needing to touch eqEnabled.
+    const setEqGain = useCallback((index, valueDb) => {
+        setEqGainsState((prev) => {
+            const clamped = Math.max(-12, Math.min(12, valueDb));
+            const next = prev.slice();
+            next[index] = clamped;
+            return next;
+        });
+    }, []);
+    const resetEq = useCallback(() => {
+        setEqGainsState(EQ_BANDS.map(() => 0));
+    }, []);
+    const setEqEnabled = useCallback((v) => setEqEnabledState(v), []);
+
+    const setPlaybackRate = useCallback((rate) => {
+        const clamped = Math.max(0.5, Math.min(2, rate));
+        setPlaybackRateState(clamped);
+        localStorage.setItem('nexus_playback_rate', String(clamped));
+        if (audioRefA.current) audioRefA.current.playbackRate = clamped;
+        if (audioRefB.current) audioRefB.current.playbackRate = clamped;
+    }, []);
+
+    // Resumes the (autoplay-policy-suspended-until-a-real-gesture)
+    // AudioContext - safe/harmless to call even when it's already
+    // running, or when the graph never initialized at all.
+    const resumeWebAudio = () => {
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(() => {});
+        }
+    };
+
     const attemptPlay = useCallback(() => {
         const audio = getActiveAudio();
         if (!audio) return;
+        resumeWebAudio();
         const playPromise = audio.play();
         if (!playPromise || typeof playPromise.catch !== 'function') return;
         playPromise.catch(() => {
@@ -670,6 +829,7 @@ export const AudioPlayerProvider = ({ children }) => {
         // element's src back to the OLD track, silently breaking the fade.
         audio.src = currentTrack.url;
         audio.loop = !!currentTrack.isAmbientPreset;
+        audio.playbackRate = playbackRateRef.current;
         audio.load();
         if (isPlaying) attemptPlay();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -840,6 +1000,8 @@ export const AudioPlayerProvider = ({ children }) => {
         inactiveAudio.loop = !!nextTrack.isAmbientPreset;
         inactiveAudio.currentTime = 0;
         inactiveAudio.volume = 0;
+        inactiveAudio.playbackRate = playbackRateRef.current;
+        resumeWebAudio();
         inactiveAudio.play().catch(() => {
             // If the next track can't start (e.g. blocked/unavailable),
             // abandon the crossfade cleanly and let the normal onEnded
@@ -1137,22 +1299,49 @@ export const AudioPlayerProvider = ({ children }) => {
         });
     }, [user]);
 
+    // Real, reported bug fixed (live-confirmed): reordering the CURRENTLY
+    // PLAYING track via Move Up/Down could silently swap playback to
+    // whatever track ended up at its old position instead - e.g. Lofi
+    // Focus Beats playing at #2, "Move Down" clicked on it, and Forest
+    // (which moved INTO #2) started audibly playing instead, restarting
+    // from 0:00. Root cause: setCurrentSongIndex was called FROM INSIDE
+    // setPlaylist's own updater function - an impure updater (a real
+    // anti-pattern: https://react.dev/reference/react/useState#updater-
+    // caveats). React 18 StrictMode (enabled in main.jsx) deliberately
+    // invokes updater functions twice in dev specifically to catch this
+    // impurity - here that double-invoke ran the nested setCurrentSongIndex
+    // call twice with stale `ci` values, actually flipping it back to the
+    // WRONG index. Splitting these into two independent, genuinely pure,
+    // sibling setState calls (neither depends on side effects of the
+    // other) is the real fix, not a StrictMode workaround - both are now
+    // safe to invoke any number of times with the same result.
     const moveSong = useCallback((index, direction) => {
         const newIndex = direction === 'up' ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= playlistRef.current.length) return;
+        // Real, live-confirmed follow-up polish: with the swap above now
+        // correctly keeping the CURRENTLY PLAYING track marked active at
+        // its new position, the track-changed effect further down still
+        // saw currentSongIndex's raw NUMBER change and reloaded the
+        // <audio> element for it - genuinely still playing the same
+        // track, but audibly restarting it from 0:00 for no reason. Same
+        // skipNextLoadRef mechanism startCrossfade already uses for
+        // exactly this "index changed, but the actually-playing track
+        // didn't" situation.
+        if (currentSongIndexRef.current === index || currentSongIndexRef.current === newIndex) {
+            skipNextLoadRef.current = true;
+        }
         setPlaylist((prevList) => {
-            if (newIndex < 0 || newIndex >= prevList.length) return prevList;
+            if (newIndex >= prevList.length) return prevList;
             const updated = [...prevList];
             const temp = updated[index];
             updated[index] = updated[newIndex];
             updated[newIndex] = temp;
-
-            setCurrentSongIndex((ci) => {
-                if (ci === index) return newIndex;
-                if (ci === newIndex) return index;
-                return ci;
-            });
-
             return updated;
+        });
+        setCurrentSongIndex((ci) => {
+            if (ci === index) return newIndex;
+            if (ci === newIndex) return index;
+            return ci;
         });
     }, []);
 
@@ -1332,6 +1521,13 @@ export const AudioPlayerProvider = ({ children }) => {
         toggleShuffle,
         cycleRepeatMode,
         setCrossfadeEnabled,
+        eqEnabled,
+        setEqEnabled,
+        eqGains,
+        setEqGain,
+        resetEq,
+        playbackRate,
+        setPlaybackRate,
         playPreset,
         deleteSong,
         moveSong,
@@ -1353,6 +1549,7 @@ export const AudioPlayerProvider = ({ children }) => {
                 never fought by React's own reconciliation. */}
             <audio
                 ref={audioRefA}
+                crossOrigin="anonymous"
                 onEnded={() => { if (activeSlotRef.current === 'A') next({ isNaturalEnd: true }); }}
                 onPlay={() => { if (activeSlotRef.current === 'A') { setIsPlaying(true); setPlaybackError(null); } }}
                 onPause={() => { if (activeSlotRef.current === 'A' && !crossfadingRef.current) setIsPlaying(false); }}
@@ -1374,6 +1571,7 @@ export const AudioPlayerProvider = ({ children }) => {
             />
             <audio
                 ref={audioRefB}
+                crossOrigin="anonymous"
                 onEnded={() => { if (activeSlotRef.current === 'B') next({ isNaturalEnd: true }); }}
                 onPlay={() => { if (activeSlotRef.current === 'B') { setIsPlaying(true); setPlaybackError(null); } }}
                 onPause={() => { if (activeSlotRef.current === 'B' && !crossfadingRef.current) setIsPlaying(false); }}

@@ -23,6 +23,7 @@
 // content bleed through and made the player's own text illegible. This
 // stays a real, always-solid-enough fill instead.
 import React, { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Repeat1,
     Disc, MessageSquare, ListMusic, Volume2, VolumeX, Volume1, MoreHorizontal, Maximize2,
@@ -107,54 +108,40 @@ const FloatingBottomPlayer = ({
         deleteSong, queueProps,
     };
 
-    return (
+    return createPortal(
         <div style={{
-            // Real, reported bug (measured, not guessed): on mobile this
-            // was `position: absolute` against AudioHubPage's own nearest
-            // positioned ancestor - which turned out to itself sit inside
-            // a page wrapper with real 12px horizontal padding
-            // (`padding: 16px 12px 0px`). This component's own "tight"
-            // 6px-per-side margin (width: calc(100% - 12px)) then measured
-            // as a genuine 18px gap from the real screen edge (12px parent
-            // padding + 6px own margin stacking), not the 6px it looks
-            // like from the style alone - confirmed live via
-            // getBoundingClientRect against the real deployed page, not a
-            // screenshot guess. `position: fixed` on mobile anchors this
-            // to the true viewport instead (confirmed no ancestor here
-            // has a transform/filter/perspective that would trap a fixed
-            // child - it genuinely escapes to the real screen edge), so
-            // the existing width/left/transform math below - unchanged -
-            // now actually produces the tight edge-hugging gap it always
-            // intended, matching Spotify's own mobile mini-bar. Desktop
-            // keeps `absolute` exactly as before; this was never reported
-            // there.
-            position: isMobile ? 'fixed' : 'absolute', left: '50%', transform: 'translateX(-50%)',
-            // Bottom offset confirmed by live-inspecting Apple's own real
-            // site: `.player-bar__floating-player` has `margin-bottom:
-            // 20px` (confirmed via getComputedStyle, and the actual
-            // rendered gap to the viewport's bottom edge measured 18-20px
-            // in practice) - was 16px, now matches exactly.
-            bottom: isMobile ? 'calc(76px + env(safe-area-inset-bottom, 0px))' : '20px',
-            // CORRECTED after live-measuring Apple's own actual site
-            // (music.apple.com, getBoundingClientRect + getComputedStyle,
-            // not a screenshot reading): the earlier "1210px" figure was
-            // the invisible, transparent, square-cornered positioning
-            // wrapper (`.player-bar__floating-player`, position:sticky,
-            // right:0/bottom:0, stretches to the window edge) - NOT the
-            // visible rounded glass pill. The actual visible pill
-            // (`.chrome-player`, border-radius:1000px) has a real, fixed
-            // `max-width: 668px` in Apple's own CSS, confirmed unchanged
-            // across a 1300px AND a 1997px window - it never grows past
-            // that regardless of available space, just stays centered.
-            // Real, reported feedback: too much empty side space on mobile
-            // - tightened again, from 6px per side to 4px, now that the
-            // `position: fixed` fix above (see its own comment) means this
-            // margin is finally measured against the real screen edge
-            // instead of stacking on top of a parent's own 12px padding -
-            // 4px reads as genuinely tight/edge-hugging the way Spotify's
-            // own mobile mini bar does, without the rounded corners
-            // getting clipped by the real screen edge.
-            width: isMobile ? 'calc(100% - 8px)' : 'min(668px, calc(100% - 40px))',
+            // Real, reported bug fixed: this component used to be mounted
+            // ONLY inside AudioHubPage.jsx, positioned against that page's
+            // own relative container - so it (and playback control
+            // entirely) visually vanished the instant you navigated to any
+            // OTHER page while a track kept playing ("song play karte
+            // jaana hi... bottom audio ka mobile bhi humein... hat jaa
+            // raha hai"), even though the underlying <audio> element (a
+            // real, separate persistent-root context) never actually
+            // stopped. It's now mounted once at the app root
+            // (DashboardLayout.jsx's own GlobalAudioMiniPlayer, not this
+            // page), so it stays visible across every tab - matching how
+            // a real reference app's own mini-player behaves. `position:
+            // fixed` alone isn't enough once mounted from an ancestor this
+            // deep (DynamicBackground and a few other cards further up
+            // use backdrop-filter/transform, either of which becomes the
+            // real containing block for a `position:fixed` descendant
+            // instead of the viewport - the same class of bug this app's
+            // other overlays already portal past) - createPortal into
+            // document.body (same established pattern as QueueDrawer/
+            // LyricsOverlay/FullPlayerView/VolumePopup/TrackOptionsMenu)
+            // guarantees it always escapes to the true viewport instead.
+            // Desktop now genuinely floats above the FULL viewport
+            // (centered against the whole window, not just AudioHubPage's
+            // own content column) - a real, accepted trade-off: slightly
+            // off-center from just the content area while the desktop
+            // Sidebar is expanded, in exchange for actually staying
+            // visible on every other page, which matters far more.
+            position: 'fixed',
+            left: isMobile ? 0 : '50%', right: isMobile ? 0 : undefined,
+            transform: isMobile ? 'none' : 'translateX(-50%)',
+            bottom: isMobile ? 'var(--mobile-tabbar-height, 68px)' : '20px',
+            width: isMobile ? '100%' : 'min(668px, calc(100% - 40px))',
             zIndex: 100,
         }}>
             <div style={{
@@ -183,23 +170,22 @@ const FloatingBottomPlayer = ({
                 '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
                 backdropFilter: 'blur(max(var(--glass-blur, 20px), 20px)) saturate(180%)',
                 WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 20px)) saturate(180%)',
-                border: '1px solid var(--border-premium)',
-                // Real, reported cluttered/mis-adjusted mobile look fixed,
-                // matched directly against a real Spotify mobile app
-                // screenshot: mobile's mini-player is now a single row
-                // ONLY (the second row of Shuffle/Lyrics/Queue/Volume/
-                // Repeat icons was removed entirely below - Spotify's own
-                // real mini bar has none of that, just artwork+title+play,
-                // matching what a "clean, uncluttered" mobile bar actually
-                // looks like there; those controls remain fully reachable
-                // one tap away via FullPlayerView, which already has its
-                // own instances of all of them). A smaller, real-rectangle
-                // radius (not a full 9999px stadium/pill) matches
-                // Spotify's own mini bar shape on mobile too - the full
-                // pill shape is kept for desktop, which was modeled on
-                // Apple Music's own web player, a separate, already-
-                // correct reference.
-                borderRadius: isMobile ? '16px' : '9999px', boxShadow: '0 12px 32px rgba(0,0,0,0.3)', boxSizing: 'border-box',
+                // Mobile no longer has ANY side/bottom border or radius -
+                // a docked bar reads as continuous with MobileTabBar.jsx
+                // directly below it (which itself has no radius and only
+                // a borderTop divider, no side/bottom border either), not
+                // as a separate card sitting on top of it. Matched byte-
+                // for-byte against that file's own borderTop treatment so
+                // the two really do read as one joined dock, not two
+                // stacked cards with a visible seam between them.
+                border: isMobile ? 'none' : '1px solid var(--border-premium)',
+                borderTop: isMobile ? '1px solid var(--border-premium)' : undefined,
+                borderRadius: isMobile ? 0 : '9999px',
+                // No elevation shadow on mobile - a flush-docked bar has
+                // no "floating above the page" to imply, and the desktop
+                // pill's own shadow (kept, unchanged) only ever made sense
+                // for something that genuinely floats over content there.
+                boxShadow: isMobile ? 'none' : '0 12px 32px rgba(0,0,0,0.3)', boxSizing: 'border-box',
                 overflow: 'visible', position: 'relative',
                 display: 'flex', flexDirection: 'column',
             }}>
@@ -214,30 +200,45 @@ const FloatingBottomPlayer = ({
                     height: isMobile ? '56px' : '54px', boxSizing: 'border-box',
                     padding: isMobile ? '0 12px' : '0 18px',
                 }}>
-                    {/* LEFT - transport controls */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', flexShrink: 0 }}>
-                        {!isMobile && (
-                            <button onClick={toggleShuffle} title="Shuffle" className={shuffleEnabled ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(shuffleEnabled ? { color: 'var(--primary)' } : {})}>
-                                <Shuffle size={15} />
-                            </button>
-                        )}
-                        <button onClick={prev} title="Previous" className="nexus-audio-icon-btn" style={iconBtnStyle({ color: 'var(--text-primary)' })}>
+                    {/* Transport controls - LEFT on desktop (unchanged,
+                        matches the real Apple Music web player this whole
+                        row's desktop layout is modeled on), but RIGHT on
+                        mobile: a real, reported mismatch against every
+                        actual reference app cited this session (Spotify/
+                        Apple Music's own mobile mini-players) - all of
+                        them put the artwork+title on the LEFT (where a
+                        flexible, truncating text block naturally belongs)
+                        and the fixed-width transport controls on the
+                        RIGHT, the opposite of what this had. Pure `order`
+                        swap (CSS flex reordering, not a DOM/JSX
+                        duplication) - desktop's own explicit order:0 is
+                        identical to unset, so its layout is byte-for-byte
+                        unchanged. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '2px' : '6px', flexShrink: 0, order: isMobile ? 2 : 0 }}>
+                        {/* Shuffle/Repeat now show on mobile too - a real,
+                            explicit request: they used to be desktop-only,
+                            with no way to reach either from the phone at
+                            all. Same real toggleShuffle/cycleRepeatMode
+                            this row's desktop buttons already use, just no
+                            longer hidden. */}
+                        <button onClick={toggleShuffle} title="Shuffle" className={shuffleEnabled ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(shuffleEnabled ? { color: 'var(--primary)' } : { padding: isMobile ? '4px' : '6px' })}>
+                            <Shuffle size={isMobile ? 14 : 15} />
+                        </button>
+                        <button onClick={prev} title="Previous" className="nexus-audio-icon-btn" style={iconBtnStyle({ color: 'var(--text-primary)', padding: isMobile ? '4px' : '6px' })}>
                             <SkipBack size={16} fill="currentColor" />
                         </button>
                         <button
                             onClick={togglePlay} title={isPlaying ? 'Pause' : 'Play'}
-                            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', flexShrink: 0 }}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '2px' : '4px', flexShrink: 0 }}
                         >
-                            {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" style={{ marginLeft: '2px' }} />}
+                            {isPlaying ? <Pause size={isMobile ? 22 : 24} fill="currentColor" /> : <Play size={isMobile ? 22 : 24} fill="currentColor" style={{ marginLeft: '2px' }} />}
                         </button>
-                        <button onClick={next} title="Next" className="nexus-audio-icon-btn" style={iconBtnStyle({ color: 'var(--text-primary)' })}>
+                        <button onClick={next} title="Next" className="nexus-audio-icon-btn" style={iconBtnStyle({ color: 'var(--text-primary)', padding: isMobile ? '4px' : '6px' })}>
                             <SkipForward size={16} fill="currentColor" />
                         </button>
-                        {!isMobile && (
-                            <button onClick={cycleRepeatMode} title={`Repeat: ${repeatMode}`} className={repeatActive ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(repeatActive ? { color: 'var(--primary)' } : {})}>
-                                <RepeatIcon size={15} />
-                            </button>
-                        )}
+                        <button onClick={cycleRepeatMode} title={`Repeat: ${repeatMode}`} className={repeatActive ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(repeatActive ? { color: 'var(--primary)' } : { padding: isMobile ? '4px' : '6px' })}>
+                            <RepeatIcon size={isMobile ? 14 : 15} />
+                        </button>
                     </div>
 
                     {/* CENTER - CORRECTED after live-inspecting
@@ -258,7 +259,7 @@ const FloatingBottomPlayer = ({
                         progress spans under the artwork and the more-
                         button too, not confined to just the text block as
                         it was before this correction). */}
-                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px' }}>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', order: isMobile ? 1 : 0 }}>
                         <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                             <button
                                 onClick={() => setFullPlayerOpen(true)}
@@ -304,7 +305,22 @@ const FloatingBottomPlayer = ({
                                 )}
                             </button>
 
-                            <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                            <div
+                                style={{ flex: 1, minWidth: 0, position: 'relative', cursor: isMobile ? 'pointer' : 'default' }}
+                                // Mobile-only: tapping the title/artist text
+                                // now also expands the full player, not just
+                                // the small 36px artwork square next to it -
+                                // a real, confirmed report that tapping the
+                                // bar (as a whole, the way a real reference
+                                // app's own mini-player works) should open
+                                // it, not just one small icon most people
+                                // wouldn't think to tap specifically. Scoped
+                                // to mobile only - desktop's own progress-bar
+                                // hover/scrub interaction already lives on
+                                // this exact area (see below), so adding a
+                                // click-to-expand there too would fight it.
+                                onClick={isMobile ? () => setFullPlayerOpen(true) : undefined}
+                            >
                                 {/* Title/artist block - on progress-bar
                                     hover this whole block fades/blurs and
                                     the elapsed/remaining times overlay
@@ -362,7 +378,7 @@ const FloatingBottomPlayer = ({
                                             onClose={() => setMoreOpen(false)}
                                             isFavorite={isFav}
                                             currentTrack={currentTrack}
-                                            onToggleFavorite={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })}
+                                            onToggleFavorite={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, uri: currentTrack.uri, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })}
                                             onRemoveFromQueue={currentTrack.id ? () => deleteSong(currentTrack.id) : null}
                                             onViewCredits={() => setLyricsOpen(true)}
                                         />
@@ -376,21 +392,35 @@ const FloatingBottomPlayer = ({
                             button too), not just the text block, matching
                             the real measured `.player-lcd__progress`
                             (715-1077, same span as the row above it). */}
-                        <div
-                            onMouseEnter={() => setProgressHovered(true)}
-                            onMouseLeave={() => setProgressHovered(false)}
-                            style={{ position: 'relative', height: '10px', display: 'flex', alignItems: 'center' }}
-                        >
-                            <div style={{ position: 'absolute', left: 0, right: 0, height: progressHovered ? '4px' : '3px', borderRadius: '3px', background: 'var(--border-premium)', overflow: 'hidden', transition: 'height 0.15s ease' }}>
-                                <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--primary)', transition: 'width 1s linear' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : 0 }}>
+                            {/* Real, explicit request: mobile has no hover
+                                state, so the desktop "times only appear
+                                while hovering the bar" treatment left
+                                mobile with literally no elapsed/remaining
+                                display at all - these two labels flank the
+                                bar and are always visible there instead. */}
+                            {isMobile && (
+                                <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatTime(clampedTime)}</span>
+                            )}
+                            <div
+                                onMouseEnter={() => setProgressHovered(true)}
+                                onMouseLeave={() => setProgressHovered(false)}
+                                style={{ position: 'relative', flex: 1, minWidth: 0, height: '10px', display: 'flex', alignItems: 'center' }}
+                            >
+                                <div style={{ position: 'absolute', left: 0, right: 0, height: progressHovered ? '4px' : '3px', borderRadius: '3px', background: 'var(--border-premium)', overflow: 'hidden', transition: 'height 0.15s ease' }}>
+                                    <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--primary)', transition: 'width 1s linear' }} />
+                                </div>
+                                <input
+                                    type="range" min={0} max={safeDuration} step="0.1"
+                                    value={clampedTime}
+                                    onChange={(e) => seek(parseFloat(e.target.value))}
+                                    aria-label="Seek"
+                                    style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0, opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
+                                />
                             </div>
-                            <input
-                                type="range" min={0} max={safeDuration} step="0.1"
-                                value={clampedTime}
-                                onChange={(e) => seek(parseFloat(e.target.value))}
-                                aria-label="Seek"
-                                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0, opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none' }}
-                            />
+                            {isMobile && (
+                                <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{safeDuration > 0 ? `-${formatTime(Math.max(0, safeDuration - clampedTime))}` : '--:--'}</span>
+                            )}
                         </div>
                     </div>
 
@@ -442,7 +472,8 @@ const FloatingBottomPlayer = ({
             <LyricsOverlay isOpen={lyricsOpen} onClose={() => setLyricsOpen(false)} currentTrack={currentTrack} />
             <QueueDrawer isOpen={queueOpen} onClose={() => setQueueOpen(false)} {...queueProps} />
             <FullPlayerView isOpen={fullPlayerOpen} onClose={() => setFullPlayerOpen(false)} {...commonPlayerProps} />
-        </div>
+        </div>,
+        document.body
     );
 };
 

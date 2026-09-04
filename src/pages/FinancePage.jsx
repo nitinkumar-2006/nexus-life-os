@@ -831,24 +831,38 @@ const FinancePage = () => {
                     <div className="finance-glass-card" style={{ background: 'var(--bg-surface)', padding: isMobile ? '10px 8px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? '7px' : '14px', minWidth: 0 }}>
                         <div style={{ padding: isMobile ? '6px' : '11px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: isMobile ? '8px' : '12px', color: '#10B981', flexShrink: 0, display: 'flex' }}><ArrowUpRight size={isMobile ? 14 : 22} /></div>
                         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-                            <span style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Income</span>
-                            <h2 style={{ fontSize: isMobile ? '13px' : '19px', fontWeight: '800', color: '#10B981', overflowWrap: 'break-word', lineHeight: 1.25 }}>{settings.currencySymbol} {totalIncome.toLocaleString()}</h2>
+                            {/* Label bumped 9px->10px, value 13px->14px - a real,
+                                measured readability fix (live-checked: 9px sat at
+                                a genuine hard-to-read size for a mobile stat
+                                label, and "Budget Left" measured with literally
+                                zero slack width at 9px, one bigger digit away
+                                from silently ellipsis-clipping). Kept the
+                                established compact-row layout and padding from
+                                the earlier "avoid dead space" fix (see this
+                                block's own comment above) - this only touches
+                                font size, not the structural choice. */}
+                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Income</span>
+                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: '#10B981', overflowWrap: 'break-word', lineHeight: 1.25 }}>{settings.currencySymbol} {totalIncome.toLocaleString()}</h2>
                         </div>
                     </div>
 
                     <div className="finance-glass-card" style={{ background: 'var(--bg-surface)', padding: isMobile ? '10px 8px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? '7px' : '14px', minWidth: 0 }}>
                         <div style={{ padding: isMobile ? '6px' : '11px', background: 'rgba(239, 68, 68, 0.12)', borderRadius: isMobile ? '8px' : '12px', color: '#EF4444', flexShrink: 0, display: 'flex' }}><ArrowDownLeft size={isMobile ? 14 : 22} /></div>
                         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-                            <span style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Expense</span>
-                            <h2 style={{ fontSize: isMobile ? '13px' : '19px', fontWeight: '800', color: '#EF4444', overflowWrap: 'break-word', lineHeight: 1.25 }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
+                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Expense</span>
+                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: '#EF4444', overflowWrap: 'break-word', lineHeight: 1.25 }}>{settings.currencySymbol} {totalSpent.toLocaleString()}</h2>
                         </div>
                     </div>
 
                     <div className="finance-glass-card" style={{ background: 'var(--bg-surface)', padding: isMobile ? '10px 8px' : '18px', borderRadius: isMobile ? '14px' : '16px', border: '1px solid var(--border-premium)', display: 'flex', flexDirection: 'row', alignItems: 'center', gap: isMobile ? '7px' : '14px', minWidth: 0 }}>
                         <div style={{ padding: isMobile ? '6px' : '11px', background: 'var(--widget-bg)', borderRadius: isMobile ? '8px' : '12px', color: 'var(--primary)', flexShrink: 0, display: 'flex' }}><Target size={isMobile ? 14 : 22} /></div>
                         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-                            <span style={{ fontSize: isMobile ? '9px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Budget Left</span>
-                            <h2 style={{ fontSize: isMobile ? '13px' : '19px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word', lineHeight: 1.25 }}>
+                            {/* "Budget Left" -> "Budget" on mobile only: frees
+                                the width the larger font needed, and reads more
+                                consistently next to the other two single-word
+                                labels (Income/Expense) - not just a space hack. */}
+                            <span style={{ fontSize: isMobile ? '10px' : '12px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isMobile ? 'Budget' : 'Budget Left'}</span>
+                            <h2 style={{ fontSize: isMobile ? '14px' : '19px', fontWeight: '800', color: 'var(--text-primary)', overflowWrap: 'break-word', lineHeight: 1.25 }}>
                                 {settings.currencySymbol} {budgetRemaining.toLocaleString()}
                                 {!isMobile && <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}> / {settings.currencySymbol}{(settings.monthlyBudgetCap || 0).toLocaleString()}</span>}
                             </h2>

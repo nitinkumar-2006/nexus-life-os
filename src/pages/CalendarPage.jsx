@@ -569,9 +569,15 @@ const CalendarPage = () => {
         // so the month reads as one complete rectangular table instead of
         // numbers floating with blank space before them - kept quiet and
         // borderless so they read as clearly "blank" next to the real,
-        // bordered day cells below. Mobile: 30px for a compact but still
-        // comfortable tap target; desktop 34px.
-        const cellHeight = isMobile ? '30px' : '34px';
+        // bordered day cells below. Real, measured mobile congestion fix:
+        // this used to be SMALLER on mobile (30px) than desktop (34px) -
+        // backwards, since mobile is exactly the context where a bigger
+        // touch target matters more (finger, not a mouse pointer) and
+        // there's no width constraint forcing it short (7 columns is a
+        // horizontal limit, not a vertical one). Bumped to 36px, slightly
+        // past desktop's own value, without ballooning the whole month
+        // grid's height (a 6-row month only grows by ~36px total).
+        const cellHeight = isMobile ? '36px' : '34px';
         for (let i = 0; i < firstDay; i++) {
             days.push(<div key={`empty-${i}`} style={{ height: cellHeight, borderRadius: '10px', background: 'var(--surface-inset)', opacity: 0.25 }}></div>);
         }
@@ -983,7 +989,7 @@ const CalendarPage = () => {
                                         <h3 style={{ fontSize: isMobile ? '15px' : '18px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
                                             Schedule for {selectedDate.toLocaleString('default', { month: 'short', day: 'numeric' })}
                                         </h3>
-                                        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>{filteredEvents.length} events found</span>
+                                        <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>{filteredEvents.length} event{filteredEvents.length === 1 ? '' : 's'} found</span>
                                     </div>
                                     {isMobile && (
                                         <ChevronDown size={18} color="var(--text-muted)" style={{ flexShrink: 0, transform: isAgendaExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
@@ -1043,22 +1049,39 @@ const CalendarPage = () => {
                                             // with the title. Desktop keeps its richer card
                                             // (the else branch below) unchanged.
                                             <div key={ev.id} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: ev.completed ? 'rgba(16, 185, 129, 0.05)' : 'var(--widget-bg)', padding: '12px 14px', borderRadius: '14px', border: '1px solid var(--border-premium)', boxSizing: 'border-box' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flexWrap: 'wrap', rowGap: '4px' }}>
                                                     <div onClick={() => (ev.fromTimetable ? toggleTimetableEventCompletion(ev) : toggleEventCompletion(ev.id))} style={{ cursor: 'pointer', color: ev.completed ? '#10B981' : 'var(--text-muted)', flexShrink: 0, display: 'flex' }}>
                                                         {ev.completed ? <CheckCircle size={20} /> : <div style={{ width: '20px', height: '20px', border: '2px solid var(--text-muted)', borderRadius: '50%' }}></div>}
                                                     </div>
                                                     <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: getCategoryColor(ev.category), flexShrink: 0 }}></span>
                                                     <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{ev.time}</span>
-                                                    <h4 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', opacity: ev.completed ? 0.7 : 1, margin: 0, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{ev.title}</h4>
-                                                    <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 7px', borderRadius: '6px', background: ev.priority === 'High' ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface-inset)', color: ev.priority === 'High' ? '#EF4444' : 'var(--text-secondary)', flexShrink: 0 }}>
-                                                        {ev.priority}
+                                                    {/* Real fix for a genuine clipping bug found live: a longer
+                                                        title (e.g. "Janmashtami (Smarta)") plus the priority
+                                                        badge and edit/delete icons never fit on one line, so the
+                                                        title lost characters to text-overflow:ellipsis even
+                                                        though the row had room to simply wrap onto a second
+                                                        line instead. `flex:1` was the actual culprit - it made
+                                                        the title a shrinkable flex item, and since overflow:
+                                                        hidden zeroes out a flex item's automatic minimum size,
+                                                        it kept shrinking to fit instead of ever wrapping.
+                                                        flexShrink:0 (with a maxWidth safety cap for a still-
+                                                        pathologically long title) renders it at its natural
+                                                        width instead, so the trailing badge+icons group below
+                                                        - kept together in one flexShrink:0 span - wraps onto
+                                                        its own line whenever that natural width doesn't leave
+                                                        room, exactly as intended. */}
+                                                    <h4 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', opacity: ev.completed ? 0.7 : 1, margin: 0, maxWidth: '100%', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.title}</h4>
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, marginLeft: 'auto' }}>
+                                                        <span style={{ fontSize: '10px', fontWeight: '700', padding: '3px 7px', borderRadius: '6px', background: ev.priority === 'High' ? 'rgba(239, 68, 68, 0.1)' : 'var(--surface-inset)', color: ev.priority === 'High' ? '#EF4444' : 'var(--text-secondary)', flexShrink: 0 }}>
+                                                            {ev.priority}
+                                                        </span>
+                                                        {!ev.fromTimetable && (
+                                                            <>
+                                                                <button onClick={() => openEditModal(ev)} aria-label={`Edit ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Pencil size={15} /></button>
+                                                                <button onClick={() => deleteEvent(ev.id)} aria-label={`Delete ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Trash2 size={15} /></button>
+                                                            </>
+                                                        )}
                                                     </span>
-                                                    {!ev.fromTimetable && (
-                                                        <>
-                                                            <button onClick={() => openEditModal(ev)} aria-label={`Edit ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Pencil size={15} /></button>
-                                                            <button onClick={() => deleteEvent(ev.id)} aria-label={`Delete ${ev.title}`} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', flexShrink: 0, display: 'flex', padding: '2px' }}><Trash2 size={15} /></button>
-                                                        </>
-                                                    )}
                                                 </div>
                                                 {(ev.location || ev.fromTimetable || ev.importedFromIcs || ev.importedFromDevice) && (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-muted)', paddingLeft: '38px', flexWrap: 'wrap' }}>

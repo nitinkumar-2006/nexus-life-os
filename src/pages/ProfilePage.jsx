@@ -183,13 +183,24 @@ const ConnectionsStatusWidget = ({ isMobile }) => {
 // Cache, Semester). One consistent size/shape so the whole row reads as
 // real, separated cards, not a mix of a floating avatar badge, a
 // standalone pill, and a 3-card grid all styled differently.
+// Real, live-caught mobile bug: this card was built and sized for short,
+// bounded values (a level number, a percentage, a byte-size, a task
+// count - none longer than ~7 characters at this 17px size). SEMESTER is
+// the one genuinely free-text field among the six cards that reuse this
+// component (profile.semester is a plain text input, no length limit -
+// see its own placeholder "e.g. 6th Semester") - "3rd Semester" measured
+// as visibly clipped ("3rd Se...") at the fixed 17px size, the only one
+// of the six that didn't fit. Rather than truncate real user-entered
+// text or shrink every OTHER card's font for one outlier, the value's
+// own font size now steps down for a longer string - short values
+// (the other five cards, always) render exactly as before.
 const ProfileStatCard = ({ icon: Icon, iconColor, value, label }) => (
     <div className="profile-glass-card" style={{
         background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '16px',
         padding: '16px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', minWidth: 0,
     }}>
         <Icon size={18} color={iconColor} />
-        <span style={{ fontSize: '17px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{value}</span>
+        <span style={{ fontSize: String(value ?? '').length > 10 ? '11px' : String(value ?? '').length > 8 ? '13px' : '17px', fontWeight: '800', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{value}</span>
         <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', letterSpacing: '0.5px', textAlign: 'center' }}>{label}</span>
     </div>
 );

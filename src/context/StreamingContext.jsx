@@ -447,6 +447,43 @@ export const StreamingProvider = ({ children }) => {
         return () => { cancelled = true; };
     }, [activeSource, spotifyAuth.connected, spotifyAuth.accessToken]);
 
+    // Real, reported bug: spotifyIsPlaying/spotifyCurrentTime/spotifyDuration
+    // above were updated ONLY by the SDK's own 'player_state_changed' event
+    // - genuinely correct while this device stays the active one and every
+    // event actually arrives, but Spotify's own SDK is well known to miss
+    // that event after a backgrounded tab is throttled, or - more likely
+    // day to day - once playback is controlled from a DIFFERENT device
+    // (the phone's real Spotify app, a speaker, etc. via Spotify Connect):
+    // this Web Playback device stops hearing state changes at all, and the
+    // last isPlaying/currentTime it knew about just sits there - matching
+    // exactly what was reported ("kabhi kabhi song rukta hai to bar aage
+    // badhte rehta hai", "kabhi kabhi freeze ho jata hai", Play/Next/Prev
+    // occasionally doing nothing). A periodic getCurrentState() poll is
+    // the standard fix: it re-asks the SDK directly rather than only
+    // waiting for a push event, so drift self-corrects within a few
+    // seconds instead of staying stuck for the rest of the session. A
+    // null state means this device genuinely isn't Spotify's active
+    // player right now (control is elsewhere) - reflected as "not
+    // playing" here rather than left showing stale, increasingly wrong
+    // progress.
+    useEffect(() => {
+        if (activeSource !== 'spotify' || !spotifyDeviceId) return undefined;
+        const id = setInterval(() => {
+            const player = spotifyPlayerRef.current;
+            if (!player) return;
+            player.getCurrentState().then((state) => {
+                if (!state) {
+                    setSpotifyIsPlaying(false);
+                    return;
+                }
+                setSpotifyIsPlaying(!state.paused);
+                setSpotifyCurrentTime((state.position || 0) / 1000);
+                setSpotifyDuration((state.duration || 0) / 1000);
+            }).catch(() => {});
+        }, 3000);
+        return () => clearInterval(id);
+    }, [activeSource, spotifyDeviceId]);
+
     // Real playback-control functions, routed to by AudioPlayerContext
     // whenever activeSource is the matching service. Both check the
     // relevant connected/ready state first and no-op rather than throw if
@@ -471,14 +508,63 @@ export const StreamingProvider = ({ children }) => {
     // transferring playback to our Web Playback SDK device_id first via
     // the regular Web API (the SDK player itself has no "play this URI"
     // method; it can only control whatever is already playing on it).
-    const spotifyPlayUri = useCallback(async (uri) => {
+    //
+    // Real, reported bug fixed: every caller here used to send only
+    // `{ uris: [uri] }` - a single-track play with nothing queued after
+    // it. Spotify's own Web Playback SDK device then genuinely has
+    // nothing to advance to, so tapping Next (nextTrack()) silently did
+    // nothing - "एक ही song play हो रहा है, Next करने पर कोई song play
+    // नहीं होता", live-confirmed against a real 50-track genre list. The
+    // fix is real Spotify API behavior, not a workaround: `uris` accepts
+    // the WHOLE track list, and `offset` tells it which one to actually
+    // start on - Spotify's own device then owns the rest of the queue,
+    // and Next/Previous (already wired to the SDK's real nextTrack()/
+    // previousTrack()) work exactly like tapping a song inside a real
+    // Spotify playlist. Optional third arg, so every existing single-
+    // track caller (Recently Played tiles, More Like Artist, etc. - where
+    // there's no real ordered "playlist" backing the click anyway) keeps
+    // working completely unchanged.
+    //
+    // Real, live-confirmed follow-up bug fixed (a real Premium account's
+    // own browser console showed a real, repeated `PUT .../player/play`
+    // 400 Bad Request - one per click, every single click): the queue fix
+    // above used `offset: { uri }`, but Spotify's API requires that exact
+    // uri to actually be present INSIDE the `uris` array it was just sent
+    // - and every caller here caps that array at 100 entries (Spotify's
+    // own hard limit) before calling this, so clicking anything past
+    // position 100 in a longer list sent an offset Spotify could never
+    // find, and the whole request was rejected. Finding the real index
+    // via indexOf and sending `offset: { position }` instead is immune to
+    // that (a valid array index needs no string match at all); if the
+    // clicked uri genuinely isn't in the sent queue (index -1), the
+    // offset is dropped entirely rather than sending an invalid one - the
+    // queue still plays, just from its own first track instead of
+    // silently failing outright. This also now actually checks the
+    // response and surfaces a real failure (status + Spotify's own error
+    // detail) instead of the previous silent swallow - a non-2xx response
+    // from fetch() never throws, so the old try/catch never saw these 400s
+    // at all; the user only ever saw "nothing happens" with the real
+    // reason sitting undiscoverable in the browser's own console.
+    const spotifyPlayUri = useCallback(async (uri, queueUris = null) => {
         if (!spotifyDeviceId || !spotifyAuth.accessToken) return;
         try {
-            await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`, {
+            let body;
+            if (Array.isArray(queueUris) && queueUris.length > 0) {
+                const position = queueUris.indexOf(uri);
+                body = position >= 0 ? { uris: queueUris, offset: { position } } : { uris: queueUris };
+            } else {
+                body = { uris: [uri] };
+            }
+            const res = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${spotifyDeviceId}`, {
                 method: 'PUT',
                 headers: { Authorization: `Bearer ${spotifyAuth.accessToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uris: [uri] }),
+                body: JSON.stringify(body),
             });
+            if (!res.ok) {
+                let detail = '';
+                try { detail = (await res.json())?.error?.message || ''; } catch (parseErr) { /* non-JSON error body */ }
+                setSpotifyAuth((prev) => ({ ...prev, error: `Spotify playback failed (${res.status})${detail ? `: ${detail}` : ''}` }));
+            }
         } catch (e) {
             setSpotifyAuth((prev) => ({ ...prev, error: 'Could not start Spotify playback' }));
         }

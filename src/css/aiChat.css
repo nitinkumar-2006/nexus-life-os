@@ -542,6 +542,11 @@
     align-items: center;
     justify-content: center;
     width: 32px;
+    /* Real bug found live: with no explicit height this collapsed to the
+       bare 14px icon itself (no padding to pad it out), a genuinely tiny
+       touch target next to every other header button's 36px box - fixed
+       to match .ai-chat-header-btn's own height exactly. */
+    height: 36px;
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -1750,6 +1755,25 @@
    closes it on click, per spec.
    ============================================================ */
 @media (max-width: 768px) {
+    /* Real, measured mobile usability fix: the Copy/Like/Share/Retry/
+       More row under an AI response is 28x28px per button everywhere
+       (desktop included) - fine for a mouse, but well under the ~44px
+       comfortable touch-target size on a phone (live-checked: genuinely
+       small/fiddly to tap precisely at 28px, five of them packed with
+       only 2px between). Desktop is untouched (still 28px, correct for
+       pointer precision there) - this only widens the tap target on
+       mobile, via padding rather than the icon's own box, so the icons
+       themselves don't look oversized next to the still-14px glyphs.
+       gap also opened up slightly so the now-larger buttons don't read
+       as touching each other. */
+    .ai-message-actions {
+        gap: 6px;
+    }
+    .ai-message-action-btn {
+        width: 38px;
+        height: 38px;
+    }
+
     .ai-sidebar {
         position: fixed;
         top: 0;
@@ -1878,25 +1902,22 @@
         grid-template-columns: 1fr;
     }
 
-    .ai-context-popover {
-        right: 12px;
-        left: 12px;
-        width: auto;
-    }
-
-    /* The provider pill (and this chevron beside it) now sits centered
-       in the mobile header, not pinned to the right edge the way it is
-       on desktop - right:0 anchoring here made the popover extend
-       leftward from wherever the centered pill happened to land,
-       genuinely running off the left edge of the screen for a real user
-       (the model list's own text visibly cut off). Centering under the
-       pill instead is correct regardless of exactly where that pill
-       sits. */
-    .ai-model-picker-popover {
-        right: auto;
-        left: 50%;
-        transform: translateX(-50%);
-    }
+    /* Both popovers used to be statically anchored here (right:12px/
+       left:12px, or left:50%+translateX(-50%) to center under a
+       mobile-centered trigger pill) - real fixes for the OLD absolute-
+       positioned popovers anchored inside AIChatArea.jsx's header.
+       Now that both are position:fixed with top/left computed live via
+       getBoundingClientRect() (see AISidebar.jsx's positionBelow) and
+       portaled to document.body, this block actively fights that: the
+       stylesheet's own `left`/`transform` values here have nothing to
+       do with wherever the actual trigger sits inside the narrow
+       sidebar, and the leftover translateX(-50%) alone was shifting
+       the coach/model popover a further 110px left of its already-
+       correct inline position - a real, confirmed regression (popover
+       rendered ~94px off the left edge of the screen, text truncated
+       mid-word). Removed entirely; positionBelow's own
+       Math.min(rect.left, innerWidth - width - 16) already keeps every
+       popover on-screen without any CSS help. */
 }
 
 @media (prefers-reduced-motion: reduce) {

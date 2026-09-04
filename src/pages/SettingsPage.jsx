@@ -61,7 +61,21 @@ import { db, isFirebaseConfigured } from '../firebase/config.js';
 // active instead of a flat color swap.
 const ToggleSwitch = ({ checked, onChange, compact = false }) => {
     const { playChannelSound } = useSoundActions();
-    const fire = () => { playChannelSound('uiFeedback', getUiClickUrl); onChange(!checked); };
+    const fire = (e) => {
+        // Real, live-caught mobile bug: every settings row this switch
+        // sits in is a full padded card with the option's own label text
+        // taking up most of its width - visually reads as one tappable
+        // row (matches every real Settings screen's own convention), but
+        // only this 44x24px switch itself ever responded; tapping the
+        // label text right next to it did nothing. Fixed at the row
+        // level (see each SettingCard usage below, now with its own
+        // onClick + cursor:pointer) - stopPropagation here is the other
+        // half of that fix: without it, a direct tap ON the switch would
+        // fire both this handler AND the row's own, toggling twice and
+        // silently undoing itself.
+        e.stopPropagation();
+        playChannelSound('uiFeedback', getUiClickUrl); onChange(!checked);
+    };
     return (
         <div
             role="switch"
@@ -69,7 +83,7 @@ const ToggleSwitch = ({ checked, onChange, compact = false }) => {
             tabIndex={0}
             onClick={fire}
             onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(); }
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(e); }
             }}
             className={`settings-toggle${compact ? ' is-compact' : ''}${checked ? ' is-checked' : ''}`}
         >
@@ -603,9 +617,17 @@ const CollapsibleApiField = ({ label, isConnected, pinConfigured, storedPinHash,
 
     return (
         <div>
-            <div style={{
+            {/* Real, live-caught mobile bug (same root cause as every other
+                label+ToggleSwitch row in this file, see ToggleSwitch's own
+                comment): this whole card visually reads as "tap to
+                configure this key", but only the small toggle/edit icon
+                on the right ever responded to a tap - the label text next
+                to it did nothing. onClick + cursor:pointer added here so
+                the row matches what it already looks like; the Edit
+                button's own onClick (below) still works independently. */}
+            <div onClick={requestOpen} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 16px',
-                borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', boxSizing: 'border-box',
+                borderRadius: '12px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', boxSizing: 'border-box', cursor: 'pointer',
             }}>
                 <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>{label}</div>
@@ -695,7 +717,28 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
     // export, factory reset) takes its place, and General absorbs Module
     // Manager + System Defaults rather than forcing either into a
     // category it doesn't really belong to.
-    const [activeCategory, setActiveCategory] = useState('account');
+    // Cross-page deep link: AIPage's "Manage AI Providers" (and anything
+    // else that jumps here wanting a specific section open) drops the
+    // target category id in sessionStorage right before switching tabs,
+    // since SettingsPage takes no such prop today. Read and cleared
+    // exactly once via this ref (not inline in the useState initializer
+    // below), since StrictMode double-invokes lazy initializers in dev -
+    // a plain sessionStorage.getItem/removeItem there would have its
+    // value already gone by the second call. Also feeds
+    // deepLinkedCategoryRef.current through to SettingsLayout so it can
+    // open the mobile drill-down overlay immediately instead of just
+    // pre-highlighting the category in a list still one tap short of it.
+    const deepLinkedCategoryRef = useRef(undefined);
+    if (deepLinkedCategoryRef.current === undefined) {
+        const requested = sessionStorage.getItem('nexus_settings_open_section');
+        if (requested) sessionStorage.removeItem('nexus_settings_open_section');
+        // Mirrors SETTINGS_CATEGORIES' own ids below - kept as a plain
+        // literal here (rather than referencing that array) since it's
+        // declared further down and this runs before that declaration.
+        const validIds = ['account', 'general', 'appearance', 'glassmorphism', 'typography', 'audio', 'security', 'api', 'backup'];
+        deepLinkedCategoryRef.current = requested && validIds.includes(requested) ? requested : null;
+    }
+    const [activeCategory, setActiveCategory] = useState(() => deepLinkedCategoryRef.current || 'account');
     const SETTINGS_CATEGORIES = [
         { id: 'account', label: 'Account', icon: User },
         { id: 'general', label: 'General', icon: LayoutDashboard },
@@ -2271,6 +2314,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                 activeCategory={activeCategory}
                 onSelectCategory={setActiveCategory}
                 onMobileOverlayChange={onMobileOverlayChange}
+                openMobileOnMount={!!deepLinkedCategoryRef.current}
                 header={(
                     <>
                         <h1 className="settings-page-title">Settings Hub</h1>
@@ -2608,7 +2652,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                             if (window.confirm('Pull from Cloud will REPLACE your data on THIS device with whatever is currently saved in the cloud. Any local changes not yet synced will be lost. Continue?')) pullFromCloud();
                                         }}
                                         disabled={isSyncing}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: syncStatus === 'error' ? 'rgba(239, 68, 68, 0.12)' : 'var(--surface-inset)', color: syncStatus === 'error' ? '#EF4444' : 'var(--text-primary)', border: syncStatus === 'error' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 18px', minWidth: '168px', boxSizing: 'border-box', background: syncStatus === 'error' ? 'rgba(239, 68, 68, 0.12)' : 'var(--surface-inset)', color: syncStatus === 'error' ? '#EF4444' : 'var(--text-primary)', border: syncStatus === 'error' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}
                                     ><RotateCcw size={15} /> {isSyncing ? 'Pulling…' : 'Pull from Cloud'}</button>
                                     <button
                                         type="button"
@@ -2616,7 +2660,25 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                                             if (window.confirm('Push to Cloud will REPLACE the cloud copy with whatever is currently on THIS device. If this device is missing data, this will overwrite the cloud with that missing data too. Continue?')) pushToCloud();
                                         }}
                                         disabled={isSyncing}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}
+                                        // minWidth on both buttons (matching the wider
+                                        // "Pull from Cloud" label so neither ever
+                                        // shrinks below it) is a real, live-caught fix:
+                                        // without it, the idle "Pull from Cloud"/"Push
+                                        // to Cloud" text is visibly wider than the
+                                        // "Pulling…"/"Pushing…" text shown mid-sync -
+                                        // in this row's own flex-wrap layout, that width
+                                        // change shifts where later buttons (Sign Out)
+                                        // land, live, on roughly a 1-minute auto-sync
+                                        // cycle. A real click landing during that
+                                        // reflow window can hit the wrong button - this
+                                        // session's own test nearly triggered "Push to
+                                        // Cloud" (a destructive overwrite) while aiming
+                                        // for "Sign Out", only avoided because the
+                                        // confirm() dialog caught it. Fixed at the
+                                        // actual root cause (unstable button width)
+                                        // rather than only the specific click that
+                                        // exposed it.
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 18px', minWidth: '168px', boxSizing: 'border-box', background: 'var(--surface-inset)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1 }}
                                     ><RefreshCw size={15} /> {isSyncing ? 'Pushing…' : 'Push to Cloud'}</button>
                                     <button type="button" onClick={logout} title="Sign Out" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', background: 'var(--surface-inset)', color: '#EF4444', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}><LogOut size={15} /> Sign Out</button>
                                 </div>
@@ -2657,9 +2719,23 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                 </SettingCard>
 
                 <SettingCard icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS" tourId="settings-modules" defaultOpen>
+                    {/* Real, live-caught mobile bug fixed on every row in
+                        this file that pairs a label with a ToggleSwitch:
+                        the row is a big padded card with the label taking
+                        up most of its width - looks tappable everywhere
+                        (matches every real Settings screen's own
+                        convention), but only actually responded inside
+                        the switch's own 44x24px box. Tapping the label
+                        text right next to it silently did nothing. Each
+                        row below now has its own onClick (same toggle,
+                        the switch's own stopPropagation - see
+                        ToggleSwitch's own comment - keeps a direct tap on
+                        the switch from firing it twice) and
+                        cursor:pointer so the whole card behaves the way
+                        it already visually reads. */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                         {Object.keys(settings.activeModules).map(mod => (
-                            <div key={mod} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                            <div key={mod} onClick={() => handleModuleToggle(mod)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                                 <strong style={{ fontSize: '14px', color: 'var(--text-primary)', textTransform: 'capitalize' }}>{mod} Hub</strong>
                                 <ToggleSwitch checked={settings.activeModules[mod]} onChange={() => handleModuleToggle(mod)} />
                             </div>
@@ -2673,31 +2749,31 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                     minmax(200px, 1fr) auto-fit grid. */}
                 <SettingCard icon={LayoutGrid} title="Productivity Widget Customization" subtitle="Show or hide each category's items on the Home dashboard queue">
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowStudy', !settings.widgetShowStudy)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><BookOpen size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Study Tracker</strong></div>
                             <ToggleSwitch checked={settings.widgetShowStudy} onChange={(v) => handleChange('widgetShowStudy', v)} />
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowGym', !settings.widgetShowGym)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Activity size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Gym Split</strong></div>
                             <ToggleSwitch checked={settings.widgetShowGym} onChange={(v) => handleChange('widgetShowGym', v)} />
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowFinance', !settings.widgetShowFinance)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><DollarSign size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Finance Overview</strong></div>
                             <ToggleSwitch checked={settings.widgetShowFinance} onChange={(v) => handleChange('widgetShowFinance', v)} />
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowTimetable', !settings.widgetShowTimetable)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Clock size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Daily Timetable</strong></div>
                             <ToggleSwitch checked={settings.widgetShowTimetable} onChange={(v) => handleChange('widgetShowTimetable', v)} />
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowPlanner', !settings.widgetShowPlanner)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><ClipboardList size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Planner Tasks</strong></div>
                             <ToggleSwitch checked={settings.widgetShowPlanner} onChange={(v) => handleChange('widgetShowPlanner', v)} />
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowCalendar', !settings.widgetShowCalendar)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><CalendarDays size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Calendar Schedule</strong></div>
                             <ToggleSwitch checked={settings.widgetShowCalendar} onChange={(v) => handleChange('widgetShowCalendar', v)} />
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)' }}>
+                        <div onClick={() => handleChange('widgetShowDiet', !settings.widgetShowDiet)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}><Utensils size={16} color="var(--text-secondary)" /><strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>Nutrition / Diet</strong></div>
                             <ToggleSwitch checked={settings.widgetShowDiet} onChange={(v) => handleChange('widgetShowDiet', v)} />
                         </div>
@@ -2833,7 +2909,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                     )}
                     {biometricSupported && (
                         <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '14px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                            <div onClick={handleToggleBiometric} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                                 <div style={{ minWidth: 0 }}>
                                     <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Biometric Lock</strong>
                                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Require fingerprint or face unlock to open the app</span>
@@ -3033,7 +3109,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         deployment), do not currently resolve or respond at
                         all - toggling this on will very likely show "Could not
                         connect" until a working mirror is pasted in below. */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', marginTop: '16px' }}>
+                    <div onClick={() => handleChange('saavnEnabled', !settings.saavnEnabled)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', marginTop: '16px', cursor: 'pointer' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <Music size={16} color="var(--text-secondary)" />
                             <div>
@@ -3101,16 +3177,34 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         providers this card is about have a visible presence
                         together, without duplicating the real input field
                         and risking the two copies drifting out of sync. */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', marginTop: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <Video size={16} color="var(--text-secondary)" />
-                            <div>
+                    {/* Real, live-caught mobile bug: this card's own left
+                        side carries a long inline description ("Uses the
+                        YouTube Data API Key below...") that none of this
+                        card's sibling status rows have - with no minWidth/
+                        flex-basis control, that description could claim
+                        as much of this row's width as it wanted, squeezing
+                        the right-hand status badge into so little space on
+                        a narrow screen that "Not Connected" actually broke
+                        MID-WORD ("Connect" / "ed" on separate lines) rather
+                        than wrapping at a word boundary. flexWrap here lets
+                        the status badge drop to its own line instead when
+                        needed; minWidth:0 + flex-basis on the left content
+                        lets its own description wrap normally rather than
+                        force the row wider than the screen; whiteSpace:
+                        nowrap + flexShrink:0 on the status badge is the
+                        actual fix for the mid-word break - it's a short,
+                        two-word label that should never wrap internally,
+                        only ever move as a whole unit. */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', rowGap: '8px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', marginTop: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: '1 1 220px' }}>
+                            <Video size={16} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
+                            <div style={{ minWidth: 0 }}>
                                 <strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>YouTube Music Search</strong>
                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Uses the YouTube Data API Key below in AI &amp; Learning API Integrations</span>
                             </div>
                         </div>
                         <span style={{
-                            display: 'flex', alignItems: 'center', gap: '5px',
+                            display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0, whiteSpace: 'nowrap',
                             color: settings.youtubeApiKeyConfirmed ? 'var(--success)' : 'var(--text-muted)',
                             fontWeight: '700', fontSize: '12px',
                         }}>
@@ -3506,9 +3600,9 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         )}
                     </div>
 
-                    <div style={{
+                    <div onClick={() => handleChange('glassAnimationsEnabled', !settings.glassAnimationsEnabled)} style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
-                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', cursor: 'pointer',
                     }}>
                         <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Animations & Motion</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>UI transitions and render performance</span></div>
                         <ToggleSwitch checked={settings.glassAnimationsEnabled} onChange={(v) => handleChange('glassAnimationsEnabled', v)} />
@@ -3530,9 +3624,9 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         never told the user THAT was the actual point, so
                         nobody watching their battery drain would have any
                         reason to think this toggle was the fix for it. */}
-                    <div style={{
+                    <div onClick={() => handleChange('performanceSaverMode', !settings.performanceSaverMode)} style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px',
-                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px',
+                        background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '14px 16px', cursor: 'pointer',
                     }}>
                         <div style={{ flex: '1 1 200px', minWidth: 0 }}><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Battery Saver Mode</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cuts blur and freezes animations everywhere to reduce battery drain - real power savings, not just a visual setting</span></div>
                         <ToggleSwitch checked={settings.performanceSaverMode} onChange={(v) => handleChange('performanceSaverMode', v)} />
@@ -4045,7 +4139,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         two tracks playing at once" with zero explanation.
                         Still a real, working feature for anyone who wants
                         it - just opt-in and clearly labeled now. */}
-                    <div style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                    <div onClick={() => setCrossfadeEnabled((v) => !v)} style={{ borderTop: '1px solid var(--border-premium)', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
                         <div style={{ minWidth: 0 }}>
                             <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Crossfade Between Tracks</strong>
                             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Smoothly blend into the next track over 4 seconds instead of a clean cut</span>

@@ -4,10 +4,10 @@ import {
     Search, Bell, Moon, Sun, Cpu, CheckSquare, BookOpen,
     Dumbbell, Apple, Wallet, Calendar, BarChart2, FileText, User,
     Plus, Headphones, Sparkles, Flame, Zap, Cloud, Settings as SettingsIcon, X, Play, Pause, SkipForward, SkipBack, ListMusic, StickyNote,
-    Volume2, VolumeX, Volume1, Shuffle, Repeat, Repeat1, Disc,
+    Volume2, VolumeX, Volume1, Shuffle, Repeat, Repeat1, Disc, Heart,
     RefreshCw, Database, CloudOff, AlertTriangle, CheckCircle2, PauseCircle, PlayCircle, Activity,
 } from 'lucide-react';
-import { useAudioPlayer } from '../context/AudioPlayerContext.jsx';
+import { useAudioPlayer, makeFavoriteKey } from '../context/AudioPlayerContext.jsx';
 import { useStreaming } from '../context/StreamingContext.jsx';
 import { useCloudSync, SYNC_STATUS } from '../context/CloudSyncContext.jsx';
 import { useStorageUsage } from '../hooks/useStorageUsage.js';
@@ -116,6 +116,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     const {
         currentTrack, isPlaying, togglePlay, next, prev, currentTime, duration, seek, volume, isMuted, setVolume: setLocalVolume, hasEverPlayed,
         shuffleEnabled, toggleShuffle, repeatMode, cycleRepeatMode,
+        favoriteTrackTitles, toggleFavoriteTrack,
     } = useAudioPlayer();
     // Explicit request: the volume row used to always be visible - now
     // click-to-reveal on the speaker icon, matching the exact toggle
@@ -398,7 +399,16 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
 
     useEffect(() => {
         const handleClickOutside = (e) => {
-            if (notifRef.current && !notifRef.current.contains(e.target)) setIsNotifOpen(false);
+            // NotificationDropdown now portals its own panel straight to
+            // document.body (see that file's own header comment) - its DOM
+            // nodes are no longer inside notifRef, so contains() alone
+            // would treat every click inside the panel itself (a
+            // notification item, "Mark all read") as an outside click and
+            // close it before that click's own handler even ran.
+            // .nexus-notif-panel is a stable, real class name that exact
+            // component always renders, so this is genuinely checking "is
+            // this click inside the panel", not a fragile ref workaround.
+            if (notifRef.current && !notifRef.current.contains(e.target) && !e.target.closest('.nexus-notif-panel')) setIsNotifOpen(false);
             if (audioRefContainer.current && !audioRefContainer.current.contains(e.target)) setIsAudioOpen(false);
             if (quickAddRef.current && !quickAddRef.current.contains(e.target)) setIsQuickAddOpen(false);
             if (searchRef.current && !searchRef.current.contains(e.target)) setIsSearchOpen(false);
@@ -990,16 +1000,180 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                     gap to its neighbors. */}
                 {isMobile && <MobileHeaderSearch setActiveTab={setActiveTab} />}
 
-                {/* Quick Add, Focus Audio Studio, and the AI Assistant
-                    shortcut are real, desktop-convenience icons - hidden on
-                    mobile, since their own real functionality remains fully
-                    reachable elsewhere (the Planner page for tasks, the
-                    Audio Hub page for playback, the hamburger menu for AI),
-                    and hiding them is what actually makes room for the
-                    header to fit a real narrow screen without the reported
-                    collision. Quick Notes is deliberately NOT in this list
-                    (see its own button below, outside this block) - it has
-                    no such alternate path anywhere else in the app. */}
+                {/* Real, reported gap closed: this Now Playing icon used to
+                    be a desktop-only convenience (hidden on mobile, with
+                    the claim that Audio Hub itself covered the same need) -
+                    but mobile had NO way at all to see/control playback
+                    from any OTHER page once the bottom mini-player bar was
+                    correctly scoped back to just the Audio Hub tab (see
+                    DashboardLayout.jsx's own GlobalAudioMiniPlayer) rather
+                    than floating over every page. Unconditional now (not
+                    inside the `!isMobile` block below) - the exact same
+                    real controls (Shuffle/Prev/Play/Next/Repeat/Favourite/
+                    seek) reachable from anywhere, matching what desktop
+                    already had, "जैसे desktop पर था" per the explicit
+                    request. Volume stays desktop-only inside this same
+                    popover (see its own `!isMobile` guard below) - a real,
+                    explicit call: mobile already has genuine hardware
+                    volume buttons, an on-screen slider here would just be
+                    redundant chrome. */}
+                <div ref={audioRefContainer} style={{ position: 'relative' }}>
+                    <button title="Focus Audio Studio" onClick={() => setIsAudioOpen(!isAudioOpen)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: isPlaying ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Headphones size={18} /></button>
+                    {isAudioOpen && (
+                        <div style={{
+                            // Real, reported bug, confirmed live via
+                            // screenshot: position:'absolute', right:0
+                            // anchors this popover to its OWN offset
+                            // parent (the header's icon-row wrapper), not
+                            // the true viewport edge. On desktop the
+                            // headphone button sits close enough to the
+                            // real right edge that a 260px-wide popover
+                            // expanding leftward from right:0 always had
+                            // room. On mobile this same button sits
+                            // further from the screen's actual left edge
+                            // than 260px allows, so the popover overflowed
+                            // straight off the left side of the viewport -
+                            // genuinely clipped, overlapping the NEXUS
+                            // logo and whatever page content was
+                            // underneath it, not just visually tight.
+                            // position:'fixed' + viewport-relative
+                            // centering sidesteps the whole offset-parent
+                            // question on mobile - guaranteed to fit
+                            // regardless of where the button itself sits.
+                            // Desktop keeps the original anchor unchanged
+                            // - this was never reported broken there.
+                            position: isMobile ? 'fixed' : 'absolute',
+                            ...(isMobile
+                                ? { top: '64px', left: '50%', transform: 'translateX(-50%)' }
+                                : { top: '120%', right: 0 }),
+                            width: isMobile ? 'calc(100vw - 24px)' : '260px',
+                            maxWidth: isMobile ? '320px' : 'none',
+                            border: '1px solid var(--border-premium)',
+                            borderRadius: '14px', padding: '16px', zIndex: 1100,
+                            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                            background: 'rgba(15, 23, 42, 0.6)',
+                            '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                            '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                            '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
+                            backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
+                        }}>
+                            <div style={{
+                                width: '56px', height: '56px', borderRadius: '50%', marginBottom: '10px', flexShrink: 0,
+                                background: hasEverPlayed && currentTrack.artworkUrl ? `url(${currentTrack.artworkUrl}) center/cover` : `linear-gradient(135deg, var(--primary), var(--accent))`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(0,0,0,0.3)',
+                            }}>
+                                {!(hasEverPlayed && currentTrack.artworkUrl) && <Disc size={22} color="rgba(255,255,255,0.85)" />}
+                            </div>
+                            <p style={{ fontSize: '13px', color: hasEverPlayed ? 'var(--text-primary)' : 'var(--text-muted)', margin: 0, fontWeight: '700', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hasEverPlayed ? currentTrack.title : 'Nothing playing'}</p>
+                            {hasEverPlayed && currentTrack.artist && (
+                                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 14px 0', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.artist}</p>
+                            )}
+                            {!hasEverPlayed && <div style={{ marginBottom: '14px' }} />}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}>
+                                <button onClick={toggleShuffle} title="Shuffle" style={{ background: 'transparent', border: 'none', color: shuffleEnabled ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}><Shuffle size={14} /></button>
+                                <button onClick={prev} title="Previous" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><SkipBack size={14} /></button>
+                                <button onClick={togglePlay} style={{ padding: '10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '50%', width: '38px', height: '38px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                                </button>
+                                <button onClick={next} title="Next" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><SkipForward size={14} /></button>
+                                <button onClick={cycleRepeatMode} title={`Repeat: ${repeatMode}`} style={{ background: 'transparent', border: 'none', color: repeatActive ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}><RepeatIcon size={14} /></button>
+                                {/* Real, reported gap closed: this popover
+                                    had no way to favourite the currently
+                                    playing track at all - the Audio Hub's
+                                    own player/queue rows are the only place
+                                    that ever offered it. Same real
+                                    toggleFavoriteTrack + makeFavoriteKey
+                                    every other favourite button in this app
+                                    already uses, so it can never drift out
+                                    of sync with what Favourites shows. */}
+                                {hasEverPlayed && currentTrack.title && (() => {
+                                    const favKey = makeFavoriteKey(currentTrack.title, currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), currentTrack.artist);
+                                    const isFav = favoriteTrackTitles.has(favKey);
+                                    return (
+                                        <button
+                                            onClick={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, uri: currentTrack.uri, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })}
+                                            title={isFav ? 'Remove from Favourites' : 'Add to Favourites'}
+                                            style={{ background: 'transparent', border: 'none', color: isFav ? '#F43F5E' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}
+                                        >
+                                            <Heart size={14} fill={isFav ? '#F43F5E' : 'none'} />
+                                        </button>
+                                    );
+                                })()}
+                            </div>
+
+                            {(() => {
+                                const safeDuration = duration && isFinite(duration) ? duration : 0;
+                                const clampedTime = Math.min(currentTime, safeDuration);
+                                const progressPct = safeDuration > 0 ? (clampedTime / safeDuration) * 100 : 0;
+                                return (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', marginTop: '12px' }}>
+                                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0, fontVariantNumeric: 'tabular-nums', width: '26px' }}>{formatTime(clampedTime)}</span>
+                                        <div style={{ flex: 1, minWidth: 0, position: 'relative', height: '12px', display: 'flex', alignItems: 'center' }}>
+                                            <div style={{ position: 'absolute', left: 0, right: 0, height: '3px', borderRadius: '2px', background: 'var(--surface-inset)', overflow: 'hidden' }}>
+                                                <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '2px', transition: 'width 1s linear' }} />
+                                            </div>
+                                            <input
+                                                type="range" min={0} max={safeDuration} step="0.1"
+                                                value={clampedTime}
+                                                onChange={(e) => seek(parseFloat(e.target.value))}
+                                                aria-label="Seek"
+                                                style={{
+                                                    position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0,
+                                                    opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none',
+                                                }}
+                                            />
+                                        </div>
+                                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0, fontVariantNumeric: 'tabular-nums', width: '26px', textAlign: 'right' }}>{safeDuration > 0 ? formatTime(safeDuration) : '--:--'}</span>
+                                    </div>
+                                );
+                            })()}
+
+                            {!isMobile && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', marginTop: '10px' }}>
+                                    <button
+                                        onClick={() => setIsVolumeOpen((v) => !v)} title={isMuted ? 'Unmute' : 'Volume'}
+                                        style={{ background: 'transparent', border: 'none', color: isVolumeOpen ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+                                    >
+                                        {isMuted || volume === 0 ? <VolumeX size={14} /> : volume < 0.5 ? <Volume1 size={14} /> : <Volume2 size={14} />}
+                                    </button>
+                                    {isVolumeOpen && (
+                                        <>
+                                            <input
+                                                type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume}
+                                                onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                                aria-label="Volume"
+                                                className="nexus-volume-range"
+                                                style={{ flex: 1, minWidth: 0, accentColor: 'var(--primary)' }}
+                                            />
+                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', width: '28px', textAlign: 'right', flexShrink: 0 }}>{isMuted ? '--' : `${Math.round(volume * 100)}%`}</span>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            <button
+                                onClick={() => { setIsAudioOpen(false); if (typeof setActiveTab === 'function') setActiveTab('audio_hub'); }}
+                                style={{ marginTop: '12px', width: '100%', padding: '8px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            >
+                                <ListMusic size={13} /> Open Audio Hub
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Quick Add and the AI Assistant shortcut are real,
+                    desktop-convenience icons - hidden on mobile, since
+                    their own real functionality remains fully reachable
+                    elsewhere (the Planner page for tasks, the hamburger
+                    menu for AI), and hiding them is what actually makes
+                    room for the header to fit a real narrow screen without
+                    the reported collision. Quick Notes is deliberately NOT
+                    in this list (see its own button below, outside this
+                    block) - it has no such alternate path anywhere else in
+                    the app. Focus Audio Studio (above) is no longer in
+                    this list either, per the explicit request that put it
+                    on mobile too. */}
                 {!isMobile && (
                 <>
                 {/* Quick Add Modal */}
@@ -1059,143 +1233,6 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                     )}
                 </div>
 
-                <div ref={audioRefContainer} style={{ position: 'relative' }}>
-                    <button title="Focus Audio Studio" onClick={() => setIsAudioOpen(!isAudioOpen)} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: isPlaying ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Headphones size={18} /></button>
-                    {isAudioOpen && (
-                        <div style={{
-                            position: 'absolute', top: '120%', right: 0, width: '260px',
-                            border: '1px solid var(--border-premium)',
-                            borderRadius: '14px', padding: '16px', zIndex: 1100,
-                            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-                            display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
-                            /* Same real, reported "mixing with what's behind it" fix as
-                               the System Diagnostics panel above (see its own comment
-                               for why this became a dedicated --popover-bg token
-                               instead of a full-page dimming backdrop) - this dropdown
-                               sits directly over the persistent mini-player bar, so it
-                               needed the exact same treatment. Explicit later correction:
-                               this one must stay premium dark glassmorphism always,
-                               not follow --popover-bg's own near-white Dawn/Day fill -
-                               same local CSS-custom-property override as the System
-                               Diagnostics panel above, see its own comment for why. */
-                            background: 'rgba(15, 23, 42, 0.6)',
-                            '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
-                            '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
-                            '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
-                            backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
-                        }}>
-                            {/* Real artwork - a genuine circular "profile
-                                picture" for the track (real cover image
-                                when available, same gradient fallback
-                                convention used everywhere else in Audio
-                                Hub) - replaces the plain "Focus Audio
-                                Studio" title text entirely, per explicit
-                                request. Artist line underneath instead of
-                                a bare title, matching every other player
-                                surface in this app. */}
-                            <div style={{
-                                width: '56px', height: '56px', borderRadius: '50%', marginBottom: '10px', flexShrink: 0,
-                                background: hasEverPlayed && currentTrack.artworkUrl ? `url(${currentTrack.artworkUrl}) center/cover` : `linear-gradient(135deg, var(--primary), var(--accent))`,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 16px rgba(0,0,0,0.3)',
-                            }}>
-                                {!(hasEverPlayed && currentTrack.artworkUrl) && <Disc size={22} color="rgba(255,255,255,0.85)" />}
-                            </div>
-                            {/* Real fix for a real, reported bug: the
-                                fresh-session default queue entry ("Lofi
-                                Focus Beats") used to show here as if it
-                                were genuinely queued even before the user
-                                ever pressed Play - now honestly says
-                                "Nothing playing" until hasEverPlayed flips
-                                true. */}
-                            <p style={{ fontSize: '13px', color: hasEverPlayed ? 'var(--text-primary)' : 'var(--text-muted)', margin: 0, fontWeight: '700', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hasEverPlayed ? currentTrack.title : 'Nothing playing'}</p>
-                            {hasEverPlayed && currentTrack.artist && (
-                                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '2px 0 14px 0', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentTrack.artist}</p>
-                            )}
-                            {!hasEverPlayed && <div style={{ marginBottom: '14px' }} />}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}>
-                                <button onClick={toggleShuffle} title="Shuffle" style={{ background: 'transparent', border: 'none', color: shuffleEnabled ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}><Shuffle size={14} /></button>
-                                <button onClick={prev} title="Previous" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><SkipBack size={14} /></button>
-                                <button onClick={togglePlay} style={{ padding: '10px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '50%', width: '38px', height: '38px', fontWeight: '700', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                                </button>
-                                <button onClick={next} title="Next" style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '50%', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><SkipForward size={14} /></button>
-                                <button onClick={cycleRepeatMode} title={`Repeat: ${repeatMode}`} style={{ background: 'transparent', border: 'none', color: repeatActive ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: '6px', display: 'flex', flexShrink: 0 }}><RepeatIcon size={14} /></button>
-                            </div>
-
-                            {/* Progress line - now a real, manually seekable scrubber
-                                (was a purely decorative width-filled div with no pointer
-                                handling at all) plus elapsed/remaining timers, mirroring
-                                the bottom Audio Hub player's own exact track+fill+
-                                invisible-range technique: a visible thin track/fill pair
-                                for the look, overlaid by a fully transparent native
-                                <input type="range"> that does the actual drag/click
-                                seeking via the browser's own native range behavior - no
-                                manual click-position math needed. */}
-                            {(() => {
-                                const safeDuration = duration && isFinite(duration) ? duration : 0;
-                                const clampedTime = Math.min(currentTime, safeDuration);
-                                const progressPct = safeDuration > 0 ? (clampedTime / safeDuration) * 100 : 0;
-                                return (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', marginTop: '12px' }}>
-                                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0, fontVariantNumeric: 'tabular-nums', width: '26px' }}>{formatTime(clampedTime)}</span>
-                                        <div style={{ flex: 1, minWidth: 0, position: 'relative', height: '12px', display: 'flex', alignItems: 'center' }}>
-                                            <div style={{ position: 'absolute', left: 0, right: 0, height: '3px', borderRadius: '2px', background: 'var(--surface-inset)', overflow: 'hidden' }}>
-                                                <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--accent)', borderRadius: '2px', transition: 'width 1s linear' }} />
-                                            </div>
-                                            <input
-                                                type="range" min={0} max={safeDuration} step="0.1"
-                                                value={clampedTime}
-                                                onChange={(e) => seek(parseFloat(e.target.value))}
-                                                aria-label="Seek"
-                                                style={{
-                                                    position: 'absolute', inset: 0, width: '100%', height: '100%', margin: 0,
-                                                    opacity: 0, cursor: 'pointer', WebkitAppearance: 'none', appearance: 'none',
-                                                }}
-                                            />
-                                        </div>
-                                        <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', flexShrink: 0, fontVariantNumeric: 'tabular-nums', width: '26px', textAlign: 'right' }}>{safeDuration > 0 ? formatTime(safeDuration) : '--:--'}</span>
-                                    </div>
-                                );
-                            })()}
-
-                            {/* Explicit request: the volume row used to
-                                always be visible - now click-to-reveal:
-                                the speaker icon is a persistent toggle
-                                (matching Apple Music's own real mechanism,
-                                confirmed by live-inspecting music.apple.com
-                                earlier this session), and the slider only
-                                mounts once isVolumeOpen is true. */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', marginTop: '10px' }}>
-                                <button
-                                    onClick={() => setIsVolumeOpen((v) => !v)} title={isMuted ? 'Unmute' : 'Volume'}
-                                    style={{ background: 'transparent', border: 'none', color: isVolumeOpen ? 'var(--primary)' : 'var(--text-secondary)', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
-                                >
-                                    {isMuted || volume === 0 ? <VolumeX size={14} /> : volume < 0.5 ? <Volume1 size={14} /> : <Volume2 size={14} />}
-                                </button>
-                                {isVolumeOpen && (
-                                    <>
-                                        <input
-                                            type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume}
-                                            onChange={(e) => setVolume(parseFloat(e.target.value))}
-                                            aria-label="Volume"
-                                            className="nexus-volume-range"
-                                            style={{ flex: 1, minWidth: 0, accentColor: 'var(--primary)' }}
-                                        />
-                                        <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: '700', width: '28px', textAlign: 'right', flexShrink: 0 }}>{isMuted ? '--' : `${Math.round(volume * 100)}%`}</span>
-                                    </>
-                                )}
-                            </div>
-
-                            <button
-                                onClick={() => { setIsAudioOpen(false); if (typeof setActiveTab === 'function') setActiveTab('audio_hub'); }}
-                                style={{ marginTop: '12px', width: '100%', padding: '8px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-secondary)', borderRadius: '8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                            >
-                                <ListMusic size={13} /> Open Audio Hub
-                            </button>
-                        </div>
-                    )}
-                </div>
-
                 {/* AI Assistant Single Click */}
                 <button title="Nexus AI Assistant" onClick={() => setActiveTab('AI')} style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '50%', width: '38px', height: '38px', flexShrink: 0, color: 'var(--accent)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Sparkles size={18} /></button>
                 </>
@@ -1245,6 +1282,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                     </button>
                     <NotificationDropdown
                         isOpen={isNotifOpen}
+                        anchorRef={notifRef}
                         onClose={() => setIsNotifOpen(false)}
                         notifications={notifications}
                         unreadCount={unreadCount}
