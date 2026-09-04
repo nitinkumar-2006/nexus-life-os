@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Real, reported bug: the Android system navigation bar (the
+        gesture pill / three-button bar at the true bottom of the
+        screen) was rendering WHITE, even though the entire app is a
+        dark theme - confirmed via a real device screenshot next to a
+        reference app (Apple Music) whose own nav-bar area correctly
+        stays black. Root cause: styles.xml's AppTheme extended
+        Theme.AppCompat.Light.DarkActionBar (a LIGHT base) with zero
+        colors.xml file backing @color/colorPrimary/colorPrimaryDark/
+        colorAccent at all - Android was falling through to AppCompat's
+        own light-theme defaults for any native chrome it draws (the nav
+        bar among it), completely independent of what the WebView itself
+        renders. This file's colorPrimaryDark specifically is what
+        styles.xml sets as android:navigationBarColor/android:
+        statusBarColor below - #0F0F17 matches index.html's own
+        <meta name="theme-color"> exactly, so native chrome and the
+        actual web UI are finally the same color.
+    -->
+    <color name="colorPrimary">#0F0F17</color>
+    <color name="colorPrimaryDark">#0F0F17</color>
+    <color name="colorAccent">#6366F1</color>
+</resources>

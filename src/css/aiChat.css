@@ -49,12 +49,20 @@
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    /* Same real surface the main OS sidebar itself uses (--sidebar-bg),
-       so this genuinely reads as "the same sidebar family" rather than a
-       different, disconnected panel - the faint ::before tint below is
-       the "very subtle difference" that still keeps them visually
-       distinguishable from each other. */
-    background: var(--sidebar-bg);
+    /* Real, reported bug, found by comparing directly against
+       AudioSidebar.jsx (the "solid box" reference the request pointed
+       at): this used --sidebar-bg, which has NO minimum-opacity floor
+       in the Dynamic theme (variables.css - stays at a near-invisible
+       0.03 alpha there). AudioSidebar's own sidebar uses --bg-surface
+       instead, which DOES get floored to at least 0.14 alpha in that
+       same theme (variables.css's own "readability floor... Scoped to
+       --bg-surface/--widget-bg only (not sidebar/header)" comment) -
+       despite this file's own since-corrected comment claiming both
+       sidebars already used "the exact same recipe", they genuinely
+       didn't for the background color itself, only the blur amount.
+       Switched to --bg-surface to actually match AudioSidebar's real,
+       solid look instead of just resembling it in name. */
+    background: var(--bg-surface);
     backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
     -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
     border-right: 1px solid var(--border-premium);

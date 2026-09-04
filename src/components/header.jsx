@@ -702,7 +702,19 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                     >
                         <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
                     </button>
-                    <span style={{ fontSize: '15px', fontWeight: '900', letterSpacing: '0.6px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>NEXUS</span>
+                    {/* Real, reported bug: on a genuinely narrow real
+                        device (a real screenshot showed this text
+                        visually overlapping the icon row to its right,
+                        not reproducible on any standard emulated mobile
+                        width tested here) whiteSpace:'nowrap' alone lets
+                        this text overflow its own box rather than
+                        respect it - the box doesn't grow, the TEXT just
+                        renders past its right edge, straight into
+                        whatever sits next to it in the flex row. Real
+                        overflow/ellipsis handling means an unusually
+                        narrow screen truncates "NEXUS" instead of
+                        letting it visually collide with the icons. */}
+                    <span style={{ fontSize: '15px', fontWeight: '900', letterSpacing: '0.6px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>NEXUS</span>
                 </div>
             )}
 

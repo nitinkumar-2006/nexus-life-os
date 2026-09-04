@@ -1,12 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-        <!-- Customize your theme here. -->
+    <!-- Base application theme.
+         Real, reported bug fixed here (see colors.xml's own comment for
+         the full root-cause writeup): was Theme.AppCompat.Light.
+         DarkActionBar - a LIGHT base - with no real colors.xml behind
+         it, so Android drew its own native chrome (the system
+         navigation bar especially) using AppCompat's light-theme
+         defaults, regardless of the app's actual all-dark UI. Switched
+         to a dark, no-action-bar base (this app's WebView owns all its
+         own chrome - Capacitor apps never want AppCompat's action bar)
+         and explicitly colors the status/navigation bars to match
+         index.html's real theme-color (#0F0F17 via colorPrimaryDark),
+         with light (white) system icons against that dark background
+         instead of AppCompat's default dark-on-dark icons. -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
+        <item name="android:navigationBarColor">@color/colorPrimaryDark</item>
+        <item name="android:statusBarColor">@color/colorPrimaryDark</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
