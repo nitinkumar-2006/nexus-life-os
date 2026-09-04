@@ -1022,9 +1022,25 @@ const HomePage = ({ setActiveTab }) => {
             marginBottom: (isMobile && !isGreetingFirst) ? 'calc(-76px - env(safe-area-inset-bottom, 0px))' : '0px',
         }}>
             <style>{`
+                /* Real root cause of the "Greeting card keeps drifting the
+                   entire time you scroll" bug, found by disabling this
+                   animation live and watching the drift vanish completely
+                   (top position went from a smooth, scroll-proportional
+                   slide to rock-solid constant). transform: scale(...) on
+                   this ancestor - even settled at its own 100% keyframe
+                   value - establishes a new containing block that
+                   proportionally distorts a sticky descendant's own
+                   position math for as long as that transform is present.
+                   scale() is the specific culprit: it's what makes the
+                   distortion SCALE with scroll distance (why the drift
+                   was smoothly proportional, not a one-time jump).
+                   Dropped scale entirely - opacity + translateY alone
+                   give the same real fade-and-rise entrance polish
+                   without a transform that can ever fight sticky
+                   positioning, on this card or any other. */
                 @keyframes fadeInScale {
-                    0% { opacity: 0; transform: scale(0.98) translateY(10px); }
-                    100% { opacity: 1; transform: scale(1) translateY(0); }
+                    0% { opacity: 0; transform: translateY(10px); }
+                    100% { opacity: 1; transform: translateY(0); }
                 }
             `}</style>
 
