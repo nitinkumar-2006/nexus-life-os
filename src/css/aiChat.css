@@ -61,7 +61,19 @@
        sidebars already used "the exact same recipe", they genuinely
        didn't for the background color itself, only the blur amount.
        Switched to --bg-surface to actually match AudioSidebar's real,
-       solid look instead of just resembling it in name. */
+       solid look instead of just resembling it in name.
+       Real, explicit follow-up: --bg-surface's own shared 0.14 floor
+       still wasn't dark/solid enough for this specific panel by the
+       request's own standard ("itna transparent nahi karna tha...
+       zyada dark rakho") - a real, permanent chat surface someone
+       reads text against needs to be more reliably opaque than a
+       generic card. Same technique GreetingCard.jsx's own sticky pin
+       already uses for the identical reason: a local override of
+       --nexus-user-glass-alpha, scoped to just this element's own
+       subtree, raises the effective floor to 0.85 here without
+       touching --bg-surface's shared 0.14 default used everywhere
+       else in the app. */
+    --nexus-user-glass-alpha: max(var(--nexus-user-glass-alpha, 0.03), 0.85);
     background: var(--bg-surface);
     backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
     -webkit-backdrop-filter: blur(var(--glass-blur, 12px)) saturate(105%);
