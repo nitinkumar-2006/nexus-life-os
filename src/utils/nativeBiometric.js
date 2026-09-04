@@ -49,9 +49,9 @@ export const verifyNativeBiometric = async (reason) => {
     if (!isNativeBiometricAvailable()) return false;
     try {
         await BiometricAuth.authenticate({
-            reason: reason || 'Unlock Nexus Life OS',
+            reason: reason || 'Unlock Nexus OS',
             cancelTitle: 'Cancel',
-            androidTitle: 'Nexus Life OS',
+            androidTitle: 'Nexus OS',
             androidSubtitle: reason || 'Verify your identity to continue',
             allowDeviceCredential: false,
         });

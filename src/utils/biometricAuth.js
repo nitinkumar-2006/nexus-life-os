@@ -64,7 +64,7 @@ export const registerBiometric = async (userEmail) => {
 
     const publicKey = {
         challenge: randomChallenge(),
-        rp: { name: 'Nexus Life OS' },
+        rp: { name: 'Nexus OS' },
         user: {
             id: randomChallenge(),
             name: userEmail || 'nexus-user',

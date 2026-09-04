@@ -83,7 +83,7 @@ const BiometricLockScreen = ({ onUnlock }) => {
                         <Fingerprint size={44} />
                     </button>
                     <div style={{ textAlign: 'center' }}>
-                        <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>Nexus Life OS is Locked</h2>
+                        <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>Nexus OS is Locked</h2>
                         <p style={{ fontSize: '13px', color: '#94A3B8', marginTop: '6px' }}>
                             {status === 'checking' ? 'Verifying...' : 'Tap the icon to unlock with your fingerprint or face.'}
                         </p>
@@ -128,7 +128,7 @@ const BiometricLockScreen = ({ onUnlock }) => {
                     </div>
                     <div style={{ textAlign: 'center' }}>
                         <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>Enter your PIN</h2>
-                        <p style={{ fontSize: '13px', color: '#94A3B8', marginTop: '6px' }}>Unlock Nexus Life OS with your 4-digit PIN.</p>
+                        <p style={{ fontSize: '13px', color: '#94A3B8', marginTop: '6px' }}>Unlock Nexus OS with your 4-digit PIN.</p>
                     </div>
                     <form onSubmit={handlePinSubmit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <label htmlFor="biometric-lock-pin-fallback" style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>4-digit PIN</label>

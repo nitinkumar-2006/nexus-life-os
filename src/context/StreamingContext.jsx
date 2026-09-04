@@ -369,7 +369,7 @@ export const StreamingProvider = ({ children }) => {
                 // above but get an "authentication_error"/"account_error"
                 // here, surfaced into spotifyAuth.error below.
                 const player = new Spotify.Player({
-                    name: 'Nexus Life OS',
+                    name: 'Nexus OS',
                     getOAuthToken: (cb) => cb(spotifyAuth.accessToken),
                     volume: 0.8,
                 });

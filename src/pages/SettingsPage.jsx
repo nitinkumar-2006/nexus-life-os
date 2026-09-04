@@ -3910,7 +3910,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         so the effect of a choice is visible immediately. */}
                     <div style={{ background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Preview - {getFontOption(settings.fontFamily).label}</span>
-                        <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', fontFamily: 'var(--font-primary)' }}>Nexus Life OS</span>
+                        <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', fontFamily: 'var(--font-primary)' }}>Nexus OS</span>
                         <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontFamily: 'var(--font-primary)' }}>The quick brown fox jumps over the lazy dog - 0123456789</span>
                     </div>
 

@@ -23,7 +23,7 @@ const AppSplashScreen = () => (
         </div>
         <div style={{ textAlign: 'center' }}>
             <h1 style={{ fontSize: '22px', fontWeight: '900', letterSpacing: '1.2px', color: '#fff', margin: 0 }}>NEXUS</h1>
-            <p style={{ fontSize: '11px', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: '700', marginTop: '4px' }}>Life OS</p>
+            <p style={{ fontSize: '11px', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: '700', marginTop: '4px' }}>OS</p>
         </div>
         <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
             {[0, 1, 2].map((i) => (

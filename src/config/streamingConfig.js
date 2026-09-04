@@ -86,7 +86,7 @@ export const SPOTIFY_SCOPES = [
 ].join(' ');
 
 export const APPLE_MUSICKIT_DEVELOPER_TOKEN_FALLBACK = 'YOUR_APPLE_MUSICKIT_DEVELOPER_TOKEN';
-export const APPLE_MUSICKIT_APP_NAME = 'Nexus Life OS';
+export const APPLE_MUSICKIT_APP_NAME = 'Nexus OS';
 export const APPLE_MUSICKIT_APP_BUILD = '1.0.0';
 
 // Reads the real, currently-saved Settings-page value for a credential

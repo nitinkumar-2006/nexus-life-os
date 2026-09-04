@@ -194,7 +194,7 @@ const LoginPage = () => {
                     <div style={{ width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '56px', height: '56px', objectFit: 'contain', background: 'transparent' }} />
                     </div>
-                    <h1 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', margin: 0 }}>Nexus Life OS</h1>
+                    <h1 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', margin: 0 }}>Nexus OS</h1>
                     <p style={{ fontSize: '13px', color: '#94A3B8', margin: 0, textAlign: 'center' }}>
                         {mode === 'login' ? 'Sign in to sync your data across devices.' : 'Create an account to enable cloud sync.'}
                     </p>
