@@ -34,29 +34,26 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
-        <!-- Finance Hub's SMS transaction listener (SmsReceiver.java) -
-             exported="true" is required here (not a mistake to tighten
-             later): SMS_RECEIVED is delivered by the OS as a system
-             broadcast, not an explicit same-app Intent, so Android 12+'s
-             "every component with an intent-filter must declare exported"
-             rule can only be satisfied as true for this one. This does
-             NOT open the receiver up to other apps triggering it at
-             will - only the system telephony stack can actually send the
-             protected android.provider.Telephony.SMS_RECEIVED broadcast
-             (enforced by the OS itself), so an arbitrary third-party app
-             sending this action does nothing. priority="999" (the
-             conventional ceiling for a non-system app) just requests to
-             be notified promptly alongside the user's own SMS app - it
-             does not consume/abort the broadcast, so the real SMS app
-             still receives and stores the message normally. -->
-        <receiver
-            android:name=".SmsReceiver"
-            android:exported="true"
-            android:permission="android.permission.BROADCAST_SMS">
-            <intent-filter android:priority="999">
-                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
-            </intent-filter>
-        </receiver>
+        <!-- Real, reported bug: this SmsReceiver + the READ_SMS/
+             RECEIVE_SMS permissions below (this manifest's own prior
+             comment already flagged the Play Store policy risk, but
+             missed a bigger, more immediate one) are exactly the
+             permission combination Android's on-device Play Protect
+             scanner treats as a classic SMS-interception/OTP-theft
+             malware signature - it can block a sideloaded APK from
+             installing AT ALL over this, with a generic "app isn't
+             installed" error that gives no hint why, regardless of
+             whether the Finance module is ever toggled on in-app (Play
+             Protect scans the MANIFEST's declared permissions before
+             the app ever runs - an in-app runtime toggle can't
+             suppress that). Removed entirely rather than gated, since a
+             declared-but-unused permission is still what gets scanned.
+             smsFinanceBridge.js's requestPermissions() call (still
+             present in code, gated behind Capacitor.isNativePlatform())
+             will simply fail cleanly with nothing to request if this
+             module is ever re-enabled for native later - re-add this
+             receiver and the two permissions below together if that
+             happens, understanding the install-risk tradeoff this time. -->
     </application>
 
     <!-- Permissions -->
@@ -89,25 +86,7 @@
          WRITE_CALENDAR is deliberately never requested. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
-    <!-- Finance Hub's SMS transaction listener (SmsReceiver.java,
-         SmsFinancePlugin.java). RECEIVE_SMS is what actually lets
-         SmsReceiver's manifest <receiver> below be delivered the
-         protected SMS_RECEIVED broadcast at all. READ_SMS is requested
-         alongside it for parity with the plugin's declared permission
-         group (utils/smsFinanceBridge.js requests both together as one
-         "sms" alias) even though the live-listener path above doesn't
-         itself call any READ_SMS-gated API - having both granted keeps
-         the door open for a future "scan existing inbox on first setup"
-         feature without a second permission prompt.
-         NOTE (read before shipping to Google Play): READ_SMS/RECEIVE_SMS
-         are in Google Play's restricted "Permissions & APIs that Access
-         Sensitive Information" policy - Play Console requires the app to
-         be the user's default SMS/Assistant/Dialer handler to keep these
-         permissions declared, which a finance app cannot realistically
-         qualify for. This is fine for a personal/sideloaded APK (not
-         going through the Play Store) - confirmed as the intended use
-         here - but would need this entire module gated out of any future
-         Play Store build. -->
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
+    <!-- READ_SMS/RECEIVE_SMS removed - see the real, reported install-
+         blocking bug documented on the (now-removed) SmsReceiver
+         <receiver> declaration above for the full explanation. -->
 </manifest>

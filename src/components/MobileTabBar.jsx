@@ -19,7 +19,8 @@
 // DashboardLayout.jsx); the desktop Sidebar never mounts on mobile at
 // all.
 import { useEffect, useRef } from 'react';
-import { Command, Wallet, Calendar, Cpu, Settings as SettingsIcon } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Command, Wallet, Calendar, Cpu, Settings as SettingsIcon, BarChart2 } from 'lucide-react';
 import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 
 // A deliberate, standalone 5-item list - not a filtered slice of
@@ -28,13 +29,31 @@ import { useMicroFeedback } from '../hooks/useMicroFeedback.js';
 // toggled off in the OS Module Manager. Finance/Calendar are still also
 // present in ALL_NAV_ITEMS/MobileSidebarDrawer - same intentional dual
 // reachability Home already had before this change, not a new pattern.
-export const PRIMARY_TABS = [
-    { name: 'Home', icon: Command },
-    { name: 'Finance', icon: Wallet },
-    { name: 'AI', icon: Cpu },
-    { name: 'Calendar', icon: Calendar },
-    { name: 'Settings', icon: SettingsIcon },
-];
+//
+// Real, reported follow-up: Finance's SMS auto-detect permissions were
+// removed from the native Android build entirely (see AndroidManifest.
+// xml), and SettingsPage.jsx's own defaultSettings now defaults the
+// Finance module itself to off there too - a dock slot permanently
+// pointing at a module that's off by default on that exact build would
+// be a dead tab for anyone who hasn't manually re-enabled it. Analytics
+// (Analysis Hub) takes that slot specifically on the native build, per
+// explicit request for what should fill it; desktop/mobile-web keep
+// Finance exactly as before - this was never a problem there.
+export const PRIMARY_TABS = Capacitor.isNativePlatform()
+    ? [
+        { name: 'Home', icon: Command },
+        { name: 'Analytics', icon: BarChart2 },
+        { name: 'AI', icon: Cpu },
+        { name: 'Calendar', icon: Calendar },
+        { name: 'Settings', icon: SettingsIcon },
+    ]
+    : [
+        { name: 'Home', icon: Command },
+        { name: 'Finance', icon: Wallet },
+        { name: 'AI', icon: Cpu },
+        { name: 'Calendar', icon: Calendar },
+        { name: 'Settings', icon: SettingsIcon },
+    ];
 
 const MobileTabBar = ({ activeTab, setActiveTab }) => {
     const { tabSwitch } = useMicroFeedback();

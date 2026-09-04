@@ -10,6 +10,7 @@ import {
     Clock, ClipboardList, CalendarDays, Utensils, RotateCcw,
     Link2, Phone, Cpu, User, ArrowUpRight, Type, Search, Mic, Key, FileType, Video,
 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getAuthErrorMessage } from '../utils/authErrorMessages.js';
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator.jsx';
@@ -840,8 +841,23 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
         widgetShowCalendar: true,
         widgetShowDiet: true,
         performanceSaverMode: false,
+        // Real, reported bug: Finance's SMS auto-detect (READ_SMS/
+        // RECEIVE_SMS) is exactly the permission combination Android's
+        // Play Protect scanner treats as a classic OTP-theft malware
+        // signature - those permissions have now been removed from the
+        // native Android manifest entirely (see AndroidManifest.xml's
+        // own comment) since a runtime toggle here can't suppress a
+        // pre-install manifest scan. Finance defaults to OFF only on
+        // that native build as a second, independent layer of the same
+        // fix - the actual manifest permissions are already gone
+        // regardless, but this also keeps the module itself out of the
+        // default bottom nav/module list there until someone explicitly
+        // opts back in, rather than showing a Finance tab whose SMS
+        // auto-detect quietly can't work anymore. Desktop/mobile-web
+        // (Capacitor.isNativePlatform() false in both) are completely
+        // unaffected - this was never a problem there.
         activeModules: {
-            planner: true, study: true, gym: true, diet: true, finance: true, calendar: true, analytics: true, ai: true
+            planner: true, study: true, gym: true, diet: true, finance: !Capacitor.isNativePlatform(), calendar: true, analytics: true, ai: true
         }
     };
 
