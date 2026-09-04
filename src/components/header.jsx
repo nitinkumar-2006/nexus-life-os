@@ -1271,7 +1271,21 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                     NotificationDropdown.jsx) so its CSS entrance/exit
                     transitions actually play; this wrapping notifRef div
                     is what the existing header-wide click-outside effect
-                    above already targets, unchanged from before. */}
+                    above already targets, unchanged from before.
+                    Real, explicit request: hidden on mobile specifically -
+                    a bell icon someone has to open the app and tap is a
+                    genuinely different, worse pattern on a phone than
+                    every other app's own real OS-level push notification
+                    (swipe down from the top, no app-open required) -
+                    while still making complete sense on desktop, where
+                    that comparison doesn't apply the same way and this
+                    keeps working exactly as before. Not a step toward
+                    real native push notifications by itself - a real
+                    Capacitor push/local-notifications integration is a
+                    separate, bigger feature this alone doesn't provide,
+                    just removes the one entry point that never made
+                    sense on mobile to begin with. */}
+                {!isMobile && (
                 <div ref={notifRef} style={{ position: 'relative' }}>
                     <button
                         title="Notifications"
@@ -1304,7 +1318,8 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                         setActiveTab={setActiveTab}
                     />
                 </div>
-                
+                )}
+
                 {/* Theme Toggle - now shown on mobile too, sitting right
                     between Notifications and the Profile avatar (its
                     existing DOM position already put it exactly there;
