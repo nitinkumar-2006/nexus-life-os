@@ -698,9 +698,18 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                         onClick={onOpenMenu}
                         title="Menu"
                         aria-label="Open menu"
-                        style={{ background: 'transparent', border: 'none', borderRadius: '10px', width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}
+                        // Real, reported bug: the other 5 icons on this bar
+                        // (search/headphones/quick notes/theme/profile) are
+                        // all a 38-40px bordered chip, so the logo - a plain
+                        // 28px image with no chip around it at all - read
+                        // visibly smaller/lighter next to them despite being
+                        // the app's own primary mark. Sized up to match
+                        // their footprint (still no border/background - a
+                        // deliberate earlier decision, "a plain logo mark,
+                        // not a boxed icon button" - just bigger now).
+                        style={{ background: 'transparent', border: 'none', borderRadius: '10px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}
                     >
-                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '28px', height: '28px', objectFit: 'contain' }} />
+                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '34px', height: '34px', objectFit: 'contain' }} />
                     </button>
                     {/* Real, reported bug: on a genuinely narrow real
                         device (a real screenshot showed this text
