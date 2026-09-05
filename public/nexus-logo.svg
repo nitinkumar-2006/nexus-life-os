@@ -1,41 +1,51 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Subtle depth on the tile itself - kept low-contrast on purpose so it
-         reads as premium glass at 256px but never muddies down to a soft
-         gray blob at 32px. -->
-    <radialGradient id="tileGrad" cx="32%" cy="24%" r="85%">
-      <stop offset="0%" stop-color="#1B1B29"/>
-      <stop offset="55%" stop-color="#131320"/>
-      <stop offset="100%" stop-color="#0D0D14"/>
+    <!-- Lightened per explicit feedback: the earlier near-black tile
+         (#1B1B29 to #0D0D14) read dark and dull sitting on a real home
+         screen next to other apps' icons. Same indigo family as the
+         app's own primary accent color (#6366F1, used throughout the
+         app's UI), just pulled several steps brighter so it actually
+         catches light instead of disappearing into a dark square. -->
+    <radialGradient id="tileGrad" cx="30%" cy="22%" r="95%">
+      <stop offset="0%" stop-color="#5B52F0"/>
+      <stop offset="55%" stop-color="#4B3FD6"/>
+      <stop offset="100%" stop-color="#3B32B8"/>
     </radialGradient>
 
-    <!-- The one vivid element in the whole mark - indigo to cyan, angled to
-         follow the same bottom-left-to-top-right direction as the N's own
-         diagonal stroke, so the color and the geometry read as one gesture. -->
-    <linearGradient id="markGrad" x1="120" y1="372" x2="392" y2="140" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#6366F1"/>
-      <stop offset="100%" stop-color="#38BDF8"/>
+    <!-- The flow-stroke mark itself: one continuous gradient sweep,
+         sky blue to violet to pink, unchanged in concept from the
+         approved "Option A" pick - only the surrounding tile got
+         brighter, this stays the vivid focal element. -->
+    <linearGradient id="markGrad" x1="168" y1="366" x2="378" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="50%" stop-color="#B497FF"/>
+      <stop offset="100%" stop-color="#FB7BC0"/>
     </linearGradient>
 
-    <radialGradient id="nodeGrad" cx="35%" cy="30%" r="70%">
-      <stop offset="0%" stop-color="#EAF3FF"/>
-      <stop offset="45%" stop-color="#8FA6FF"/>
-      <stop offset="100%" stop-color="#5B6EF5"/>
-    </radialGradient>
-
-    <!-- Soft, contained glow - a duplicate of the mark blurred behind
-         itself, not a filter on the live edges, so the crisp vector stays
-         crisp at 32px while still reading as "glowing" at 256px. -->
-    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="10" result="blur"/>
+    <!-- Soft, contained glow behind the stroke - a blurred duplicate of
+         the same shape, not a filter on the live edges, so the crisp
+         vector stays crisp at 32px while still reading as "glowing" at
+         256px. Brightened alongside everything else. -->
+    <filter id="softGlow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="13" result="blur"/>
       <feColorMatrix in="blur" type="matrix"
-        values="0 0 0 0 0.35  0 0 0 0 0.55  0 0 0 0 0.98  0 0 0 0.55 0"/>
+        values="0 0 0 0 0.72  0 0 0 0 0.75  0 0 0 0 1.0  0 0 0 0.65 0"/>
     </filter>
 
-    <linearGradient id="rimLight" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.10"/>
+    <!-- A brighter "light hitting glass" cue along the top edge - the
+         main lever for the requested lightness beyond the base tile
+         color itself. -->
+    <radialGradient id="rimLight" cx="28%" cy="6%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.32"/>
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </linearGradient>
+    </radialGradient>
+
+    <!-- Small bright sheen behind the flared head of the stroke, giving
+         the mark itself an extra hit of light where the eye lands. -->
+    <radialGradient id="sheen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
 
     <clipPath id="tileClip">
       <rect x="52" y="52" width="408" height="408" rx="96"/>
@@ -43,57 +53,42 @@
   </defs>
 
   <!-- Canvas background: intentionally none. Fully transparent, so this
-       drops cleanly into any OS's own icon mask (circle, squircle, rounded
-       square) without ever showing a seam. -->
+       drops cleanly into any OS's own icon mask (circle, squircle,
+       rounded square) without ever showing a seam. -->
 
-  <!-- Rounded-square tile - the icon's actual background, distinct from
-       the transparent canvas around it. -->
+  <!-- Rounded-square tile - the icon's actual background. -->
   <rect x="52" y="52" width="408" height="408" rx="96" fill="url(#tileGrad)"/>
-  <rect x="52.5" y="52.5" width="407" height="407" rx="95.5" fill="none" stroke="#2A2A3D" stroke-width="1"/>
+  <rect x="52.5" y="52.5" width="407" height="407" rx="95.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1"/>
 
-  <!-- A single quiet highlight along the top edge, inside the clip - the
-       one glassmorphism cue this mark needs; kept subtle enough to never
-       compete with the node mark itself. -->
   <g clip-path="url(#tileClip)">
-    <ellipse cx="230" cy="10" rx="230" ry="90" fill="url(#rimLight)"/>
+    <!-- Broad top-left light source, doing most of the "brighten the
+         whole tile" work rather than just the mark. -->
+    <ellipse cx="150" cy="30" rx="280" ry="150" fill="url(#rimLight)"/>
+    <!-- Sheen pooled behind the stroke's wide head. -->
+    <circle cx="352" cy="150" r="130" fill="url(#sheen)"/>
   </g>
 
-  <!-- Outer network: two satellite nodes with thin connector lines,
-       suggesting the hub extends into a larger system beyond the letter
-       itself - kept fine and quiet so the core N stays the clear focal
-       point. -->
-  <g stroke="url(#markGrad)" stroke-opacity="0.55" stroke-width="5" stroke-linecap="round">
-    <line x1="160" y1="172" x2="112" y2="126"/>
-    <line x1="352" y1="340" x2="400" y2="386"/>
+  <!-- The signature mark: a single flowing brushstroke, tapered to a
+       point at one end and flared open at the other - abstract on
+       purpose (no literal letterform), reads as motion/flow rather
+       than a static icon. -->
+  <g clip-path="url(#tileClip)">
+    <path filter="url(#softGlow)"
+      d="M168,366 C150,286 172,206 236,172 C288,144 328,156 352,132
+         C366,118 378,140 378,160 C338,198 300,202 258,226
+         C212,252 188,308 168,366 Z"
+      fill="url(#markGrad)"/>
+    <path
+      d="M168,366 C150,286 172,206 236,172 C288,144 328,156 352,132
+         C366,118 378,140 378,160 C338,198 300,202 258,226
+         C212,252 188,308 168,366 Z"
+      fill="url(#markGrad)"/>
+
+    <!-- One light streak riding the upper edge of the ribbon - the
+         detail that reads as "premium, catching light" up close at
+         256px, and just quietly brightens the stroke at 32px. -->
+    <path d="M196,322 C200,264 222,214 262,190 C292,172 316,166 336,152"
+      fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="9"
+      stroke-linecap="round"/>
   </g>
-  <circle cx="112" cy="126" r="12" fill="url(#nodeGrad)"/>
-  <circle cx="400" cy="386" r="12" fill="url(#nodeGrad)"/>
-
-  <!-- The signature mark: an N whose strokes are the connections between
-       four hub nodes, not a plain lettershape with circles decorating its
-       corners. This is the one bold element in the mark - everything else
-       stays quiet around it. -->
-  <g filter="url(#softGlow)">
-    <path d="M160 340 L160 172 L352 340 L352 172"
-      fill="none" stroke="url(#markGrad)" stroke-width="34"
-      stroke-linecap="round" stroke-linejoin="round"/>
-  </g>
-  <path d="M160 340 L160 172 L352 340 L352 172"
-    fill="none" stroke="url(#markGrad)" stroke-width="34"
-    stroke-linecap="round" stroke-linejoin="round"/>
-
-  <!-- The four core hub nodes - larger and brighter than the satellites,
-       so the eye reads them as the mark's own primary structure. -->
-  <circle cx="160" cy="340" r="24" fill="url(#nodeGrad)"/>
-  <circle cx="160" cy="172" r="24" fill="url(#nodeGrad)"/>
-  <circle cx="352" cy="340" r="24" fill="url(#nodeGrad)"/>
-  <circle cx="352" cy="172" r="24" fill="url(#nodeGrad)"/>
-
-  <!-- A small, bright core at the very center of each node - the one
-       repeating detail that reads as "premium" up close at 256px and
-       simply reads as a clean highlight at 32px. -->
-  <circle cx="153" cy="333" r="6" fill="#F5F9FF"/>
-  <circle cx="153" cy="165" r="6" fill="#F5F9FF"/>
-  <circle cx="345" cy="333" r="6" fill="#F5F9FF"/>
-  <circle cx="345" cy="165" r="6" fill="#F5F9FF"/>
 </svg>
