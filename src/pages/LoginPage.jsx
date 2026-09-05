@@ -157,6 +157,13 @@ const LoginPage = () => {
         setError('');
     };
 
+    // Every field/section below gets its own reveal delay via this - one
+    // shared cascade instead of the whole card fading in as a single
+    // block (explicit request: the page read as "boring" next to
+    // Instagram-style animated intros - many small pieces animating in,
+    // not one).
+    const reveal = (ms) => ({ animation: `nexusLoginReveal 0.5s cubic-bezier(0.16, 1, 0.3, 1) both`, animationDelay: `${ms}ms` });
+
     return (
         <div
             style={{
@@ -166,18 +173,44 @@ const LoginPage = () => {
                 padding: '20px', boxSizing: 'border-box', overflow: 'hidden', position: 'relative',
             }}
         >
+            {/* Real, explicit request: this page read as flat/boring next
+                to modern animated app intros. Everything below is purely
+                visual (colors/motion/timing) - zero changes to the auth
+                logic above this line. Every animation respects
+                prefers-reduced-motion (see the media query at the
+                bottom of this block). */}
             <style>{`
                 @keyframes nexusLoginOrbFloat1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(30px,-20px) scale(1.08); } }
                 @keyframes nexusLoginOrbFloat2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-24px,24px) scale(1.05); } }
-                @keyframes nexusLoginFormIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes nexusLoginOrbFloat3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-26px,-18px) scale(1.1); } }
+                @keyframes nexusLoginOrbFloat4 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(22px,26px) scale(1.06); } }
+                @keyframes nexusLoginFormIn { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+                @keyframes nexusLoginReveal { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes nexusLoginLogoPop { 0% { opacity: 0; transform: scale(0.4) rotate(-8deg); } 60% { opacity: 1; transform: scale(1.08) rotate(2deg); } 100% { opacity: 1; transform: scale(1) rotate(0deg); } }
+                @keyframes nexusLoginGlowPulse { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.12); } }
+                @keyframes nexusLoginShimmer { from { transform: translateX(-120%) skewX(-15deg); } to { transform: translateX(220%) skewX(-15deg); } }
+                .nexus-login-input { transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease; }
+                .nexus-login-input:focus { border-color: rgba(167, 139, 250, 0.7) !important; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.22); }
+                .nexus-login-btn-primary { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+                .nexus-login-btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(139, 92, 246, 0.4); }
+                .nexus-login-btn-primary:active:not(:disabled) { transform: translateY(0); }
+                .nexus-login-btn-google { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+                .nexus-login-btn-google:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(0,0,0,0.35); }
                 @media (prefers-reduced-motion: reduce) {
                     .nexus-login-orb { animation: none !important; }
                     .nexus-login-form { animation: none !important; }
+                    .nexus-login-reveal, .nexus-login-logo, .nexus-login-glow, .nexus-login-shimmer { animation: none !important; opacity: 1 !important; transform: none !important; }
                 }
             `}</style>
 
-            <div className="nexus-login-orb" style={{ position: 'absolute', top: '-10%', left: '-8%', width: '380px', height: '380px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.35), transparent 70%)', filter: 'blur(10px)', animation: 'nexusLoginOrbFloat1 14s ease-in-out infinite', pointerEvents: 'none' }} />
+            <div className="nexus-login-orb" style={{ position: 'absolute', top: '-10%', left: '-8%', width: '380px', height: '380px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(56,189,248,0.32), transparent 70%)', filter: 'blur(10px)', animation: 'nexusLoginOrbFloat1 14s ease-in-out infinite', pointerEvents: 'none' }} />
             <div className="nexus-login-orb" style={{ position: 'absolute', bottom: '-12%', right: '-10%', width: '420px', height: '420px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(139,92,246,0.3), transparent 70%)', filter: 'blur(10px)', animation: 'nexusLoginOrbFloat2 16s ease-in-out infinite', pointerEvents: 'none' }} />
+            {/* Two more orbs, brand-gradient colors (pink/indigo) not
+                present before - more of the "many things moving" look
+                asked for, still slow/subtle enough to never distract
+                from the actual form. */}
+            <div className="nexus-login-orb" style={{ position: 'absolute', top: '8%', right: '-6%', width: '260px', height: '260px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(244,114,182,0.24), transparent 70%)', filter: 'blur(10px)', animation: 'nexusLoginOrbFloat3 18s ease-in-out infinite', pointerEvents: 'none' }} />
+            <div className="nexus-login-orb" style={{ position: 'absolute', bottom: '4%', left: '-4%', width: '220px', height: '220px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.26), transparent 70%)', filter: 'blur(10px)', animation: 'nexusLoginOrbFloat4 20s ease-in-out infinite', pointerEvents: 'none' }} />
 
             <form
                 onSubmit={handleSubmit}
@@ -191,22 +224,26 @@ const LoginPage = () => {
                 }}
             >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                    <div style={{ width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '56px', height: '56px', objectFit: 'contain', background: 'transparent' }} />
+                    <div className="nexus-login-logo" style={{ position: 'relative', width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'nexusLoginLogoPop 0.6s cubic-bezier(0.16, 1, 0.3, 1) both' }}>
+                        {/* Same glow-ring treatment as the boot splash's
+                            own logo mark - now the mark and its entrance
+                            match everywhere it appears. */}
+                        <div className="nexus-login-glow" style={{ position: 'absolute', inset: '-16px', borderRadius: '24px', background: 'radial-gradient(circle, rgba(139,92,246,0.4) 0%, rgba(139,92,246,0) 70%)', animation: 'nexusLoginGlowPulse 2.2s ease-in-out infinite' }} />
+                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '56px', height: '56px', objectFit: 'contain', background: 'transparent', position: 'relative' }} />
                     </div>
                     {/* Same gradient wordmark treatment as the boot splash
                         (AppSplashScreen.jsx / index.html) - "Nexus" in the
                         logo's own gradient, "OS" kept muted/plain for the
                         same visual hierarchy, so the icon and its name
                         read as one cohesive brand on this page too. */}
-                    <h1 style={{ fontSize: '20px', fontWeight: '800', margin: 0 }}>
+                    <h1 className="nexus-login-reveal" style={{ fontSize: '20px', fontWeight: '800', margin: 0, ...reveal(120) }}>
                         <span style={{
                             background: 'linear-gradient(90deg, #38BDF8 0%, #A78BFA 50%, #F472B6 100%)',
                             WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
                         }}>Nexus</span>{' '}
                         <span style={{ color: '#94A3B8', fontWeight: '700' }}>OS</span>
                     </h1>
-                    <p style={{ fontSize: '13px', color: '#94A3B8', margin: 0, textAlign: 'center' }}>
+                    <p className="nexus-login-reveal" style={{ fontSize: '13px', color: '#94A3B8', margin: 0, textAlign: 'center', ...reveal(180) }}>
                         {mode === 'login' ? 'Sign in to sync your data across devices.' : 'Create an account to enable cloud sync.'}
                     </p>
                 </div>
@@ -218,14 +255,14 @@ const LoginPage = () => {
                 )}
 
                 {mode === 'signup' && (
-                    <div>
+                    <div className="nexus-login-reveal" style={reveal(220)}>
                         <label htmlFor="login-page-name" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#CBD5E1', marginBottom: '6px' }}><UserIcon size={13} /> Full Name</label>
-                        <input id="login-page-name" name="name" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Nitin Kumar" style={{ width: '100%', padding: '12px 14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.22)', color: '#fff', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
+                        <input id="login-page-name" name="name" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Nitin Kumar" className="nexus-login-input" style={{ width: '100%', padding: '12px 14px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.22)', color: '#fff', fontSize: '15px', outline: 'none', boxSizing: 'border-box' }} />
                     </div>
                 )}
 
                 {/* Email / Mobile Number segmented toggle */}
-                <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div className="nexus-login-reveal" style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.08)', ...reveal(240) }}>
                     {[{ id: 'email', label: 'Email', icon: Mail }, { id: 'phone', label: 'Mobile Number', icon: Phone }].map((opt) => (
                         <button
                             key={opt.id}
@@ -237,7 +274,8 @@ const LoginPage = () => {
                                 fontSize: '13px', fontWeight: '700', fontFamily: 'inherit',
                                 background: identifierType === opt.id ? 'linear-gradient(135deg, #6366F1, #8B5CF6)' : 'transparent',
                                 color: identifierType === opt.id ? '#fff' : '#94A3B8',
-                                transition: 'background 0.15s ease, color 0.15s ease',
+                                transition: 'background 0.2s ease, color 0.2s ease, transform 0.2s ease',
+                                transform: identifierType === opt.id ? 'scale(1.02)' : 'scale(1)',
                             }}
                         >
                             <opt.icon size={14} /> {opt.label}
@@ -246,28 +284,28 @@ const LoginPage = () => {
                 </div>
 
                 {identifierType === 'email' ? (
-                    <div>
+                    <div className="nexus-login-reveal" style={reveal(300)}>
                         <label htmlFor="login-page-email" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#CBD5E1', marginBottom: '6px' }}><Mail size={13} /> Email</label>
                         <div style={{ position: 'relative' }}>
                             <Mail size={16} color="#64748B" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                            <input id="login-page-email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={glassInputStyle(false)} />
+                            <input id="login-page-email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="nexus-login-input" style={glassInputStyle(false)} />
                         </div>
                     </div>
                 ) : (
-                    <div>
+                    <div className="nexus-login-reveal" style={reveal(300)}>
                         <label htmlFor="login-page-phone" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#CBD5E1', marginBottom: '6px' }}><Phone size={13} /> Mobile Number</label>
                         <div style={{ position: 'relative' }}>
                             <Phone size={16} color="#64748B" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                            <input id="login-page-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" style={glassInputStyle(false)} />
+                            <input id="login-page-phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" required value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" className="nexus-login-input" style={glassInputStyle(false)} />
                         </div>
                     </div>
                 )}
 
-                <div>
+                <div className="nexus-login-reveal" style={reveal(360)}>
                     <label htmlFor="login-page-password" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#CBD5E1', marginBottom: '6px' }}><Lock size={13} /> Password</label>
                     <div style={{ position: 'relative' }}>
                         <Lock size={16} color="#64748B" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                        <input id="login-page-password" name="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" style={glassInputStyle(false)} />
+                        <input id="login-page-password" name="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="nexus-login-input" style={glassInputStyle(false)} />
                     </div>
                     {mode === 'signup' && <PasswordStrengthIndicator password={password} />}
                     {mode === 'login' && identifierType === 'email' && (
@@ -289,8 +327,14 @@ const LoginPage = () => {
                 <button
                     type="submit"
                     disabled={isSubmitting}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '14px', background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', color: '#fff', border: 'none', borderRadius: '14px', fontWeight: '700', fontSize: '15px', cursor: isSubmitting ? 'default' : 'pointer', opacity: isSubmitting ? 0.7 : 1, marginTop: '6px', minHeight: '48px' }}
+                    className="nexus-login-reveal nexus-login-btn-primary"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '14px', background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', color: '#fff', border: 'none', borderRadius: '14px', fontWeight: '700', fontSize: '15px', cursor: isSubmitting ? 'default' : 'pointer', opacity: isSubmitting ? 0.7 : 1, marginTop: '6px', minHeight: '48px', position: 'relative', overflow: 'hidden', ...reveal(420) }}
                 >
+                    {/* A quiet, continuous shimmer sweep - the "premium,
+                        alive button" cue a lot of modern onboarding
+                        screens use on their main CTA. Purely decorative,
+                        clipped by the button's own overflow:hidden. */}
+                    <span className="nexus-login-shimmer" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(100deg, transparent 40%, rgba(255,255,255,0.25) 50%, transparent 60%)', animation: 'nexusLoginShimmer 3.2s ease-in-out infinite', pointerEvents: 'none' }} />
                     {isSubmitting ? (
                         <Loader2 size={17} style={{ animation: 'spin 0.8s linear infinite' }} />
                     ) : mode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
@@ -306,7 +350,7 @@ const LoginPage = () => {
                     this doesn't need its own mode branch. */}
                 {!isMobile && (
                     <>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '2px 0' }}>
+                        <div className="nexus-login-reveal" style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '2px 0', ...reveal(470) }}>
                             <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
                             <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>or</span>
                             <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
@@ -315,7 +359,8 @@ const LoginPage = () => {
                             type="button"
                             onClick={handleGoogleSignIn}
                             disabled={isGoogleSubmitting}
-                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '13px', background: 'rgba(255,255,255,0.95)', color: '#1F2937', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '14px', fontWeight: '700', fontSize: '14px', cursor: isGoogleSubmitting ? 'default' : 'pointer', opacity: isGoogleSubmitting ? 0.7 : 1, minHeight: '48px' }}
+                            className="nexus-login-reveal nexus-login-btn-google"
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '13px', background: 'rgba(255,255,255,0.95)', color: '#1F2937', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '14px', fontWeight: '700', fontSize: '14px', cursor: isGoogleSubmitting ? 'default' : 'pointer', opacity: isGoogleSubmitting ? 0.7 : 1, minHeight: '48px', ...reveal(520) }}
                         >
                             {isGoogleSubmitting ? <Loader2 size={17} style={{ animation: 'spin 0.8s linear infinite' }} /> : <GoogleGlyph />}
                             {isGoogleSubmitting ? 'Please wait...' : 'Continue with Google'}
@@ -326,7 +371,8 @@ const LoginPage = () => {
                 <button
                     type="button"
                     onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}
-                    style={{ background: 'transparent', border: 'none', color: '#94A3B8', fontSize: '13px', cursor: 'pointer', fontWeight: '600', padding: '4px', minHeight: '36px' }}
+                    className="nexus-login-reveal"
+                    style={{ background: 'transparent', border: 'none', color: '#94A3B8', fontSize: '13px', cursor: 'pointer', fontWeight: '600', padding: '4px', minHeight: '36px', ...reveal(580) }}
                 >
                     {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
                 </button>
