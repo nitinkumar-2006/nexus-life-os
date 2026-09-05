@@ -22,7 +22,19 @@ const AppSplashScreen = () => (
             <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '64px', height: '64px', objectFit: 'contain', position: 'relative' }} />
         </div>
         <div style={{ textAlign: 'center' }}>
-            <h1 style={{ fontSize: '22px', fontWeight: '900', letterSpacing: '1.2px', color: '#fff', margin: 0 }}>NEXUS</h1>
+            {/* Real, explicit request: the logo mark itself is now the
+                approved gradient flow-stroke, but this wordmark was still
+                flat white text - looked generic/mismatched next to it.
+                Same exact gradient as the mark (sky blue -> violet ->
+                pink) via background-clip:text, so the icon and its own
+                name read as one cohesive brand instead of two unrelated
+                styles. */}
+            <h1 style={{
+                fontSize: '22px', fontWeight: '900', letterSpacing: '1.2px', margin: 0,
+                background: 'linear-gradient(90deg, #38BDF8 0%, #A78BFA 50%, #F472B6 100%)',
+                WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
+                textShadow: '0 0 26px rgba(139,92,246,0.35)',
+            }}>NEXUS</h1>
             <p style={{ fontSize: '11px', color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: '700', marginTop: '4px' }}>OS</p>
         </div>
         <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>

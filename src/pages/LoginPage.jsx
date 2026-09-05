@@ -194,7 +194,18 @@ const LoginPage = () => {
                     <div style={{ width: '60px', height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '56px', height: '56px', objectFit: 'contain', background: 'transparent' }} />
                     </div>
-                    <h1 style={{ fontSize: '20px', fontWeight: '800', color: '#fff', margin: 0 }}>Nexus OS</h1>
+                    {/* Same gradient wordmark treatment as the boot splash
+                        (AppSplashScreen.jsx / index.html) - "Nexus" in the
+                        logo's own gradient, "OS" kept muted/plain for the
+                        same visual hierarchy, so the icon and its name
+                        read as one cohesive brand on this page too. */}
+                    <h1 style={{ fontSize: '20px', fontWeight: '800', margin: 0 }}>
+                        <span style={{
+                            background: 'linear-gradient(90deg, #38BDF8 0%, #A78BFA 50%, #F472B6 100%)',
+                            WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
+                        }}>Nexus</span>{' '}
+                        <span style={{ color: '#94A3B8', fontWeight: '700' }}>OS</span>
+                    </h1>
                     <p style={{ fontSize: '13px', color: '#94A3B8', margin: 0, textAlign: 'center' }}>
                         {mode === 'login' ? 'Sign in to sync your data across devices.' : 'Create an account to enable cloud sync.'}
                     </p>

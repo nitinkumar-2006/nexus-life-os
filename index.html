@@ -50,7 +50,14 @@
             animation: nexusBootGlow 1.8s ease-in-out infinite;
         }
         #nexus-boot-splash img { width: 64px; height: 64px; object-fit: contain; position: relative; }
-        #nexus-boot-splash h1 { font-size: 22px; font-weight: 900; letter-spacing: 1.2px; color: #fff; margin: 0; text-align: center; }
+        #nexus-boot-splash h1 {
+            font-size: 22px; font-weight: 900; letter-spacing: 1.2px; margin: 0; text-align: center;
+            /* Pixel-matched to AppSplashScreen.jsx's own gradient wordmark
+               treatment - same gradient as the logo mark itself. */
+            background: linear-gradient(90deg, #38BDF8 0%, #A78BFA 50%, #F472B6 100%);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+            text-shadow: 0 0 26px rgba(139,92,246,0.35);
+        }
         #nexus-boot-splash p { font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 2px; font-weight: 700; margin: 4px 0 0; text-align: center; }
         #nexus-boot-splash .nexus-boot-dots { display: flex; gap: 6px; margin-top: 4px; }
         #nexus-boot-splash .nexus-boot-dots span { width: 6px; height: 6px; border-radius: 50%; background: #818CF8; animation: nexusBootDot 1.2s ease-in-out infinite; }
