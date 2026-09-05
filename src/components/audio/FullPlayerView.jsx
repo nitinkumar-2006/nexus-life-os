@@ -190,7 +190,7 @@ const FullPlayerView = ({
                     {moreOpen && (
                         <TrackOptionsMenu
                             anchorRef={moreBtnRef} onClose={() => setMoreOpen(false)} isFavorite={isFav}
-                            onToggleFavorite={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })}
+                            onToggleFavorite={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, uri: currentTrack.uri, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })}
                             onRemoveFromQueue={currentTrack.id ? () => deleteSong(currentTrack.id) : null}
                             onViewCredits={() => setLyricsOpen(true)}
                             currentTrack={currentTrack}

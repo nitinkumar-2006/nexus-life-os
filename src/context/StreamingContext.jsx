@@ -193,6 +193,30 @@ export const StreamingProvider = ({ children }) => {
             setSpotifyAuth((prev) => ({ ...prev, error: 'Spotify Client ID not configured - add it in Settings > Security & API, or see src/config/streamingConfig.js' }));
             return;
         }
+        // Real, reported bug caught before it happens: opening this app on
+        // a PHONE by pointing it at the dev machine's LAN IP (e.g.
+        // http://192.168.x.x:5174 - the only way a phone can reach a
+        // laptop's own dev server at all) makes SPOTIFY_REDIRECT_URI
+        // compute to that LAN address too (window.location.origin), which
+        // almost certainly isn't the exact URI registered in the Spotify
+        // Dashboard (that's near-always just the desktop's own
+        // 127.0.0.1:PORT, per SPOTIFY_REDIRECT_URI's own comment) -
+        // Spotify then rejects the whole login with a bare "redirect_uri:
+        // Not matching configuration" page, live-confirmed, that gives no
+        // hint at all about what to actually do. Genuinely fixable only on
+        // Spotify's own Dashboard (adding a second Redirect URI there is
+        // real account access this app can't do on someone's behalf) - so
+        // this catches it BEFORE the redirect and tells them precisely
+        // which exact string to add, instead of sending them into that
+        // dead end.
+        const isLikelyLanHost = /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(window.location.hostname);
+        if (isLikelyLanHost) {
+            setSpotifyAuth((prev) => ({
+                ...prev,
+                error: `This device is on ${window.location.origin} - Spotify will reject login unless that exact address is added as a Redirect URI in your Spotify Dashboard. Add "${SPOTIFY_REDIRECT_URI}" there (developer.spotify.com/dashboard -> your app -> Settings -> Redirect URIs), or connect from the same computer running the dev server instead (127.0.0.1).`,
+            }));
+            return;
+        }
         const verifier = generateCodeVerifier();
         const challenge = await generateCodeChallenge(verifier);
         const state = generateRandomState();

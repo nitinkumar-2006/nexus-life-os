@@ -607,6 +607,84 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
     const displayName = profileData.name || 'New User';
     const displayInitial = profileData.avatarUrl ? '' : (displayName === 'New User' ? 'U' : displayName.charAt(0).toUpperCase());
 
+    // Real, explicitly-requested addition: mobile had no way at all to see
+    // "System Active & Ready"/reach this same real CloudSync diagnostics -
+    // it was desktop-only. Extracted here (out of the desktop-only popover
+    // markup below) so BOTH the desktop panel and the new mobile one render
+    // the exact same real, live content - same CloudSyncContext state, same
+    // Sync Now/Pause Sync actions - and can never drift apart into two
+    // different panels that happen to look similar. Only the OUTER
+    // positioned wrapper differs per-platform (see each render site).
+    const systemDiagnosticsPanelContent = (
+        <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                <Activity size={15} color="var(--primary)" /> System Diagnostics
+            </div>
+
+            {/* Cloud sync - real state from CloudSyncContext */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                        {syncStatus === SYNC_STATUS.ERROR ? <AlertTriangle size={13} color="#EF4444" />
+                            : isSyncing ? <RefreshCw size={13} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
+                            : syncPaused ? <PauseCircle size={13} color="#94A3B8" />
+                            : <CheckCircle2 size={13} color="#10B981" />}
+                        Cloud Sync
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {syncStatus === SYNC_STATUS.ERROR ? 'Error' : isSyncing ? 'Syncing…' : syncPaused ? 'Paused' : 'Idle'}
+                    </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Last synced: {formatRelativeTime(lastSyncedAt)}</div>
+                {syncStatus === SYNC_STATUS.ERROR && syncError && (
+                    <div style={{ fontSize: '11px', color: '#EF4444', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '6px 8px' }}>{syncError}</div>
+                )}
+            </div>
+
+            {/* Local storage - real usage from useStorageUsage */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={13} color="var(--text-muted)" /> Local Storage</div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>{storageUsage.usedKB.toFixed(2)} KB / {(storageUsage.capKB / 1024).toFixed(0)} MB</span>
+                </div>
+                <div style={{ height: '5px', borderRadius: '3px', background: 'var(--bg-main)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${storageUsage.percent}%`, background: 'var(--primary)', borderRadius: '3px', transition: 'width 0.3s ease' }} />
+                </div>
+            </div>
+
+            {/* Background activity - honest labels for what's actually
+                running (the CloudSyncContext debounced auto-push +
+                scheduled backup, plus audio if it's genuinely playing) -
+                never a fabricated "queue". */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                <div style={{ fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '2px' }}>Background Activity</div>
+                <div>• Auto-sync on change: {syncPaused ? 'paused' : 'active'}</div>
+                <div>• Scheduled backup: {syncPaused ? 'paused' : 'active'}</div>
+                {isPlaying && <div>• Audio playing: {currentTrack?.title || 'Untitled'}</div>}
+            </div>
+
+            {/* Quick controls - all real actions against the live
+                CloudSyncContext, not cosmetic buttons. */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                    type="button"
+                    onClick={() => pushToCloud()}
+                    disabled={isSyncing}
+                    style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '11px', fontWeight: '700', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1, fontFamily: 'inherit' }}
+                >
+                    <RefreshCw size={12} /> Sync Now
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setSyncPaused((v) => !v)}
+                    style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '11px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                    {syncPaused ? <><PlayCircle size={12} /> Resume Sync</> : <><PauseCircle size={12} /> Pause Sync</>}
+                </button>
+            </div>
+        </>
+    );
+
     return (
         <>
         <header
@@ -621,7 +699,17 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                space above the home page's own content. */
             // Desktop padding tightened 18px 28px -> 12px 22px - explicit
             // later feedback that the header read as "too fat"/tall.
-            padding: isMobile ? '10px 12px' : '12px 22px', borderBottom: 'none',
+            // Mobile vertical padding cut again 10px -> 4px - explicit,
+            // repeated live-device feedback that the mobile header still
+            // read as noticeably too tall vertically even after the 60px
+            // minHeight pass below.
+            // Real, reported follow-up: mobile horizontal narrowed
+            // 12px -> 8px - "app ka logo left side thoda aur ghusna
+            // chahiye" (the gap to the true edge still read as too wide).
+            // Both sides share this one value, so the logo and the
+            // profile avatar on the opposite edge stay exactly symmetric
+            // (see each one's own comment) - this isn't a left-only nudge.
+            padding: isMobile ? '4px 8px' : '12px 22px', borderBottom: 'none',
             /* Real device status bar (notch/clock/battery) clearance - this
                header is position:sticky/top:0, the very first element in
                .nexus-app-shell, with no other chrome above it. index.html's
@@ -635,7 +723,7 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                desktop/laptop browser tab always resolves it to 0, so this
                is a no-op there and the existing 10px/18px padding is
                unchanged. */
-            paddingTop: isMobile ? 'calc(10px + env(safe-area-inset-top, 0px))' : '12px',
+            paddingTop: isMobile ? 'calc(4px + env(safe-area-inset-top, 0px))' : '12px',
             position: 'sticky', top: 0, zIndex: 1000,
             /* backdrop-filter intentionally not set inline - see the note on
                the Sidebar for why: the external stylesheet rule matching
@@ -652,7 +740,13 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                centered below the status bar instead of cramped against it. */
             // Desktop minHeight cut 84px -> 64px, matching the tighter
             // padding above - explicit "Header is too fat" feedback.
-            minHeight: isMobile ? '60px' : '64px', width: '100%', boxSizing: 'border-box',
+            // Mobile cut again 60px -> 48px alongside the padding cut
+            // above - still comfortably fits the row's own tallest
+            // elements (the 38px icon circles / 36px avatar) with a
+            // couple px of breathing room, just without the extra
+            // reserved whitespace that made the bar itself look
+            // oversized vertically on a real phone.
+            minHeight: isMobile ? '48px' : '64px', width: '100%', boxSizing: 'border-box',
             // "Floating Island" card treatment on desktop, matching the
             // main Sidebar's own identical rounded-card + shadow look
             // (DashboardLayout.jsx's shell padding/gap provides the real
@@ -693,7 +787,17 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 purpose - a plain logo mark, not a boxed icon button, per
                 explicit request; the wordmark sits right after it. */}
             {isMobile && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, WebkitAppRegion: 'no-drag' }}>
+                // Real, explicitly-requested follow-up: gap tightened
+                // 10px -> 5px so "NEXUS" sits closer to the logo - the logo
+                // itself and every icon in the right-hand row stay
+                // completely pixel-identical (this group and that row are
+                // the two flexShrink:0 edges of a space-between/flex:1
+                // layout; freeing width here only ever changes how much the
+                // middle spacer between them absorbs, never their own
+                // positions). The freed-up gap is spent on a new sync-status
+                // dot living in that middle spacer - see its own comment
+                // just below.
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', minWidth: 0, flexShrink: 0, WebkitAppRegion: 'no-drag' }}>
                     <button
                         onClick={onOpenMenu}
                         title="Menu"
@@ -707,9 +811,26 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                         // their footprint (still no border/background - a
                         // deliberate earlier decision, "a plain logo mark,
                         // not a boxed icon button" - just bigger now).
+                        // Real, reported follow-up: a 40px button holding a
+                        // smaller 34px image left a real ~3px visual inset
+                        // on top of the header's own side padding - the
+                        // profile avatar on the opposite edge (36px, filled
+                        // edge-to-edge, no comparable inset) sat visibly
+                        // closer to ITS edge than the logo did to this one,
+                        // reading as asymmetric left/right breathing room.
+                        // Button and image kept matched to each other (zero
+                        // internal inset) ever since - that's what actually
+                        // keeps both edges' real gap identical, not their
+                        // absolute size. Bumped 36px -> 40px next, a real,
+                        // explicit follow-up ask for a bigger mark - safe to
+                        // size independently of the 36px avatar on the
+                        // opposite edge specifically because there's still
+                        // no inset on either one; the edge-to-edge gap stays
+                        // governed purely by the header's own (now-equal)
+                        // side padding, never by either icon's own size.
                         style={{ background: 'transparent', border: 'none', borderRadius: '10px', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}
                     >
-                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '34px', height: '34px', objectFit: 'contain' }} />
+                        <img src="/nexus-logo.svg" alt="Nexus" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
                     </button>
                     {/* Real, reported bug: on a genuinely narrow real
                         device (a real screenshot showed this text
@@ -880,7 +1001,61 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                 instead, sharing that row's own uniform gap like every
                 other icon there. */}
             {isMobile ? (
-                <div style={{ flex: '1 1 0px', minWidth: 0 }} />
+                // Real, explicitly-requested addition: mobile never had any
+                // way to see "System Active & Ready"'s real sync-status dot
+                // at all - just this plain spacer. Reuses the exact same
+                // live isSystemPanelOpen/systemStatusColor state and
+                // systemDiagnosticsPanelContent the desktop badge already
+                // has (see its own comment above) - never a second,
+                // divergent copy of this logic. Real, reported follow-up:
+                // flex-start hugged the dot right against "NEXUS", nowhere
+                // near Search - centered instead, so it sits at the real
+                // midpoint of whatever room this spacer has between NEXUS
+                // and the search icon.
+                <div ref={systemPanelRef} style={{ flex: '1 1 0px', display: 'flex', justifyContent: 'center', alignItems: 'center', minWidth: 0, position: 'relative' }}>
+                    <button
+                        type="button"
+                        onClick={() => setIsSystemPanelOpen((v) => !v)}
+                        aria-label="System diagnostics"
+                        aria-expanded={isSystemPanelOpen}
+                        title={currentActivity}
+                        style={{ background: 'transparent', border: 'none', padding: '8px', margin: '-8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, WebkitAppRegion: 'no-drag' }}
+                    >
+                        <div style={{
+                            width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0,
+                            background: systemStatusColor, boxShadow: `0 0 8px ${systemStatusColor}`,
+                            animation: isSyncing ? 'pulse 1s infinite' : 'pulse 2s infinite',
+                        }} />
+                    </button>
+
+                    {isSystemPanelOpen && (
+                        <div style={{
+                            // Same viewport-safe fixed-positioning idiom as
+                            // this header's other mobile popovers (the
+                            // audio one just above) - guaranteed to stay
+                            // fully inside the viewport regardless of where
+                            // this dot happens to sit, never overlapping or
+                            // running off either edge.
+                            // 64px -> 52px: this header's own mobile
+                            // minHeight was cut 60px -> 48px (real "too
+                            // tall" complaint), so this popover's fixed gap
+                            // below it is nudged down by the same 12px to
+                            // stay in sync, same as the audio popover below.
+                            position: 'fixed', top: '52px', left: '50%', transform: 'translateX(-50%)',
+                            width: 'calc(100vw - 24px)', maxWidth: '320px',
+                            border: '1px solid var(--border-premium)',
+                            borderRadius: '16px', padding: '16px', zIndex: 1100, boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                            display: 'flex', flexDirection: 'column', gap: '14px',
+                            background: 'rgba(15, 23, 42, 0.94)',
+                            '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                            '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                            '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
+                            backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
+                        }}>
+                            {systemDiagnosticsPanelContent}
+                        </div>
+                    )}
+                </div>
             ) : (
             <div ref={systemPanelRef} style={{ flex: '1 1 0px', display: 'flex', justifyContent: 'center', minWidth: 0, position: 'relative' }}>
                 {/* Real, functional system-health indicator, not a static
@@ -946,84 +1121,30 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                            resolves to a fixed dark-glass palette
                            regardless of sky phase, without needing to
                            touch each one individually. */
-                        background: 'rgba(15, 23, 42, 0.6)',
+                        background: 'rgba(15, 23, 42, 0.94)',
                         '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
                         '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
                         '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',
                         backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                            <Activity size={15} color="var(--primary)" /> System Diagnostics
-                        </div>
-
-                        {/* Cloud sync - real state from CloudSyncContext */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
-                                    {syncStatus === SYNC_STATUS.ERROR ? <AlertTriangle size={13} color="#EF4444" />
-                                        : isSyncing ? <RefreshCw size={13} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
-                                        : syncPaused ? <PauseCircle size={13} color="#94A3B8" />
-                                        : <CheckCircle2 size={13} color="#10B981" />}
-                                    Cloud Sync
-                                </div>
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                    {syncStatus === SYNC_STATUS.ERROR ? 'Error' : isSyncing ? 'Syncing…' : syncPaused ? 'Paused' : 'Idle'}
-                                </span>
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Last synced: {formatRelativeTime(lastSyncedAt)}</div>
-                            {syncStatus === SYNC_STATUS.ERROR && syncError && (
-                                <div style={{ fontSize: '11px', color: '#EF4444', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '6px 8px' }}>{syncError}</div>
-                            )}
-                        </div>
-
-                        {/* Local storage - real usage from useStorageUsage */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: '700', color: 'var(--text-secondary)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Database size={13} color="var(--text-muted)" /> Local Storage</div>
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>{storageUsage.usedKB.toFixed(2)} KB / {(storageUsage.capKB / 1024).toFixed(0)} MB</span>
-                            </div>
-                            <div style={{ height: '5px', borderRadius: '3px', background: 'var(--bg-main)', overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${storageUsage.percent}%`, background: 'var(--primary)', borderRadius: '3px', transition: 'width 0.3s ease' }} />
-                            </div>
-                        </div>
-
-                        {/* Background activity - honest labels for what's
-                            actually running (the CloudSyncContext debounced
-                            auto-push + scheduled backup, plus audio if it's
-                            genuinely playing) - never a fabricated "queue". */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                            <div style={{ fontWeight: '700', color: 'var(--text-secondary)', marginBottom: '2px' }}>Background Activity</div>
-                            <div>• Auto-sync on change: {syncPaused ? 'paused' : 'active'}</div>
-                            <div>• Scheduled backup: {syncPaused ? 'paused' : 'active'}</div>
-                            {isPlaying && <div>• Audio playing: {currentTrack?.title || 'Untitled'}</div>}
-                        </div>
-
-                        {/* Quick controls - all real actions against the
-                            live CloudSyncContext, not cosmetic buttons. */}
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            <button
-                                type="button"
-                                onClick={() => pushToCloud()}
-                                disabled={isSyncing}
-                                style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '11px', fontWeight: '700', cursor: isSyncing ? 'default' : 'pointer', opacity: isSyncing ? 0.6 : 1, fontFamily: 'inherit' }}
-                            >
-                                <RefreshCw size={12} /> Sync Now
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setSyncPaused((v) => !v)}
-                                style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 10px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--widget-bg)', color: 'var(--text-primary)', fontSize: '11px', fontWeight: '700', cursor: 'pointer', fontFamily: 'inherit' }}
-                            >
-                                {syncPaused ? <><PlayCircle size={12} /> Resume Sync</> : <><PauseCircle size={12} /> Pause Sync</>}
-                            </button>
-                        </div>
+                        {systemDiagnosticsPanelContent}
                     </div>
                 )}
             </div>
             )}
 
             {/* Right Actions & Profile */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0, minWidth: 0, WebkitAppRegion: 'no-drag' }}>
+            {/* Real, reported bug: on a genuinely narrow real device (not
+                reproducible on any standard emulated mobile width tested
+                here - same gap the NEXUS wordmark comment above already
+                flagged), this row's own 5 icons at a 10px gap left the
+                NEXUS wordmark on the left too little room and it silently
+                ellipsis-truncated to "NEX…" instead. Tightened to 6px on
+                mobile only (icon sizes/touch targets untouched, just the
+                breathing room between them) to free up real width for the
+                wordmark - paired with flexShrink:0 on that side above so
+                it can never be the one sacrificed to fit this row again. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '10px', flexShrink: 0, minWidth: 0, WebkitAppRegion: 'no-drag' }}>
 
                 {/* Mobile-only search trigger - moved here from the old
                     centered middle slot (see the comment above) so it
@@ -1076,8 +1197,11 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                             // Desktop keeps the original anchor unchanged
                             // - this was never reported broken there.
                             position: isMobile ? 'fixed' : 'absolute',
+                            // 64px -> 52px, same 12px sync-up as the System
+                            // Panel popover above (header.jsx's own mobile
+                            // minHeight was cut 60px -> 48px).
                             ...(isMobile
-                                ? { top: '64px', left: '50%', transform: 'translateX(-50%)' }
+                                ? { top: '52px', left: '50%', transform: 'translateX(-50%)' }
                                 : { top: '120%', right: 0 }),
                             width: isMobile ? 'calc(100vw - 24px)' : '260px',
                             maxWidth: isMobile ? '320px' : 'none',
@@ -1085,7 +1209,20 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                             borderRadius: '14px', padding: '16px', zIndex: 1100,
                             boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
                             display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
-                            background: 'rgba(15, 23, 42, 0.6)',
+                            // Real, reported bug fixed, live-confirmed via
+                            // screenshot: 0.6 alpha genuinely let whatever
+                            // page content sat behind this popover (the
+                            // Home page's own Greeting card text, in the
+                            // reported case) show/bleed through and mix
+                            // with this panel's own text - not just a
+                            // faint glass tint, actually illegible overlap.
+                            // Bumped to a real, effectively-opaque 0.94 -
+                            // still reads as dark glass (the blur/saturate
+                            // below still does real work on the sliver
+                            // that shows through), just no longer lets
+                            // background text compete with this panel's
+                            // own.
+                            background: 'rgba(15, 23, 42, 0.94)',
                             '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
                             '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
                             '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-surface': 'rgba(255,255,255,0.06)',

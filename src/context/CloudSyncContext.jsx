@@ -91,11 +91,65 @@ export const SYNCED_KEYS = [
     'nexus_calendar_events',
     'nexus_timetable_data',
     'nexus_ai_chat_history',
+    // The real, current multi-session AI chat data (AIPage.jsx moved to
+    // this shape long ago; nexus_ai_chat_history above is the old,
+    // pre-migration key it reads once and then never writes again) -
+    // same silent no-backup gap as nexus_syllabus_subjects above: every
+    // real conversation, and which provider/model you'd picked, never
+    // actually made it into cloud backup or cross-device restore until
+    // now, despite the newer key being what's actually live.
+    'nexus_ai_chat_sessions',
+    'nexus_ai_active_session_id',
+    'nexus_ai_provider',
+    'nexus_ai_model_by_provider',
     'nexus_focus_stats',
     'nexus_global_settings',
     'nexus_theme',
     'nexus_volume',
     'nexus_playlist',
+    // Real gap, found by diffing this list against every localStorage.
+    // setItem('nexus_*', ...) call in the codebase: these are all
+    // genuine user data/preferences meant to travel with the account
+    // (a Study Hub quiz result, a favorited track, an EQ curve tuned by
+    // ear, the Home page's own drag-reordered widget layout) - not one-
+    // device UI scratch state like nexus_current_route/nexus_current_
+    // song_index above (still correctly excluded) - so they belong here
+    // exactly as much as everything else on this list already does.
+    'nexus_study_quizzes',
+    'nexus_favorite_tracks',
+    'nexus_favorite_playlists',
+    'nexus_favorite_track_details',
+    'nexus_recently_played',
+    'nexus_home_widget_order',
+    'nexus_crossfade_enabled',
+    'nexus_eq_enabled',
+    'nexus_eq_gains',
+    'nexus_playback_rate',
+    'nexus_repeat_mode',
+    'nexus_shuffle',
+    // Spotify's own connection - the actual mechanism a real "connect
+    // once, never re-authenticate on another device" requirement needs.
+    // Without this, the OAuth tokens genuinely only ever lived in this
+    // one browser's localStorage, so a fresh device/reinstall showing
+    // "Not Connected" despite Spotify already being linked on another
+    // one wasn't a UI bug to fix there - the connection itself had
+    // nothing to restore from. Safe to sync as regular account data:
+    // this document is already the one place every other sensitive
+    // real value here (finance accounts/transactions, the full profile)
+    // already lives, gated by the exact same Firestore rule (only the
+    // owning uid can ever read nexusUsers/{uid}).
+    'nexus_spotify_tokens',
+    // Deliberately NOT included: nexus_custom_wallpaper_image. It's a
+    // real base64-encoded photo (downscaled to 1920px/0.85 JPEG - see
+    // SettingsPage.jsx - but still commonly several hundred KB as a
+    // base64 string), and every key on this list merges into ONE
+    // Firestore document capped at Firestore's real 1MiB hard limit.
+    // Adding it risks a large wallpaper alone pushing that single
+    // shared document over the limit - which would silently break
+    // syncing EVERYTHING else here too (tasks, finance, profile...),
+    // not just the wallpaper. A real fix for cross-device wallpaper
+    // sync needs its own separate storage path (Cloud Storage, or its
+    // own dedicated Firestore document), not a slot on this shared one.
 ];
 
 const CloudSyncContext = createContext({

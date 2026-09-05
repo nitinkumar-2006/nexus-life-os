@@ -64,6 +64,33 @@ if (isFirebaseConfigured()) {
         db = getFirestore(app);
     }
     storage = getStorage(app);
+    // Real bug, reported live via DevTools console: a local audio track's
+    // upload (audioCloudSync.js's uploadAudioToCloud, a resumable upload)
+    // fails its CORS preflight against this dev origin - genuinely
+    // permanent, not a transient network blip - yet the Storage SDK's own
+    // default maxUploadRetryTime is 10 whole minutes, during which it
+    // keeps retrying that same doomed request every few seconds,
+    // flooding the console exactly as seen ("बढ़ते जा रहा है"). No app
+    // code ever set this, so it silently used Firebase's own default.
+    // Capped to 20s so a genuinely permanent failure (CORS, revoked
+    // permissions, an invalid bucket) surfaces a real, visible error
+    // quickly instead of spamming retries for up to 10 minutes - a
+    // normal, brief network hiccup still gets several real retry
+    // attempts within that window, so this doesn't sacrifice the
+    // resilience resumable uploads exist for for a merely slow
+    // connection. maxOperationRetryTime is the same setting for every
+    // other Storage op (getDownloadURL/deleteObject) - defaults to 2
+    // minutes, capped the same way for the same reason.
+    //
+    // Real build break fixed: these aren't standalone exported functions
+    // in the installed firebase v12 SDK (confirmed against @firebase/
+    // storage's own .d.ts - both are get/set accessor PROPERTIES on the
+    // FirebaseStorage instance itself), so importing and calling them as
+    // functions failed the whole build with a genuine MISSING_EXPORT
+    // error, not a lint nitpick - plain property assignment is the real,
+    // correct v9+ modular-SDK way to set these.
+    storage.maxUploadRetryTime = 20000;
+    storage.maxOperationRetryTime = 20000;
 }
 
 export { app, auth, db, storage };

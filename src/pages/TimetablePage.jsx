@@ -375,22 +375,22 @@ const TimetablePage = () => {
                 Priority), genuinely derived from this same schedule data. */}
             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(3, 1fr)', gap: isMobile ? '10px' : '16px' }}>
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <ClipboardList size={13} /> {isMobile ? 'Entries' : `${selectedDay} Entries`}
+                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: isMobile ? '0.01em' : '0.05em', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                        <ClipboardList size={13} style={{ flexShrink: 0 }} /> {isMobile ? 'Entries' : `${selectedDay} Entries`}
                     </span>
                     <span style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{currentSchedule.length}</span>
                 </div>
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <CheckCircle size={13} /> Completed
+                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: isMobile ? '0.01em' : '0.05em', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                        <CheckCircle size={13} style={{ flexShrink: 0 }} /> Completed
                     </span>
                     <span style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '800', color: 'var(--success)' }}>
                         {completedCount}<span style={{ fontSize: isMobile ? '13px' : '15px', color: 'var(--text-muted)', fontWeight: '700' }}>/{currentSchedule.length}</span>
                     </span>
                 </div>
                 <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '16px', padding: isMobile ? '14px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Hourglass size={13} /> Scheduled
+                    <span style={{ fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: isMobile ? '0.01em' : '0.05em', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                        <Hourglass size={13} style={{ flexShrink: 0 }} /> Scheduled
                     </span>
                     <span style={{ fontSize: isMobile ? '20px' : '24px', fontWeight: '800', color: 'var(--text-primary)' }}>{totalScheduledMinutes > 0 ? formatDurationLabel(totalScheduledMinutes) : '--'}</span>
                 </div>

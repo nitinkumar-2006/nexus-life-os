@@ -171,6 +171,7 @@ const AILayout = ({
                 <AIChatArea
                     isSidebarOpen={isSidebarOpen}
                     onToggleSidebar={toggleSidebar}
+                    activeSessionId={activeSessionId}
                     messages={messages}
                     isGenerating={isGenerating}
                     inputPrompt={inputPrompt}

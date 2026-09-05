@@ -1061,22 +1061,34 @@ const SyllabusPage = () => {
                 app already uses this same plain convention; this page was
                 simply the one left behind on the older system. */}
             <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: isMobile ? '18px' : '24px', padding: isMobile ? '16px' : '24px', boxShadow: 'var(--premium-shadow)', display: 'flex', flexDirection: 'column', gap: isMobile ? '14px' : '20px', boxSizing: 'border-box' }}>
-                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', justifyContent: 'space-between', gap: isMobile ? '12px' : '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {/* Real, reported follow-up: this row used to stack
+                    (flexDirection: column) on mobile, forcing "Add Subject"
+                    onto its own full-width row below the title and eating
+                    a whole extra row of vertical space for no reason - the
+                    title's own row had plenty of real empty space to its
+                    right the whole time ("horizontal mein jo spacing khaali
+                    hai wahan par add subject ka icon khul jaana"). Same
+                    real fix already applied to Finance/Gym Hub's own
+                    headers: always row, icon-only (no text label) on
+                    mobile so the button shrinks to a compact circle that
+                    fits in that same row instead of needing its own. */}
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: isMobile ? '8px' : '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                         <FileText size={isMobile ? 20 : 24} color="var(--accent)" style={{ flexShrink: 0 }} />
-                        <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Syllabus Hub</h2>
+                        <h2 style={{ fontSize: isMobile ? '18px' : '20px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>Syllabus Hub</h2>
                     </div>
                     <button
                         type="button"
                         onClick={() => setModalMode('add')}
+                        title="Add Subject"
                         style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                            padding: isMobile ? '12px 18px' : '11px 20px', width: isMobile ? '100%' : 'auto', boxSizing: 'border-box',
+                            padding: isMobile ? '10px' : '11px 20px', flexShrink: 0, boxSizing: 'border-box',
                             borderRadius: '9999px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none',
-                            fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit',
+                            fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
                         }}
                     >
-                        <Plus size={16} /> Add Subject
+                        <Plus size={isMobile ? 16 : 16} /> {!isMobile && 'Add Subject'}
                     </button>
                 </div>
 

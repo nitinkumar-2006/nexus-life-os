@@ -1806,7 +1806,14 @@
            it, rather than a lower, out-of-convention value that let the
            tab bar's icons show through on top of it. */
         z-index: 401;
-        width: min(300px, 82vw);
+        /* Real, reported bug: 300px (up to 82vw on a narrow phone) left
+           the chat behind it reduced to a bare sliver - on a ~375px
+           phone that's fully 80% of the screen swallowed by the drawer.
+           Narrowed to a real, comfortable mobile-drawer proportion
+           (matches this app's own MobileSidebarDrawer.jsx convention)
+           that still comfortably fits every row's text (Connections'
+           "Not Connected" labels, coach names) without wrapping. */
+        width: min(248px, 72vw);
         transform: translateX(-100%);
         box-shadow: none;
         border-right: 1px solid var(--border-premium);
@@ -1820,7 +1827,7 @@
     /* On mobile the collapsed/rail state is meaningless - the sidebar is
        either fully open (overlay) or fully off-screen. */
     .ai-sidebar.is-collapsed {
-        width: min(300px, 82vw);
+        width: min(248px, 72vw);
     }
 
     .ai-sidebar.is-collapsed .ai-sidebar-inner {
@@ -1833,6 +1840,13 @@
     }
 
     .ai-sidebar-inner {
+        /* Desktop pins this at the full 280px --ai-sidebar-width so text
+           doesn't reflow mid collapse/expand slide (see the desktop rule
+           above) - mobile has no such slide (just off-screen <-> open),
+           so it should genuinely fill whatever width .ai-sidebar itself
+           now has (248px/72vw, just narrowed above), not stay pinned to
+           the wider desktop value and silently overflow/clip. */
+        width: 100%;
         padding-top: calc(14px + env(safe-area-inset-top, 0px));
         padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     }

@@ -91,9 +91,14 @@ const MobileTabBar = ({ activeTab, setActiveTab }) => {
         return () => observer.disconnect();
     }, []);
 
+    // minHeight/padding trimmed 52px/8px -> 44px/5px - explicit, repeated
+    // feedback that this bar also read as vertically oversized (alongside
+    // the header, see header.jsx's own matching cut) on a real device;
+    // still comfortably fits the 22px icon + 10px label + 4px gap content
+    // (~40px) with a couple px of breathing room either side.
     const tabButtonStyle = (isActive) => ({
         flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', gap: '4px', padding: '8px 2px', minHeight: '52px',
+        justifyContent: 'center', gap: '4px', padding: '5px 2px', minHeight: '44px',
         background: 'transparent', border: 'none', cursor: 'pointer',
         color: isActive ? 'var(--primary, #6366f1)' : 'var(--text-muted)',
         transition: 'color 0.15s ease',
@@ -106,87 +111,42 @@ const MobileTabBar = ({ activeTab, setActiveTab }) => {
             style={{
                 position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 150,
                 display: 'flex', alignItems: 'stretch',
-                // Literally the same background declaration as header.jsx's
-                // own <header> element (var(--header-bg, var(--bg-main))) -
-                // deliberate, exact parity, per explicit request: this used
-                // to read var(--mobile-nav-bg, ...) instead, a SEPARATE
-                // token with its own always-on 0.72 alpha floor (regardless
-                // of wallpaper), which made this bar visibly more opaque
-                // than the header on the same animated-sky wallpaper at low
-                // glass-alpha settings - the header would show the sun/moon
-                // through it beautifully while this bar stayed comparatively
-                // solid. --header-bg carries no such floor on the sky
-                // wallpaper (only a 0.4 floor when a custom image wallpaper
-                // is active - see style.css's own
-                // .nexus-app-shell[data-custom-wallpaper] rule, which
-                // already covers --header-bg too), so switching to it gives
-                // this bar the exact same look as the header on every theme,
-                // every wallpaper, every glass-alpha value.
-                // Trade-off worth knowing: --mobile-nav-bg's 0.72 floor
-                // existed specifically because this element is
-                // `position: fixed` sitting over another `position: fixed`
-                // layer (the sky background), and Safari/WebKit has a
-                // documented bug where backdrop-filter on a fixed element
-                // doesn't reliably capture another fixed element behind it -
-                // confirmed on a real iOS device to read as near-fully
-                // see-through even with blur genuinely applied. The header
-                // never hit this because it's `position: sticky`, not fixed.
-                // This bar is still `position: fixed` (needs to be, to stay
-                // pinned through scrolling), so if this reads as unexpectedly
-                // transparent on a real iPhone, that WebKit gap - not this
-                // change's own logic - is why.
-                background: 'var(--header-bg, var(--bg-main))',
-                // Real, reported bug: page content scrolling underneath this
-                // bar was still legible through it (most noticeably text) -
-                // exactly the WebKit "fixed-over-fixed backdrop-filter" gap
-                // this file's own comment above already flagged as a risk
-                // of the exact-parity-with-header decision. The actual fix
-                // is NOT a higher --header-bg opacity floor here - that
-                // exact approach was already tried for the header/sidebar
-                // and explicitly reverted (see variables.css's own "CUSTOM
-                // WALLPAPER CARD CONTRAST FIX" comment): flooring only
-                // THIS element's opacity while the page content scrolling
-                // up to meet its top edge stays at the user's own real,
-                // lower value creates a hard, visible seam right at that
-                // boundary. Blur is the safe lever instead - it doesn't
-                // change this bar's own tint/opacity at all, just how
-                // sharply whatever's behind it resolves, so raising it
-                // can't reproduce that seam. Same real, already-proven
-                // idiom this app uses elsewhere for a "raise the user's own
-                // slider value, never replace it" floor (see variables.css's
-                // dawn-contrast and custom-wallpaper max() floors) - applied
-                // to --glass-blur, and scoped to just this element via a
-                // local custom-property override, so no other glass surface
-                // on the page is affected.
-                '--glass-blur': 'max(var(--glass-blur, 16px), 28px)',
+                // SUPERSEDES the previous var(--header-bg)-parity approach
+                // (kept failing for real: inconsistent blur/alpha across
+                // theme + sky-phase combos, confirmed live via repeated
+                // real-device screenshots - "kahin blurred ho jata hai,
+                // kahin icon white ho jata hai"). Explicit follow-up
+                // request instead: make this bar use the EXACT SAME
+                // background/blur as FloatingBottomPlayer.jsx's mini-player
+                // pill directly above it (byte-for-byte copy of that file's
+                // own background/backdropFilter/text-color-token block),
+                // since that pill was already confirmed to look right and
+                // stay legible on every theme/wallpaper the user tested.
+                // A fixed, non-token dark glass tint - not derived from
+                // --header-bg/--nexus-user-glass-alpha at all anymore - so
+                // it can no longer go pale/washed-out in a bright Dynamic
+                // sky-phase or a light custom wallpaper the way the
+                // token-driven version did. Local CSS-custom-property
+                // overrides for --text-muted/--primary-adjacent colors
+                // below make the tab icons/labels themselves match the
+                // mini-player's own always-legible light-on-dark palette
+                // too, not just the background tile.
+                background: 'rgba(15, 23, 42, 0.6)',
+                '--text-muted': 'rgba(255,255,255,0.55)',
+                '--border-premium': 'rgba(255,255,255,0.14)',
+                backdropFilter: 'blur(max(var(--glass-blur, 20px), 20px)) saturate(180%)',
+                WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 20px)) saturate(180%)',
                 borderTop: '1px solid var(--border-premium)',
                 paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-                // No inline boxShadow here on purpose - deliberately
-                // matching header.jsx exactly (which also sets none).
-                // style.css's own per-sky-phase "light-on-glass signature"
-                // rule already targets [style*="var(--sidebar-bg)"] (this
-                // exact element) with its own box-shadow (a premium inset
-                // glow + var(--premium-shadow)), the SAME rule that gives
-                // the header its polished look in Dynamic theme - but an
-                // inline boxShadow here always wins over that external
-                // rule regardless of CSS specificity, so the generic flat
-                // drop-shadow this used to hardcode was silently blocking
-                // the real, intended glow from ever rendering. Confirmed
-                // live: with the inline value removed, computed
-                // box-shadow on this nav now matches the header's
-                // byte-for-byte in every sky phase. Solid themes (Night/
-                // Comfort/Day) simply end up with no box-shadow at all,
-                // same as the header already has there - the border-top
-                // above is what provides separation in those themes,
-                // exactly like the header's own treatment relies on
-                // background contrast alone with no shadow either.
+                // No boxShadow here on purpose, same as FloatingBottomPlayer's
+                // own pill directly above - the borderTop is what separates
+                // this bar from content in every theme now, no per-sky-phase
+                // shadow variance to keep in parity with anymore since the
+                // background itself is fixed rather than theme-driven.
                 // Deliberately NO transform/will-change here. A GPU-layer-
                 // promotion attempt was tried and reverted - backdrop-
                 // filter plus transform on the same element has real,
-                // documented WebKit/Blink quirks in some browser versions,
-                // and this element's own blur/background already verified
-                // as byte-identical to the header's via getComputedStyle
-                // without it. Not worth the risk for an unproven gain.
+                // documented WebKit/Blink quirks in some browser versions.
             }}
         >
             {PRIMARY_TABS.map((item) => (

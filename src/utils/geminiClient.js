@@ -102,6 +102,21 @@ const describeHttpError = async (response) => {
     if (response.status === 400 && /API key not valid/i.test(detail)) {
         return new GeminiApiError('Your Gemini API key is invalid. Update it in Settings → Security & API Integrations.', 'invalid_key');
     }
+    // Real bug, reported live: a user saw this exact raw Google text
+    // ("Request had invalid authentication credentials. Expected OAuth 2
+    // access token...") appear verbatim in the chat. The dedicated
+    // `response.status === 401` branch just below is meant to catch and
+    // reword this - but Google doesn't always send it under a literal 401;
+    // this same generic-auth-error body has also been seen riding a plain
+    // 400. Matching on the message text itself (not the status code) is
+    // the only way to guarantee this specific raw string can never reach
+    // the chat again, regardless of which status it happens to arrive on.
+    if (/OAuth ?2? ?access token/i.test(detail) || /invalid authentication credentials/i.test(detail)) {
+        return new GeminiApiError(
+            'Google rejected this Gemini API key - this is a known issue on Google\'s side, not Nexus: some accounts are currently issued newer API keys starting with "AQ." instead of the classic "AIzaSy...", and Google\'s API is rejecting those for chat requests even when they look valid in AI Studio. Open Google AI Studio, generate a fresh key, and confirm it starts with "AIzaSy" - if it still starts with "AQ.", this is Google\'s bug to fix, not something Nexus (or you) can work around yet.',
+            'unauthenticated'
+        );
+    }
     // Real, currently-widespread Google-side issue (not a Nexus bug):
     // some accounts are only issued newer "AQ."-prefixed API keys instead
     // of the classic "AIzaSy..." format, and Google's own

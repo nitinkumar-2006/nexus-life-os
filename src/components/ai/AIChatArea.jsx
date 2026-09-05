@@ -364,6 +364,7 @@ const MessageBubble = ({ msg, isLastMessage, onRegenerate, onBranch, onToggleLik
 
 const AIChatArea = ({
     isSidebarOpen, onToggleSidebar,
+    activeSessionId,
     messages, isGenerating,
     inputPrompt, onInputChange, onSubmit,
     activeProviderId,
@@ -374,6 +375,16 @@ const AIChatArea = ({
     const isMobile = useIsMobile();
     const chatEndRef = useRef(null);
     const messagesScrollRef = useRef(null);
+    // Real, reported bug: opening/returning to this page with an existing
+    // conversation played a full SMOOTH scroll animation from the top all
+    // the way down to the latest message - visually reading as the page's
+    // own header/greeting getting "cut off, shoved up and out" mid-
+    // animation, confirmed live. That smooth glide is genuinely the right
+    // feel for a message arriving while you're already looking at the
+    // page - it's wrong for landing on a page that's had a whole
+    // conversation sitting here all along, which should just already BE
+    // at the bottom, instantly, the same way every real chat app opens.
+    const hasScrolledOnceRef = useRef(false);
     const textareaRef = useRef(null);
     const attachMenuRef = useRef(null);
     const [attachMenuOpen, setAttachMenuOpen] = useState(false);
@@ -402,8 +413,42 @@ const AIChatArea = ({
     }, [inputPrompt]);
 
     useEffect(() => {
-        messagesScrollRef.current && chatEndRef.current?.scrollIntoView({ behavior: isGenerating ? 'auto' : 'smooth' });
+        const scroller = messagesScrollRef.current;
+        if (!scroller) return;
+        const isFirstScroll = !hasScrolledOnceRef.current;
+        hasScrolledOnceRef.current = true;
+        // Real bug, reported live and reproduced after a hard refresh:
+        // chatEndRef.scrollIntoView() scrolls whichever ancestor the
+        // browser decides is "the" scroll container for that element -
+        // normally .ai-chat-messages itself (it does have its own
+        // overflow-y:auto below), but right on mount, before this flex
+        // column has settled its final height, the browser can decide
+        // there's nothing to scroll here yet and bubble the scroll up to
+        // a page-level ancestor instead. That stray scroll then isn't
+        // this container's to reset when you navigate away - it sits on
+        // an ancestor DashboardLayout's own per-tab scroll reset (see
+        // pageScrollRef there) never touches, and was still showing up
+        // as a genuinely different page (Profile) opening mid-scroll
+        // right after a visit to this one. Setting scrollTop directly on
+        // the exact, known container removes all ambiguity about which
+        // element actually scrolls - there is no ancestor for the
+        // browser to guess wrong about.
+        if (isFirstScroll || isGenerating) {
+            scroller.scrollTop = scroller.scrollHeight;
+        } else {
+            chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
     }, [messages, isGenerating]);
+
+    // The session itself (not just its messages) can change - switching
+    // to a different chat in history, or starting a genuinely new one -
+    // and that should also land instantly at ITS OWN bottom, not smooth-
+    // scroll there from wherever the previous session's view happened to
+    // be, and not silently reuse "already scrolled once" from a session
+    // that's no longer even the one on screen.
+    useEffect(() => {
+        hasScrolledOnceRef.current = false;
+    }, [activeSessionId]);
 
     // attachMenuOpen is deliberately NOT handled here anymore -
     // AttachmentMenu.jsx now owns its own outside-click-to-close (it's a

@@ -78,11 +78,26 @@ export const makeFavoriteKey = (title, source, artist) => {
 
 const healDeadHotlinks = (tracks) => tracks.map((t) => {
     const profileKey = TITLE_TO_SYNTH_PROFILE[t.title];
-    if (!profileKey || typeof t.url !== 'string') return t;
+    if (typeof t.url !== 'string') return t;
     const isDeadPixabayLink = t.url.includes('pixabay.com');
     const isStaleBlobUrl = t.url.startsWith('blob:');
-    if (isDeadPixabayLink || isStaleBlobUrl) {
+    if (profileKey && (isDeadPixabayLink || isStaleBlobUrl)) {
+        // A recognized synth catalog title - regenerate its real audio
+        // rather than just clearing it.
         return { ...t, url: getSynthPresetUrl(profileKey) };
+    }
+    if (!profileKey && isStaleBlobUrl) {
+        // Real, live-confirmed bug fixed: any OTHER blob: URL surviving
+        // in localStorage (an older install, from before toPersistable
+        // learned to strip these regardless of title/isLocal - see its
+        // own comment) is just as dead as a recognized one once read
+        // back in a new session, but there's no synth profile to
+        // regenerate it from - nulling it here is what stops the
+        // `<audio>` element from ever attempting that doomed GET at all
+        // (a real, reproducible `blob:...ERR_FILE_NOT_FOUND` console
+        // error otherwise), rather than just preventing new instances of
+        // this going forward.
+        return { ...t, url: null };
     }
     return t;
 });
@@ -187,14 +202,36 @@ const deleteLocalTrackBlob = async (id) => {
 // cloud-sync step has real, persisted data to work with rather than
 // values that only ever existed in memory for the tab that uploaded
 // the track.
+// Real, live-confirmed bug fixed: this used to null the url ONLY for
+// t.isLocal===true entries - but a blob: URL (URL.createObjectURL) is
+// JUST as tied to the tab/session that minted it regardless of WHICH
+// code path created it. AUDIO_LIBRARY's synth catalog tracks
+// (getSynthPresetUrl in noiseSynth.js) also mint one, and don't set
+// isLocal at all (source:'synth' instead) - persisting one of THOSE
+// verbatim left a guaranteed-dead URL for the very next session to trip
+// over: a real, reproducible `GET blob:http://.../<id> net::
+// ERR_FILE_NOT_FOUND` console error, confirmed live. healDeadHotlinks
+// already regenerates a fresh one on load for any RECOGNIZED synth
+// title (TITLE_TO_SYNTH_PROFILE) - this closes the gap for any OTHER
+// blob: URL too (any title not in that table), by never persisting a
+// dead one in the first place instead of trying to enumerate every
+// possible source that could ever produce one.
 const toPersistable = (list) =>
-    list.map((t) => (t.isLocal ? {
-        id: t.id, title: t.title, isLocal: true, url: null,
-        ...(t.fileSizeBytes !== undefined && {
-            fileSizeBytes: t.fileSizeBytes, mimeType: t.mimeType, fileExtension: t.fileExtension,
-            uploadedAt: t.uploadedAt, syncStatus: t.syncStatus, cloudStorageUrl: t.cloudStorageUrl,
-        }),
-    } : t));
+    list.map((t) => {
+        if (t.isLocal) {
+            return {
+                id: t.id, title: t.title, isLocal: true, url: null,
+                ...(t.fileSizeBytes !== undefined && {
+                    fileSizeBytes: t.fileSizeBytes, mimeType: t.mimeType, fileExtension: t.fileExtension,
+                    uploadedAt: t.uploadedAt, syncStatus: t.syncStatus, cloudStorageUrl: t.cloudStorageUrl,
+                }),
+            };
+        }
+        if (typeof t.url === 'string' && t.url.startsWith('blob:')) {
+            return { ...t, url: null };
+        }
+        return t;
+    });
 
 const AudioPlayerContext = createContext(null);
 
@@ -1430,6 +1467,74 @@ export const AudioPlayerProvider = ({ children }) => {
     const effectiveIsPlaying = youtubeActive ? youtubeIsPlaying : spotifyActive ? spotifyIsPlaying : isPlaying;
     const effectiveCurrentTime = youtubeActive ? youtubeCurrentTime : spotifyActive ? spotifyCurrentTime : currentTime;
     const effectiveDuration = youtubeActive ? youtubeDuration : spotifyActive ? spotifyDuration : duration;
+
+    // Real, explicitly-requested feature: a genuine OS-level media
+    // notification/lock-screen card (Android's own notification shade,
+    // exactly like Spotify/Apple Music/JioSaavn show) - previously there
+    // was none at all, even inside the real installed Capacitor APK.
+    // Media Session is a real, standard web API - Android's own system
+    // WebView (what a Capacitor app's content runs inside) has supported
+    // it since Chrome 73 (2019), so no native plugin is needed for this;
+    // the OS reads this metadata/state to render its own notification and
+    // lock-screen artwork/title/controls. Driven by effectiveCurrentTrack/
+    // effectiveIsPlaying (not the raw local ones) so this works
+    // correctly no matter which service is actually playing.
+    useEffect(() => {
+        if (!('mediaSession' in navigator)) return;
+        if (!effectiveCurrentTrack.title || effectiveCurrentTrack.title === 'No Track') {
+            navigator.mediaSession.metadata = null;
+            navigator.mediaSession.playbackState = 'none';
+            return;
+        }
+        try {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: effectiveCurrentTrack.title,
+                artist: effectiveCurrentTrack.artist || '',
+                artwork: effectiveCurrentTrack.artworkUrl
+                    ? [{ src: effectiveCurrentTrack.artworkUrl, sizes: '512x512', type: 'image/jpeg' }]
+                    : [],
+            });
+        } catch (e) { /* a malformed artworkUrl shouldn't break playback */ }
+        navigator.mediaSession.playbackState = effectiveIsPlaying ? 'playing' : 'paused';
+    }, [effectiveCurrentTrack.id, effectiveCurrentTrack.title, effectiveCurrentTrack.artist, effectiveCurrentTrack.artworkUrl, effectiveIsPlaying]);
+
+    // Wires the OS notification/lock-screen's own Play/Pause/Prev/Next
+    // buttons (and, where the platform renders one, its own scrubber)
+    // back into this app's real controls - the exact same functions
+    // every on-screen button already calls, so behavior can never drift.
+    useEffect(() => {
+        if (!('mediaSession' in navigator)) return;
+        const handlers = [
+            ['play', togglePlay],
+            ['pause', togglePlay],
+            ['previoustrack', prev],
+            ['nexttrack', next],
+            ['seekto', (details) => { if (typeof details?.seekTime === 'number') seek(details.seekTime); }],
+        ];
+        handlers.forEach(([action, handler]) => {
+            try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) { /* action not supported on this platform - safe to skip */ }
+        });
+        return () => {
+            handlers.forEach(([action]) => {
+                try { navigator.mediaSession.setActionHandler(action, null); } catch (e) { /* ignore */ }
+            });
+        };
+    }, [togglePlay, prev, next, seek]);
+
+    // Keeps the OS's own progress indicator (where the platform renders
+    // one) in sync with real playback position - without this the
+    // notification's scrubber (if shown) would just sit frozen at 0.
+    useEffect(() => {
+        if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function') return;
+        if (!effectiveDuration || !isFinite(effectiveDuration) || effectiveDuration <= 0) return;
+        try {
+            navigator.mediaSession.setPositionState({
+                duration: effectiveDuration,
+                playbackRate: 1,
+                position: Math.min(Math.max(0, effectiveCurrentTime), effectiveDuration),
+            });
+        } catch (e) { /* can throw on a transient position > duration - next tick corrects it */ }
+    }, [effectiveCurrentTime, effectiveDuration]);
 
     useEffect(() => {
         if (effectiveIsPlaying && !hasEverPlayed) {

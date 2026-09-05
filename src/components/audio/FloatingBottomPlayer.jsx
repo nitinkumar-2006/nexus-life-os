@@ -22,11 +22,11 @@
 // design, for cards sitting flush against page content) let scrolled
 // content bleed through and made the player's own text illegible. This
 // stays a real, always-solid-enough fill instead.
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
     Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Repeat1,
-    Disc, MessageSquare, ListMusic, Volume2, VolumeX, Volume1, MoreHorizontal, Maximize2,
+    Disc, MessageSquare, ListMusic, Volume2, VolumeX, Volume1, MoreHorizontal, Maximize2, Heart,
 } from 'lucide-react';
 import VolumePopup from './VolumePopup.jsx';
 import QueueDrawer from './QueueDrawer.jsx';
@@ -50,6 +50,33 @@ const GRADIENT_PALETTE = [
     ['#6366F1', '#8B5CF6'], ['#F97316', '#EC4899'], ['#10B981', '#3B82F6'],
     ['#EAB308', '#F97316'], ['#8B5CF6', '#EC4899'], ['#06B6D4', '#6366F1'],
 ];
+// Real, explicitly-requested mobile layout: the artwork spans the FULL
+// height of the card, pinned to the true left edge as one absolutely-
+// positioned element, sized to match the card's own real height every
+// time that height changes - the whole point being a genuine square,
+// never a stretched rectangle ("horizontally खींचा हुआ लग रहा" was the
+// real, reported bug an earlier fixed-64px version had). Also explicitly
+// asked to be BIGGER again after an over-correction shrunk it too far
+// ("profile picture perfect था, क्यों छोटा कर दिया... vertically/
+// horizontally थोड़ा और बड़ा करो") - now single-row height (56px) minus
+// MOBILE_ART_INSET top+bottom (16px) = 40px, close to the size explicitly
+// called out as "perfect" before, not the more aggressively shrunk 29px
+// that followed it.
+// Real, reported follow-up (live screenshot, a real track playing): the
+// gap between the art and the card's own top/left/bottom edges was too
+// generous, reading as a small picture floating in an oversized frame
+// next to a longer title/artist ("Daru Badnaam") - inset shrunk from 8
+// to 6 and width grown from 40 to 44 (kept exactly square: 56px row -
+// 2*6px inset = 44px, matching the width) so the art reads bigger
+// relative to the text without ever touching the card's edges.
+const MOBILE_ART_WIDTH = 44;
+const MOBILE_ART_INSET = 6;
+const MOBILE_ART_RADIUS = 12;
+// Text/controls content starts this far from the card's left edge - past
+// the inset, the art's own width, and one more small gap so the title
+// never touches the art directly either.
+const MOBILE_CONTENT_LEFT_PADDING = MOBILE_ART_INSET + MOBILE_ART_WIDTH + 8;
+
 const gradientForTrack = (title) => {
     const safe = title && typeof title === 'string' && title.length > 0 ? title : 'default';
     let hash = 0;
@@ -86,6 +113,44 @@ const FloatingBottomPlayer = ({
 
     const volumeBtnRef = useRef(null);
     const moreBtnRef = useRef(null);
+    // Real, explicitly-requested feature: a long song title used to just
+    // hard-truncate with "..." - now genuinely marquee-scrolls (bounces
+    // left then back right) whenever it's actually wider than the space
+    // it has, matching Spotify/Apple Music's own mobile mini-players. A
+    // short title that already fits never animates - only measured,
+    // real overflow triggers it. Mirrors title-changing (a track skip
+    // needs a fresh measurement of the NEW title, not the old one's).
+    // Real bug found live: this ref must sit on the OUTER overflow:hidden
+    // clipping box, not the inner inline-block text div. An inline-block
+    // element always sizes itself to fit its own text, so scrollWidth ===
+    // clientWidth on IT specifically is a tautology - it can never report
+    // self-overflow no matter how long the title is, which silently kept
+    // the marquee permanently off. The outer box's clientWidth is the real
+    // clipped/visible width, while its scrollWidth still reflects the full
+    // unclipped width of the overflowing child - that difference is the
+    // genuine overflow amount.
+    const mobileTitleOuterRef = useRef(null);
+    const [mobileTitleOverflowPx, setMobileTitleOverflowPx] = useState(0);
+    useEffect(() => {
+        if (!isMobile) return;
+        const el = mobileTitleOuterRef.current;
+        if (!el) return;
+        // Measured after paint, not on every render - a track change is
+        // the only thing that can actually change whether this overflows.
+        const raf = requestAnimationFrame(() => {
+            const overflow = el.scrollWidth - el.clientWidth;
+            setMobileTitleOverflowPx(overflow > 4 ? overflow : 0);
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [isMobile, currentTrack.title]);
+    // Real, reported follow-up: a fixed 5s duration scrolled way too fast
+    // ("bahut zyada speed mein scroll ho raha hai") - duration now scales
+    // with how far the text actually has to travel (~18px/sec of real
+    // scroll, plus a fixed ~4s of the keyframe's own start/end holds) so a
+    // barely-overflowing title and a very long one both move at roughly
+    // the same, genuinely readable pace instead of the same title-agnostic
+    // 5 seconds for either.
+    const mobileMarqueeDurationSec = Math.max(7, 4 + mobileTitleOverflowPx / 18).toFixed(1);
 
     // Real fix: must compute the exact same source/artist-aware key
     // toggleFavoriteTrack now stores (see makeFavoriteKey's own comment in
@@ -144,6 +209,21 @@ const FloatingBottomPlayer = ({
             width: isMobile ? '100%' : 'min(668px, calc(100% - 40px))',
             zIndex: 100,
         }}>
+            {/* Marquee keyframe for the mobile title (see mobileTitleRef's
+                own comment) - a plain <style> child, matching this
+                codebase's own established pattern for a component-local
+                keyframe (no shared animation name collision risk since
+                this one's prefixed nexusMiniPlayerMarquee specifically).
+                Real, reported follow-up: the original two-stop from/to
+                keyframe combined with `alternate` made it bounce back and
+                forth (scroll left, then visibly reverse right again) -
+                explicitly NOT what was wanted ("left se right jaake wapas
+                right se left kyun aa raha... shuru se chalna chahiye").
+                Four stops with real holds at both ends (15%/85%) plus
+                `infinite` WITHOUT `alternate` gives a genuine one-direction
+                loop instead: pause, scroll left, pause, then reset straight
+                back to the start and repeat - never runs backwards. */}
+            <style>{'@keyframes nexusMiniPlayerMarquee { 0% { transform: translateX(0); } 15% { transform: translateX(0); } 85% { transform: translateX(var(--nexus-marquee-distance, 0px)); } 100% { transform: translateX(var(--nexus-marquee-distance, 0px)); } }'}</style>
             <div style={{
                 // Explicit request: this player must stay premium dark
                 // glassmorphism ALWAYS, not follow --popover-bg's own
@@ -178,6 +258,13 @@ const FloatingBottomPlayer = ({
                 // for-byte against that file's own borderTop treatment so
                 // the two really do read as one joined dock, not two
                 // stacked cards with a visible seam between them.
+                // Real, reported follow-up: two different soft-fade
+                // attempts here (a highlight gradient drawn inside the top
+                // edge, then a gradient extended above it) were both
+                // explicitly rejected on sight ("kachra lag raha hai...
+                // border ko borderline hi rehne do... hard lining karte
+                // bhai") - reverted straight back to the original plain
+                // hard 1px borderTop. Leave this alone.
                 border: isMobile ? 'none' : '1px solid var(--border-premium)',
                 borderTop: isMobile ? '1px solid var(--border-premium)' : undefined,
                 borderRadius: isMobile ? 0 : '9999px',
@@ -189,16 +276,65 @@ const FloatingBottomPlayer = ({
                 overflow: 'visible', position: 'relative',
                 display: 'flex', flexDirection: 'column',
             }}>
+                {isMobile && (
+                    <button
+                        onClick={() => setFullPlayerOpen(true)}
+                        title="Expand to full player" aria-label="Expand to full player"
+                        style={{
+                            position: 'absolute', left: `${MOBILE_ART_INSET}px`, top: `${MOBILE_ART_INSET}px`, bottom: `${MOBILE_ART_INSET}px`, width: `${MOBILE_ART_WIDTH}px`,
+                            borderRadius: `${MOBILE_ART_RADIUS}px`, overflow: 'hidden',
+                            background: currentTrack.artworkUrl ? `url(${currentTrack.artworkUrl}) center/cover` : gradientForTrack(currentTrack.title),
+                            border: 'none', padding: 0, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.85)',
+                        }}
+                    >
+                        {!currentTrack.artworkUrl && <Disc size={18} />}
+                    </button>
+                )}
                 <div style={{
-                    display: 'flex', alignItems: 'center', gap: isMobile ? '10px' : '14px',
+                    display: 'flex', alignItems: 'center',
+                    // Real, reported follow-up: this gap (between the
+                    // title/progress column and the transport-icons
+                    // cluster) directly ate into the progress bar's own
+                    // reach - its right edge sits right up against this
+                    // gap, so a wide gap here is exactly why the timer
+                    // ended noticeably before Shuffle's own start ("ending
+                    // point thoda pehle ho raha hai... shuffle jahan se
+                    // start ho raha hai wahan khatam hona chahiye").
+                    // Narrowed 10px -> 4px on mobile only.
+                    // Narrowed again 4px -> 2px on mobile only (a real,
+                    // annotated-screenshot follow-up): the column's own
+                    // right edge is this row's total width minus this gap
+                    // minus the cluster's own width - since the cluster's
+                    // width/position is otherwise unaffected by this value
+                    // (heart is absolutely positioned off the cluster, not
+                    // a flex child of it, so the cluster's left edge is
+                    // algebraically independent of this gap), shrinking
+                    // JUST this number is the one lever that extends the
+                    // timer's own end a couple px further right - up to
+                    // Heart's own right edge exactly - without moving
+                    // Heart/Shuffle/Prev/Play/Next/Repeat at all. Measured
+                    // live: was ending 2px short of Heart's own right edge
+                    // ("heart ke parallel mein khatam ho raha tha, thoda
+                    // aage jaana chahiye"); this closes exactly that gap.
+                    gap: isMobile ? '2px' : '14px',
                     // Exact 54px row height on desktop per the explicit
                     // follow-up spec (matched against Apple's own
-                    // computed style). Mobile is now a single real row too
-                    // (see the radius comment above) with a real, fixed
-                    // height matching Spotify's own mini bar proportions,
-                    // not the old auto-height stacked layout.
+                    // computed style). Mobile went through several rounds
+                    // of trimming (56->48->44->40->36px) while the title
+                    // and progress bar were split across two separate
+                    // rows - now back to ONE single row (matching the
+                    // progress-bar reversal above), so it needs real room
+                    // again for the now-bigger icons + the title/progress
+                    // stacked beside them - settled on 56px, the same
+                    // real height desktop already uses successfully for
+                    // this exact "icons + stacked title/progress" content.
                     height: isMobile ? '56px' : '54px', boxSizing: 'border-box',
-                    padding: isMobile ? '0 12px' : '0 18px',
+                    // Real, reported follow-up: right padding narrowed
+                    // 12px -> 8px on mobile - "Repeat ko itna space lekar
+                    // kyun rakha hai right side se... thoda aur khisko" -
+                    // Repeat now sits closer to the card's true right edge.
+                    padding: isMobile ? `0 8px 0 ${MOBILE_CONTENT_LEFT_PADDING}px` : '0 18px',
                 }}>
                     {/* Transport controls - LEFT on desktop (unchanged,
                         matches the real Apple Music web player this whole
@@ -214,30 +350,101 @@ const FloatingBottomPlayer = ({
                         duplication) - desktop's own explicit order:0 is
                         identical to unset, so its layout is byte-for-byte
                         unchanged. */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '2px' : '6px', flexShrink: 0, order: isMobile ? 2 : 0 }}>
+                    {/* Real, reported follow-up: gap between these 5 icons
+                        themselves narrowed 6px -> 4px on mobile only -
+                        "Repeat aur Next ke beech itna spacing nahi rakhna
+                        hai... yehi same haal sabka hai". A tighter cluster
+                        is also narrower overall, which - since it's the
+                        OTHER flex item sharing this row with the flex:1
+                        title/progress column - hands that column back the
+                        freed-up width too (further helping the progress
+                        bar reach closer to Shuffle, on top of the row-gap
+                        and padding changes above). Heart's own position is
+                        anchored to this cluster's left edge (see its own
+                        comment), so it automatically travels right along
+                        with Shuffle as this tightens - no separate change
+                        needed there. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', flexShrink: 0, order: isMobile ? 2 : 0, position: 'relative' }}>
                         {/* Shuffle/Repeat now show on mobile too - a real,
                             explicit request: they used to be desktop-only,
                             with no way to reach either from the phone at
                             all. Same real toggleShuffle/cycleRepeatMode
                             this row's desktop buttons already use, just no
-                            longer hidden. */}
+                            longer hidden. Real, reported follow-up: the
+                            first pass crammed all 5 icons together with a
+                            near-zero gap to make room ("चिपक गया एक जगह
+                            पर") - widened back to a real, breathable gap;
+                            the artwork+title column to their left already
+                            has its own real minWidth:0/truncation, so it's
+                            the one that gives up space here, not these
+                            controls.  */}
+                        {/* Real, explicitly-requested addition: mobile had
+                            no way to favourite the currently playing track
+                            at all (desktop reaches it through the "..."
+                            More Options menu, which mobile doesn't have) -
+                            same real isFav/toggleFavoriteTrack this file's
+                            own TrackOptionsMenu call already uses below,
+                            so it can never drift out of sync with what
+                            Favourites shows. Honest scope: this only ever
+                            favourites within Nexus itself (the same
+                            "Favourited in Nexus" list Favourites already
+                            shows) - it does NOT call Spotify's own real
+                            Save-Track API (that needs the
+                            user-library-modify scope, which isn't in
+                            SPOTIFY_SCOPES yet - a genuinely separate,
+                            bigger addition, not silently implied here).
+                            Real, reported follow-up: as a normal flex CHILD
+                            of this cluster it was adding its own real width
+                            to the cluster, which - being right-anchored -
+                            pushed the cluster's own LEFT edge further left,
+                            eating into the center title/progress column's
+                            space and visibly shrinking the progress bar's
+                            own reach ("audio grid jahaan tha wahi rehna
+                            chahiye... jaise shuffle ke paas khatam hota
+                            tha"). Now `position:absolute` against this
+                            cluster's own `position:relative` box instead -
+                            same exact visual spot (flush left of Shuffle,
+                            same 6px gap, vertically centered), but it no
+                            longer contributes to the cluster's flex width
+                            AT ALL, so the center column genuinely reclaims
+                            the exact width it had before this button ever
+                            existed. Positioned elements paint above static
+                            ones in the same stacking context by default, so
+                            it still renders on top of the reclaimed title/
+                            progress area it now visually overlaps (an
+                            explicit zIndex here too, for clarity). */}
+                        {isMobile && (
+                            <button
+                                onClick={() => toggleFavoriteTrack(currentTrack.title, { artist: currentTrack.artist, url: currentTrack.url, uri: currentTrack.uri, source: currentTrack.source || (currentTrack.isLocal ? 'local' : undefined), artworkUrl: currentTrack.artworkUrl })}
+                                title={isFav ? 'Remove from Favourites' : 'Add to Favourites'}
+                                style={{
+                                    // Real, reported follow-up: nudged closer to
+                                    // Shuffle (2px gap, down from 6px) - "heart ko
+                                    // halka sa ghisao shuffle ki side".
+                                    position: 'absolute', right: '100%', top: '50%', transform: 'translateY(-50%)', marginRight: '2px', zIndex: 2,
+                                    background: 'transparent', border: 'none', color: isFav ? '#F43F5E' : 'var(--text-secondary)', cursor: 'pointer', padding: '4px', display: 'flex',
+                                }}
+                            >
+                                <Heart size={17} fill={isFav ? '#F43F5E' : 'none'} />
+                            </button>
+                        )}
                         <button onClick={toggleShuffle} title="Shuffle" className={shuffleEnabled ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(shuffleEnabled ? { color: 'var(--primary)' } : { padding: isMobile ? '4px' : '6px' })}>
-                            <Shuffle size={isMobile ? 14 : 15} />
+                            <Shuffle size={isMobile ? 17 : 15} />
                         </button>
                         <button onClick={prev} title="Previous" className="nexus-audio-icon-btn" style={iconBtnStyle({ color: 'var(--text-primary)', padding: isMobile ? '4px' : '6px' })}>
-                            <SkipBack size={16} fill="currentColor" />
+                            <SkipBack size={isMobile ? 19 : 16} fill="currentColor" />
                         </button>
                         <button
                             onClick={togglePlay} title={isPlaying ? 'Pause' : 'Play'}
                             style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '2px' : '4px', flexShrink: 0 }}
                         >
-                            {isPlaying ? <Pause size={isMobile ? 22 : 24} fill="currentColor" /> : <Play size={isMobile ? 22 : 24} fill="currentColor" style={{ marginLeft: '2px' }} />}
+                            {isPlaying ? <Pause size={isMobile ? 27 : 24} fill="currentColor" /> : <Play size={isMobile ? 27 : 24} fill="currentColor" style={{ marginLeft: '2px' }} />}
                         </button>
                         <button onClick={next} title="Next" className="nexus-audio-icon-btn" style={iconBtnStyle({ color: 'var(--text-primary)', padding: isMobile ? '4px' : '6px' })}>
-                            <SkipForward size={16} fill="currentColor" />
+                            <SkipForward size={isMobile ? 19 : 16} fill="currentColor" />
                         </button>
                         <button onClick={cycleRepeatMode} title={`Repeat: ${repeatMode}`} className={repeatActive ? '' : 'nexus-audio-icon-btn'} style={iconBtnStyle(repeatActive ? { color: 'var(--primary)' } : { padding: isMobile ? '4px' : '6px' })}>
-                            <RepeatIcon size={isMobile ? 14 : 15} />
+                            <RepeatIcon size={isMobile ? 17 : 15} />
                         </button>
                     </div>
 
@@ -259,21 +466,44 @@ const FloatingBottomPlayer = ({
                         progress spans under the artwork and the more-
                         button too, not confined to just the text block as
                         it was before this correction). */}
-                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '4px', order: isMobile ? 1 : 0 }}>
+                    <div style={{
+                        flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
+                        // Real, reported follow-up (annotated screenshot):
+                        // centering this 2-line stack left a visibly bigger
+                        // empty gap below the progress bar than above the
+                        // title ("audio grid neeche se itni space lekar kyu
+                        // rakha hai"). `justifyContent` alone did nothing
+                        // here, though - this column's own box only ever
+                        // wraps its two lines of real content (it's never
+                        // stretched to the full 56px), and the OUTER row's
+                        // `alignItems: center` was what actually centered
+                        // that whole box within the row - so it's `alignSelf`
+                        // on THIS flex item (against the outer row), not
+                        // `justifyContent` on ITS OWN children, that needed
+                        // to change. Mobile only; desktop keeps its original
+                        // centered single-line layout.
+                        alignSelf: isMobile ? 'flex-end' : 'auto',
+                        justifyContent: 'center',
+                        paddingBottom: isMobile ? '3px' : 0,
+                        gap: '4px', order: isMobile ? 1 : 0,
+                    }}>
                         <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            {/* Desktop only here - real, reported request:
+                                on mobile this same artwork now renders as
+                                one absolutely-positioned element spanning
+                                the FULL card height (both this row and the
+                                progress row below it), not a small square
+                                confined to just this row - see MOBILE_ART_
+                                WIDTH and its own button, a sibling of the
+                                whole icon row, further down. */}
+                            {!isMobile && (
                             <button
                                 onClick={() => setFullPlayerOpen(true)}
                                 onMouseEnter={() => setArtworkHovered(true)}
                                 onMouseLeave={() => setArtworkHovered(false)}
                                 title="Expand to full player" aria-label="Expand to full player"
                                 style={{
-                                    // Real, reported follow-up: 42px read as
-                                    // too large relative to the rest of the
-                                    // bar - settled on 36px, still a real
-                                    // step up from the old 30px (closer to
-                                    // Spotify's own proportions) without
-                                    // overpowering the row.
-                                    width: isMobile ? '36px' : '34px', height: isMobile ? '36px' : '34px', borderRadius: isMobile ? '8px' : '6px',
+                                    width: '34px', height: '34px', borderRadius: '6px',
                                     // Real, reported bug: this always showed a
                                     // generated gradient + generic Disc icon,
                                     // even for a track (Spotify search results,
@@ -289,7 +519,7 @@ const FloatingBottomPlayer = ({
                                 }}
                             >
                                 {!currentTrack.artworkUrl && (
-                                    <Disc size={isMobile ? 14 : 16} style={{ opacity: artworkHovered ? 0.25 : 1, transition: 'opacity 0.15s ease' }} />
+                                    <Disc size={16} style={{ opacity: artworkHovered ? 0.25 : 1, transition: 'opacity 0.15s ease' }} />
                                 )}
                                 {/* A real cover image needs its own dark
                                     scrim behind the hover icon (a plain
@@ -300,10 +530,9 @@ const FloatingBottomPlayer = ({
                                 {currentTrack.artworkUrl && (
                                     <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', opacity: artworkHovered ? 1 : 0, transition: 'opacity 0.15s ease' }} />
                                 )}
-                                {!isMobile && (
-                                    <Maximize2 size={13} color="#fff" style={{ position: 'absolute', opacity: artworkHovered ? 1 : 0, transition: 'opacity 0.15s ease', pointerEvents: 'none' }} />
-                                )}
+                                <Maximize2 size={13} color="#fff" style={{ position: 'absolute', opacity: artworkHovered ? 1 : 0, transition: 'opacity 0.15s ease', pointerEvents: 'none' }} />
                             </button>
+                            )}
 
                             <div
                                 style={{ flex: 1, minWidth: 0, position: 'relative', cursor: isMobile ? 'pointer' : 'default' }}
@@ -332,7 +561,61 @@ const FloatingBottomPlayer = ({
                                     filter: !isMobile && progressHovered ? 'blur(1.5px)' : 'none',
                                     transition: 'opacity 0.15s ease, filter 0.15s ease',
                                 }}>
-                                    <div style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.3' }}>{currentTrack.title}</div>
+                                    {isMobile ? (
+                                        // Real, explicitly-requested marquee: measured
+                                        // overflow (mobileTitleOverflowPx, see its own
+                                        // comment above) drives a real CSS custom
+                                        // property the keyframe below reads, rather than
+                                        // a fixed distance that would either undershoot a
+                                        // very long title or overshoot a barely-long one.
+                                        // Soft edge fade (mask-image, not a hard clip) so
+                                        // the scrolling text visibly fades out at both
+                                        // edges instead of getting guillotining mid-
+                                        // letter - real, explicit "smooth border, hल्का,
+                                        // bold नहीं" request. Real, reported follow-up:
+                                        // widening just the mask's own percentages twice
+                                        // (28px, then 40px) never actually moved anything,
+                                        // because this box's own width still ran flush to
+                                        // where Heart sits - text stayed fully solid the
+                                        // entire way there and only vanished the instant
+                                        // Heart's opaque icon glyph itself physically
+                                        // covered it ("heart ke peeche text ghus raha hai...
+                                        // heart se pehle kyun nahi hat raha"). Real fix:
+                                        // shrink this box's own width, reserving a genuine
+                                        // 22px dead zone with no text at all between it and
+                                        // Heart - the mask's fade now completes ENTIRELY
+                                        // inside that shrunk box, so the text is already
+                                        // fully transparent well before reaching the
+                                        // reserved gap, let alone Heart itself.
+                                        <div
+                                            ref={mobileTitleOuterRef}
+                                            style={{
+                                                width: 'calc(100% - 22px)',
+                                                overflow: 'hidden',
+                                                maskImage: mobileTitleOverflowPx > 0 ? 'linear-gradient(to right, transparent 0, black 10px, black calc(100% - 22px), transparent 100%)' : 'none',
+                                                WebkitMaskImage: mobileTitleOverflowPx > 0 ? 'linear-gradient(to right, transparent 0, black 10px, black calc(100% - 22px), transparent 100%)' : 'none',
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    fontSize: '12.5px', fontWeight: '700', color: 'var(--text-primary)',
+                                                    whiteSpace: 'nowrap', lineHeight: '1.3', display: 'inline-block',
+                                                    ...(mobileTitleOverflowPx > 0 ? {
+                                                        '--nexus-marquee-distance': `-${mobileTitleOverflowPx}px`,
+                                                        // linear + no `alternate` - see the keyframe's own
+                                                        // comment above for why (one-direction loop, never
+                                                        // reverses). Duration is the real, measured-overflow-
+                                                        // aware value computed above, not a fixed number.
+                                                        animation: `nexusMiniPlayerMarquee ${mobileMarqueeDurationSec}s linear infinite`,
+                                                    } : {}),
+                                                }}
+                                            >
+                                                {currentTrack.title}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '12.5px', fontWeight: '700', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.3' }}>{currentTrack.title}</div>
+                                    )}
                                     {/* CORRECTED after live-inspecting
                                         Apple's own real site (not a
                                         screenshot): the artist line is
@@ -387,27 +670,51 @@ const FloatingBottomPlayer = ({
                             )}
                         </div>
 
-                        {/* Thin scrubber - now genuinely spans the FULL
-                            row width (under the artwork and the more-
-                            button too), not just the text block, matching
-                            the real measured `.player-lcd__progress`
-                            (715-1077, same span as the row above it). */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : 0 }}>
-                            {/* Real, explicit request: mobile has no hover
-                                state, so the desktop "times only appear
-                                while hovering the bar" treatment left
-                                mobile with literally no elapsed/remaining
-                                display at all - these two labels flank the
-                                bar and are always visible there instead. */}
+                        {/* Thin scrubber - desktop only here (spans the
+                            center column's own width, under the artwork
+                            and the more-button, matching the real measured
+                            `.player-lcd__progress`). Real, reported bug
+                            fixed for mobile: this used to render inside
+                            THIS center column on mobile too, which only
+                            spans the space left over after the transport-
+                            controls group on the right - so the bar
+                            visibly stopped well short of the card's real
+                            right edge instead of reaching it ("आधा में
+                            क्यों है... Home से लेकर Setting तक"). Mobile's
+                            own version now renders as a separate, genuinely
+                            full-width row below the whole icon row instead
+                            (see just after this row's own closing tag) -
+                            not nested inside any one column, so it can
+                            actually span the full card. Real, reported
+                        reversal: mobile briefly had this pulled OUT into
+                        its own separate full-width row instead (so the
+                        bar would reach the card's true right edge) - but
+                        that made it run underneath the transport-controls
+                        column too, which was ALSO reported wrong ("उसको
+                        छोटा करके इधर ले आओ, AI के पास" - shrink it back
+                        down and bring it back here, next to the title,
+                        not stretching under the buttons). Back to living
+                        in this same center column on both mobile and
+                        desktop now - mobile just keeps its own
+                        always-visible flanking time labels (no hover
+                        state to gate them behind, unlike desktop's). */}
+                        {/* Real, reported follow-up: explicit width:100%
+                            (defensive, matches this being the real intended
+                            right edge) - this row's right end (the "-4:47"
+                            label) should reach exactly the same boundary
+                            Heart's own right edge sits against (see Heart's
+                            own absolute-overlay comment above), not stop
+                            short of it. */}
+                        <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : 0 }}>
                             {isMobile && (
                                 <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: '700', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatTime(clampedTime)}</span>
                             )}
                             <div
                                 onMouseEnter={() => setProgressHovered(true)}
                                 onMouseLeave={() => setProgressHovered(false)}
-                                style={{ position: 'relative', flex: 1, minWidth: 0, height: '10px', display: 'flex', alignItems: 'center' }}
+                                style={{ position: 'relative', flex: 1, minWidth: 0, height: isMobile ? '7px' : '10px', display: 'flex', alignItems: 'center' }}
                             >
-                                <div style={{ position: 'absolute', left: 0, right: 0, height: progressHovered ? '4px' : '3px', borderRadius: '3px', background: 'var(--border-premium)', overflow: 'hidden', transition: 'height 0.15s ease' }}>
+                                <div style={{ position: 'absolute', left: 0, right: 0, height: isMobile ? '3px' : (progressHovered ? '4px' : '3px'), borderRadius: '3px', background: 'var(--border-premium)', overflow: 'hidden', transition: 'height 0.15s ease' }}>
                                     <div style={{ width: `${progressPct}%`, height: '100%', background: 'var(--primary)', transition: 'width 1s linear' }} />
                                 </div>
                                 <input

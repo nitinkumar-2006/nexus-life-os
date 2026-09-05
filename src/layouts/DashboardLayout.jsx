@@ -1,5 +1,5 @@
 // src/layouts/DashboardLayout.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from '../components/sidebar.jsx';
 import MobileTabBar from '../components/MobileTabBar.jsx';
 import MobileSidebarDrawer from '../components/MobileSidebarDrawer.jsx';
@@ -117,6 +117,32 @@ const DashboardLayout = () => {
     });
     const [isCollapsed, setIsCollapsed] = useState(true);
     const isMobile = useIsMobile();
+    // Real, reported bug: .nexus-page-scroll below is ONE stable div that
+    // every page's content renders inside (only its children swap when
+    // activeTab changes) - so switching tabs while scrolled down on the
+    // page you're leaving landed you on the SAME scroll offset on the
+    // page you're arriving at, its own header/top content shoved up out
+    // of view above the fold ("cut off from below, jumps in from the
+    // top", confirmed live on both the AI and Profile pages). Every
+    // other real app resets scroll to the top of a freshly-opened page;
+    // this just does the same, explicitly, since nothing else here ever
+    // did it implicitly.
+    const pageScrollRef = useRef(null);
+    useEffect(() => {
+        pageScrollRef.current?.scrollTo(0, 0);
+        // Belt-and-braces: also reset the actual window/document scroll
+        // position, not just this one known container. Real, reported
+        // follow-up after the fix above: a stray scroll landing on the
+        // window itself (confirmed cause - AIChatArea's own
+        // scrollIntoView call, now fixed at the source too) still isn't
+        // this container's own scrollTop to reset, and genuinely carried
+        // over into whichever page opened next regardless of this
+        // effect. Covers that same class of bug from any other future
+        // source too, not just the one already found and fixed.
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+    }, [activeTab]);
     // Manual drag-to-resize for the main Sidebar - same proven mechanism
     // already used by the AI page's own sidebar and Audio Hub's sidebar,
     // now under its own storage key/range. Only meaningful when expanded
@@ -175,6 +201,12 @@ const DashboardLayout = () => {
         if (t >= 17 && t < 19.5) return 'dusk';
         return 'night';
     });
+    // Real, reported follow-up: see DynamicBackground.jsx's own
+    // onRainingChange comment - the phase-reroute alone doesn't give rain
+    // enough glass-opacity boost, since its dimming of the actual sky is
+    // much milder than a genuine dusk sky. Defaults false so a fresh mount
+    // never briefly applies the rain floor before the real weather is known.
+    const [isSkyRaining, setIsSkyRaining] = useState(false);
 
     // Keep `data-theme` on <html> in sync with localStorage on first mount
     // (fixes refreshing the page while on Dynamic theme losing the attribute),
@@ -237,6 +269,17 @@ const DashboardLayout = () => {
             document.documentElement.removeAttribute('data-sky-phase');
         }
     }, [isDynamic, skyPhase]);
+
+    // `data-weather-rain` - see DynamicBackground.jsx's onRainingChange and
+    // variables.css's own RAIN CONTRAST FLOOR for why this needs to be a
+    // separate attribute from data-sky-phase rather than folded into it.
+    useEffect(() => {
+        if (isDynamic && isSkyRaining) {
+            document.documentElement.setAttribute('data-weather-rain', 'true');
+        } else {
+            document.documentElement.removeAttribute('data-weather-rain');
+        }
+    }, [isDynamic, isSkyRaining]);
 
     // Applies the user's saved Animations & Accent/Tint choices at real
     // app startup - without this, a fresh load (or any session where the
@@ -411,7 +454,7 @@ const DashboardLayout = () => {
                     {showPermissionsOnboarding && (
                         <PermissionsOnboarding onComplete={() => setShowPermissionsOnboarding(false)} />
                     )}
-                    {wallpaper === 'sky' ? (isDynamic && <DynamicBackground onPhaseChange={setSkyPhase} isSidebarCollapsed={isCollapsed} />) : <AlternateBackgrounds wallpaper={wallpaper} />}
+                    {wallpaper === 'sky' ? (isDynamic && <DynamicBackground onPhaseChange={setSkyPhase} onRainingChange={setIsSkyRaining} isSidebarCollapsed={isCollapsed} />) : <AlternateBackgrounds wallpaper={wallpaper} />}
 
                     <div
                         className="nexus-app-shell"
@@ -519,6 +562,7 @@ const DashboardLayout = () => {
                                 <Header setActiveTab={setActiveTab} isMobile={isMobile} onOpenMenu={() => setIsMobileNavOpen((v) => !v)} />
                             )}
                             <div
+                                ref={pageScrollRef}
                                 className="nexus-page-scroll"
                                 style={{
                                     flex: 1, minWidth: 0,

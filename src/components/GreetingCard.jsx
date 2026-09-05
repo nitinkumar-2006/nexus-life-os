@@ -92,7 +92,22 @@ const IconPickerPopover = ({ position, isMobile, selectedId, onSelect, onClose, 
         <div style={{
             position: 'fixed', top: position.top, left: position.left, zIndex: 10000,
             width: isMobile ? '260px' : '320px', maxWidth: '80vw',
+            // Real, reported bug (screenshot): this background is a fixed
+            // dark navy REGARDLESS of theme, but every text color inside
+            // it (text-primary/text-muted/border-premium below) was still
+            // just following the ambient --var() theme tokens, which go
+            // DARK on a light theme surface (Day/Light, or Dynamic's own
+            // day/dawn sky-phase) - exactly the combination that makes
+            // dark-on-dark, near-invisible text ("saala black black mein
+            // dikh hi nahi raha hai"). Same fixed dark-glass palette
+            // override already used for this exact reason on this app's
+            // OTHER always-dark popovers (FloatingBottomPlayer's mini-
+            // player, header.jsx's System Panel/Focus Audio Studio) - this
+            // one was simply missed when those got it.
             background: 'rgba(15, 15, 26, 0.97)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+            '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+            '--widget-bg': 'rgba(255,255,255,0.08)', '--primary-muted': 'rgba(99,102,241,0.25)',
             border: '1px solid var(--border-premium)', borderRadius: '16px',
             padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
             display: 'flex', flexDirection: 'column', gap: '10px',
@@ -123,6 +138,26 @@ const IconPickerPopover = ({ position, isMobile, selectedId, onSelect, onClose, 
     </>,
     document.body,
 );
+
+// Real, reported bug (screenshot): every one of this card's small
+// portaled popovers below computed its own horizontal position as just
+// `rect.left` - the trigger button's own left edge - with zero regard
+// for the popover's own fixed width or the real viewport's right edge.
+// Whichever trigger happened to sit far enough right on a real phone
+// (the greeting-icon button in particular, right after a long greeting
+// phrase) pushed its popover's right edge straight off the actual
+// screen - genuinely unreachable/unusable, not just visually tight
+// ("mobile response se baahar ja raha hai... koi kaise hi click kar
+// lega uspar"). Shared here so all four popovers below (greeting icon,
+// greeting phrase, status icon, system status) get the same real fix:
+// clamp so the popover's own right edge never passes
+// window.innerWidth - margin, and its left edge never passes below
+// margin either (a trigger sitting very close to the LEFT edge on a
+// narrow phone needs the same protection in the other direction).
+const clampPopoverLeft = (rectLeft, popoverWidth, margin = 8) => {
+    if (typeof window === 'undefined') return rectLeft;
+    return Math.max(margin, Math.min(rectLeft, window.innerWidth - popoverWidth - margin));
+};
 
 // Real alternative phrasings for each time-of-day bucket, per explicit
 // request - the SAME meaning/warmth as "Good Afternoon", just a
@@ -183,7 +218,7 @@ const GreetingCard = ({ setActiveTab }) => {
 
     const openStatusIconPicker = () => {
         const rect = statusIconButtonRef.current?.getBoundingClientRect();
-        if (rect) setStatusIconPickerPosition({ top: rect.bottom + 8, left: rect.left });
+        if (rect) setStatusIconPickerPosition({ top: rect.bottom + 8, left: clampPopoverLeft(rect.left, isMobile ? 260 : 320) });
         setIsStatusIconPickerOpen((v) => !v);
     };
 
@@ -204,7 +239,7 @@ const GreetingCard = ({ setActiveTab }) => {
 
     const openPhrasePicker = () => {
         const rect = phraseButtonRef.current?.getBoundingClientRect();
-        if (rect) setPhrasePickerPosition({ top: rect.bottom + 10, left: rect.left });
+        if (rect) setPhrasePickerPosition({ top: rect.bottom + 10, left: clampPopoverLeft(rect.left, isMobile ? 240 : 260) });
         setIsPhrasePickerOpen((v) => !v);
     };
 
@@ -228,7 +263,7 @@ const GreetingCard = ({ setActiveTab }) => {
     // class of bug, not a workaround.
     const openIconPicker = () => {
         const rect = iconButtonRef.current?.getBoundingClientRect();
-        if (rect) setPickerPosition({ top: rect.bottom + 10, left: rect.left });
+        if (rect) setPickerPosition({ top: rect.bottom + 10, left: clampPopoverLeft(rect.left, isMobile ? 260 : 320) });
         setIsEmojiPickerOpen((v) => !v);
     };
 
@@ -302,7 +337,7 @@ const GreetingCard = ({ setActiveTab }) => {
     const statusButtonRef = useRef(null);
     const openStatusPopover = () => {
         const rect = statusButtonRef.current?.getBoundingClientRect();
-        if (rect) setStatusPopoverPosition({ top: rect.bottom + 10, left: rect.left });
+        if (rect) setStatusPopoverPosition({ top: rect.bottom + 10, left: clampPopoverLeft(rect.left, isMobile ? 260 : 290) });
         setIsStatusPopoverOpen((v) => !v);
     };
     // The real active theme id lives under its own dedicated
@@ -429,7 +464,7 @@ const GreetingCard = ({ setActiveTab }) => {
                             // on the page).
                             fontSize: isMobile ? '10px' : '13px', background: 'var(--primary-muted)', color: 'var(--accent)',
                             padding: isMobile ? '3px 8px' : '4px 12px', borderRadius: '20px', fontWeight: '600',
-                            display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', border: 'none', cursor: 'pointer', font: 'inherit',
+                            display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '6px', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                         }}
                     >
                         <StatusIcon size={isMobile ? 11 : 14} /> Personal OS Active
@@ -440,7 +475,15 @@ const GreetingCard = ({ setActiveTab }) => {
                             <div style={{
                                 position: 'fixed', top: statusPopoverPosition.top, left: statusPopoverPosition.left, zIndex: 10000,
                                 width: isMobile ? '260px' : '290px', maxWidth: '85vw',
+                                // Same fixed dark-glass palette override as
+                                // IconPickerPopover above, same real reason
+                                // (see its own comment) - a fixed-dark
+                                // background needs fixed-light text
+                                // regardless of the ambient theme.
                                 background: 'rgba(15, 15, 26, 0.97)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                                '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                                '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                                '--widget-bg': 'rgba(255,255,255,0.08)', '--primary-muted': 'rgba(99,102,241,0.25)',
                                 border: '1px solid var(--border-premium)', borderRadius: '16px',
                                 padding: '14px', boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
                                 display: 'flex', flexDirection: 'column', gap: '10px',
@@ -494,7 +537,7 @@ const GreetingCard = ({ setActiveTab }) => {
                                         style={{
                                             background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '8px',
                                             padding: '6px 10px', color: 'var(--text-secondary)', fontSize: '11px', fontWeight: '700',
-                                            cursor: 'pointer', font: 'inherit', flexShrink: 0,
+                                            cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
                                         }}
                                     >
                                         Change
@@ -517,7 +560,7 @@ const GreetingCard = ({ setActiveTab }) => {
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                                         marginTop: '2px', padding: '9px', borderRadius: '10px', cursor: 'pointer',
                                         background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', color: 'var(--text-primary)',
-                                        font: 'inherit', fontSize: '13px', fontWeight: '700',
+                                        fontFamily: 'inherit', fontSize: '13px', fontWeight: '700',
                                     }}
                                 >
                                     Open Settings <ArrowUpRight size={14} />
@@ -544,7 +587,7 @@ const GreetingCard = ({ setActiveTab }) => {
                         title="Change greeting phrase"
                         style={{
                             background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-                            font: 'inherit', fontWeight: 'inherit', color: 'inherit', letterSpacing: 'inherit',
+                            font: 'inherit', color: 'inherit', letterSpacing: 'inherit',
                             textDecoration: 'none',
                         }}
                     >
@@ -557,7 +600,15 @@ const GreetingCard = ({ setActiveTab }) => {
                             <div style={{
                                 position: 'fixed', top: phrasePickerPosition.top, left: phrasePickerPosition.left, zIndex: 10000,
                                 width: isMobile ? '240px' : '260px', maxWidth: '80vw',
+                                // Same fixed dark-glass palette override as
+                                // IconPickerPopover above, same real reason
+                                // (see its own comment) - a fixed-dark
+                                // background needs fixed-light text
+                                // regardless of the ambient theme.
                                 background: 'rgba(15, 15, 26, 0.97)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+                                '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                                '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                                '--widget-bg': 'rgba(255,255,255,0.08)', '--primary-muted': 'rgba(99,102,241,0.25)',
                                 border: '1px solid var(--border-premium)', borderRadius: '16px',
                                 padding: '10px', boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
                                 display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '320px', overflowY: 'auto',
@@ -577,7 +628,7 @@ const GreetingCard = ({ setActiveTab }) => {
                                                 background: isSelected ? 'var(--primary-muted)' : 'transparent',
                                                 border: isSelected ? '1px solid var(--primary)' : '1px solid transparent',
                                                 color: isSelected ? 'var(--accent)' : 'var(--text-secondary)',
-                                                font: 'inherit', fontSize: '14px', fontWeight: isSelected ? '700' : '500',
+                                                fontFamily: 'inherit', fontSize: '14px', fontWeight: isSelected ? '700' : '500',
                                             }}
                                         >
                                             {phrase}

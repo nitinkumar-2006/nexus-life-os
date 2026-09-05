@@ -300,7 +300,7 @@ const generateRainStreaks = () =>
         height: 14 + Math.random() * 18,
     }));
 
-const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
+const DynamicBackground = ({ onPhaseChange, onRainingChange, isSidebarCollapsed }) => {
     const [timeState, setTimeState] = useState(computeTimeState);
     const stars = useMemo(generateStars, []);
     const clouds = useMemo(generateClouds, []);
@@ -383,11 +383,24 @@ const DynamicBackground = ({ onPhaseChange, isSidebarCollapsed }) => {
             // real, unmodified `next.phase`.
             const reportedPhase = (isRaining && (next.phase === 'day' || next.phase === 'dawn')) ? 'dusk' : next.phase;
             if (onPhaseChange) onPhaseChange(reportedPhase);
+            // Real, reported follow-up (live screenshot, genuinely raining):
+            // rerouting to 'dusk' above fixes TEXT COLOR (dark -> light) but
+            // dusk's own glass-opacity floor (variables.css, 0.14) was tuned
+            // for a genuinely dark dusk sky - a rain-dimmed DAYTIME sky
+            // (rainDimAlpha above is only a mild 0.16/0.24 blend, the real
+            // sun/gradient underneath is untouched) stays far brighter than
+            // that, so light text on a still-too-transparent dark glass
+            // reads as washed-out/low-contrast against it ("bahut kuch dikh
+            // hi nahi raha, text gayab ho gaya"). Reporting `isRaining`
+            // separately lets variables.css apply its own, higher rain-only
+            // opacity floor on top of whichever phase is active, instead of
+            // relying on dusk's floor to cover a case it was never sized for.
+            if (onRainingChange) onRainingChange(isRaining);
         };
         tick();
         const interval = setInterval(tick, 30000);
         return () => clearInterval(interval);
-    }, [onPhaseChange, isRaining]);
+    }, [onPhaseChange, onRainingChange, isRaining]);
 
     const { phase, progress, colors, nightStrength, goldenStrength, moonPhase } = timeState;
     const isNight = phase === 'night';

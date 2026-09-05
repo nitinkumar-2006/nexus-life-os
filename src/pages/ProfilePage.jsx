@@ -384,8 +384,21 @@ const ProfilePage = () => {
             // size while keeping the real per-day counts unchanged.
             const activityByDay = {};
             planner.forEach((t) => {
-                if (typeof t.id === 'number' && t.id > 1000000000000) {
-                    const key = getLocalDateString(new Date(t.id));
+                // Real bug, reported live: the heatmap never showed a
+                // single dot no matter how many real tasks existed. Root
+                // cause - PlannerPage.jsx actually creates every task's id
+                // as `Date.now().toString()` (a STRING), but this check
+                // required `typeof t.id === 'number'`, which a string id
+                // can never satisfy - so this loop silently matched zero
+                // tasks for every real user, always, regardless of actual
+                // activity. Parsing either shape to a number (Number() on
+                // an already-numeric id is a harmless no-op) is what
+                // actually makes this work for the real, current id format
+                // instead of only a numeric one nothing in the codebase
+                // has ever produced.
+                const idNum = Number(t.id);
+                if (Number.isFinite(idNum) && idNum > 1000000000000) {
+                    const key = getLocalDateString(new Date(idNum));
                     activityByDay[key] = (activityByDay[key] || 0) + 1;
                 }
             });
@@ -702,7 +715,21 @@ const ProfilePage = () => {
                         </p>
 
                         {profile.quoteOfDay && (
-                            <div style={{ display: 'flex', gap: '10px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', borderLeft: '4px solid var(--accent)', marginTop: '14px', maxWidth: '600px', minWidth: 0, textAlign: 'left' }}>
+                            // Real, reported bug: this row's parent column
+                            // uses alignItems:center/flex-start (never
+                            // stretch), so with no width of its own this
+                            // box sized to its ONE-LINE text's natural
+                            // max-content width - on mobile that ran wider
+                            // than the viewport and just overflowed off the
+                            // right edge (silently clipped by an ancestor,
+                            // not actually ellipsis'd), even though the
+                            // text itself already had overflowWrap:
+                            // break-word ready to wrap - it never got a
+                            // width to wrap AGAINST. alignSelf:'stretch'
+                            // makes this box match the column's real
+                            // available width so the wrap can actually
+                            // happen.
+                            <div style={{ display: 'flex', gap: '10px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', borderLeft: '4px solid var(--accent)', marginTop: '14px', maxWidth: '600px', width: '100%', alignSelf: 'stretch', minWidth: 0, boxSizing: 'border-box', textAlign: 'left' }}>
                                 <Quote size={18} color="var(--accent)" style={{ opacity: 0.7, marginTop: '2px', flexShrink: 0 }} />
                                 <p style={{ fontSize: '14px', color: 'var(--text-primary)', fontStyle: 'italic', fontWeight: '500', lineHeight: '1.4', minWidth: 0, overflowWrap: 'break-word', margin: 0 }}>{profile.quoteOfDay}</p>
                             </div>

@@ -1125,16 +1125,33 @@ const MoreLikeArtistRow = React.memo(({ artistName, playTrackNow, spotifyAuth, s
 // via GET /v1/browse/new-releases (see spotifyClient.js's own comment: a
 // plain, non-personalized catalog-browse endpoint, not one of the largely-
 // restricted recommendation endpoints), fetched once per Home visit.
+// Real, reported noise fixed: Spotify's own /v1/browse/new-releases
+// endpoint returns a genuine, permanent 403 for any app created after
+// Spotify's Nov-2024 policy change restricting "extended quota" browse
+// endpoints to already-approved apps - not a bug, a real platform
+// restriction this app can't lift. It still failed (and logged a fresh
+// 403 to the console - the browser logs any failed fetch regardless of
+// how gracefully the app's own JS handles it) every single time this row
+// remounted (every visit to Home). Remembered at module scope once
+// confirmed broken this session, so it's attempted at most once per
+// session instead of repeating on every remount - real, permanent noise
+// reduction, not just a cosmetic try/catch (which was already there and
+// never stopped the browser's own console logging).
+let newReleasesConfirmedBroken = false;
 const NewReleasesRow = React.memo(({ spotifyAuth, onOpen, isMobile }) => {
     const [albums, setAlbums] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(!newReleasesConfirmedBroken);
 
     useEffect(() => {
+        if (newReleasesConfirmedBroken) return undefined;
         let cancelled = false;
         setLoading(true);
         getSpotifyNewReleases(spotifyAuth.accessToken)
             .then((results) => { if (!cancelled) setAlbums(results); })
-            .catch(() => { if (!cancelled) setAlbums([]); })
+            .catch(() => {
+                newReleasesConfirmedBroken = true;
+                if (!cancelled) setAlbums([]);
+            })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
     }, [spotifyAuth.accessToken]);
@@ -1779,6 +1796,9 @@ const FavoritesView = React.memo(({ favoriteTrackTitles, favoriteTrackDetails, t
             {spotifyAuth.connected && (spotifyLiked.length > 0 || spotifyLikedLoading || spotifyLikedError) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: '800', color: 'var(--text-secondary)', margin: 0 }}>Spotify Liked Songs</h3>
+                    {!spotifyLikedLoading && !spotifyLikedError && (
+                        <PlaylistPlayButtons tracks={spotifyLiked} spotifyDeviceId={spotifyDeviceId} spotifyAuth={spotifyAuth} activeSource={activeSource} setActiveSource={setActiveSource} spotifyPlayUri={spotifyPlayUri} />
+                    )}
                     {spotifyLikedLoading && <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>Loading…</p>}
                     {spotifyLikedError && <p style={{ fontSize: '13px', color: '#fca5a5', margin: 0 }}>{spotifyLikedError}</p>}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

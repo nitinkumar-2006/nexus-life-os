@@ -70,21 +70,27 @@ const MobileSidebarDrawer = ({ isOpen, onClose, activeTab, setActiveTab }) => {
         onClose();
     };
 
-    // Sized and positioned to exactly match the header's own hamburger
-    // toggle button (header.jsx: 34x34px, sitting at the header's own
-    // 12px left padding) - a real, confirmed misalignment had these at
-    // 52px and centered within the drawer's own width, which put every
-    // icon's center ~9px to the right of the toggle button's own center
-    // instead of continuing its vertical axis straight down. Matching
-    // both the exact size AND left-aligning at the identical 12px offset
-    // (rather than centering and relying on the math happening to work
-    // out) is what actually guarantees the two line up, not coincidence.
+    // Real, reported follow-up: the left-aligned-at-12px approach below
+    // (kept for the historical record in this comment) was explicitly
+    // rejected on sight - with the rail itself 50px wide and a 36px
+    // button pinned to a 10px left offset, the buttons sat only 4px from
+    // the rail's own right edge versus 10px from its left, reading as
+    // stuck/off-center rather than "continuing the toggle button's own
+    // axis" the way this was originally reasoned through ("yeh kone se
+    // thoda hat ke hai... chipka chipka lag raha hai"). Centered instead
+    // (see the <aside>/<nav> alignItems below) - genuinely equal breathing
+    // room on both sides now takes priority over exact pixel-continuity
+    // with the header toggle above it. Size also bumped 36px -> 44px/
+    // icon 22px -> 26px, a further explicit ask ("icons ko bada karo") -
+    // safe to grow right up near the rail's own 50px width once centering
+    // (not a fixed left offset) is what's positioning these, since
+    // centering auto-adjusts to whatever size the buttons end up being.
     const itemButtonStyle = (isActive) => ({
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        width: '34px', height: '34px', flexShrink: 0,
-        color: isActive ? '#fff' : 'var(--text-muted)',
-        background: isActive ? 'rgba(99,102,241,0.2)' : 'transparent',
-        border: isActive ? '1px solid rgba(99,102,241,0.4)' : '1px solid transparent',
+        width: '44px', height: '44px', flexShrink: 0,
+        color: isActive ? '#fff' : 'rgba(255,255,255,0.65)',
+        background: isActive ? 'rgba(99,102,241,0.25)' : 'transparent',
+        border: isActive ? '1px solid rgba(99,102,241,0.5)' : '1px solid transparent',
         borderRadius: '10px', cursor: 'pointer',
     });
 
@@ -131,24 +137,64 @@ const MobileSidebarDrawer = ({ isOpen, onClose, activeTab, setActiveTab }) => {
                        edge. This max() mirrors header.jsx's own real mobile
                        height exactly, not a guessed number: this app's
                        global `* { box-sizing: border-box }` reset (style.css)
-                       means header.jsx's 60px minHeight is a floor on its
+                       means header.jsx's 48px minHeight is a floor on its
                        TOTAL box (padding eats into it, not added on top), so
                        its actual rendered height is whichever is taller -
-                       that 60px floor, or its real content (the 34px
-                       hamburger button) plus its own real padding (10px top
-                       + safe-area-inset-top, 10px bottom) once a device's
+                       that 48px floor, or its real content (the 38px icon
+                       row) plus its own real padding (4px top +
+                       safe-area-inset-top, 4px bottom) once a device's
                        safe-area grows past a few px, exactly as header.jsx's
-                       own comment about Dynamic Island devices describes. */
-                    position: 'fixed', top: 'max(60px, calc(54px + env(safe-area-inset-top, 0px)))', left: 0, bottom: 0, zIndex: 401,
-                    // Tightly wrapped around the 34px buttons themselves
-                    // (12px left padding to match the header + 34px button
-                    // + 12px right breathing room) rather than the old
-                    // fixed 76px, which was real unused width once the
-                    // buttons shrank to match the header toggle's size.
-                    width: '58px', background: 'var(--sidebar-bg)',
-                    borderRight: '1px solid var(--border-premium)',
-                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                    padding: '20px 0 16px 12px',
+                       own comment about Dynamic Island devices describes.
+                       (Was 60px/54px before header.jsx's own mobile height
+                       was cut down for a real "header too tall" complaint -
+                       kept in sync by hand since there's no shared CSS var
+                       for header.jsx's real rendered height.) */
+                    position: 'fixed', top: 'max(48px, calc(46px + env(safe-area-inset-top, 0px)))', left: 0, bottom: 0, zIndex: 401,
+                    // Tightly wrapped around the 36px buttons themselves
+                    // (10px left padding, 36px button, 4px right breathing
+                    // room) - narrowed again 58px -> 50px, a real, reported
+                    // follow-up that this rail read as too WIDE for how
+                    // small its icons looked ("card zyada chaula ho gaya
+                    // hai... patla rakhna hai"), on top of the still-
+                    // unresolved legibility fix below.
+                    width: '50px',
+                    // Real, reported bug (screenshot): var(--sidebar-bg) is
+                    // a theme-driven token that on this app's Dynamic sky
+                    // theme carries very low alpha - with only blur behind
+                    // it, this rail read as almost fully see-through, real
+                    // page content bleeding through hard enough that the
+                    // icons themselves were barely visible ("bloody aa raha
+                    // hai... visual bhi nahi hai"). Same fixed, always-
+                    // opaque dark-glass treatment already proven for this
+                    // app's other full-viewport mobile overlays (the Focus
+                    // Audio Studio / System Panel header popovers, the
+                    // audio mini-player dock, the mobile search dropdown) -
+                    // a nav rail needs to stay legible over ANY page content
+                    // on ANY theme, not blend into whatever's behind it.
+                    background: 'rgba(15, 23, 42, 0.9)',
+                    backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
+                    WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
+                    borderRight: '1px solid rgba(255,255,255,0.14)',
+                    // Real, reported follow-up: alignItems 'flex-start' +
+                    // an asymmetric 10px/0px left/right padding is exactly
+                    // what put the buttons visibly closer to this rail's
+                    // own right edge than its left ("chipka chipka lag raha
+                    // hai") - 'center' now, with both left/right padding
+                    // removed so nothing fights the centering, and the
+                    // rail's own 50px width is genuinely untouched (this
+                    // only changes how the SAME-width rail's own icons are
+                    // laid out inside it, never the rail itself).
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    // Real React dev warning caught here: a shorthand
+                    // `padding` alongside explicit `paddingTop`/
+                    // `paddingBottom` for the same box is an actual React
+                    // footgun ("mixing shorthand and non-shorthand
+                    // properties... can lead to styling bugs") - React
+                    // can't guarantee which one wins on a re-render. Left/
+                    // right now live in their own longhands too, so
+                    // nothing here overlaps with the safe-area-aware
+                    // top/bottom values below.
+                    paddingLeft: 0, paddingRight: 0,
                     paddingTop: 'calc(20px + env(safe-area-inset-top, 0px))',
                     paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
                     transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
@@ -165,7 +211,15 @@ const MobileSidebarDrawer = ({ isOpen, onClose, activeTab, setActiveTab }) => {
                     isMobileNavOpen true/false - see header.jsx/
                     DashboardLayout.jsx), or tapping the dimmed backdrop
                     below. */}
-                <nav style={{ display: 'flex', flexDirection: 'column', gap: '6px', overflowY: 'auto', overflowX: 'hidden', flex: 1, width: '100%', alignItems: 'flex-start', marginTop: 'calc(6px + env(safe-area-inset-top, 0px))' }}>
+                {/* Real, reported follow-up: alignItems 'center' (matching
+                    the <aside>'s own change above) plus a wider gap
+                    (6px -> 12px) - both part of the same centering fix, and
+                    the wider gap also genuinely spends more of this rail's
+                    height on real content instead of the empty space below
+                    the last icon that was reported ("neeche tak kuch nahi
+                    hai... thoda neeche tak aa jayega"), on top of the
+                    bigger 44px buttons above doing the same. */}
+                <nav style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', overflowX: 'hidden', flex: 1, width: '100%', alignItems: 'center', marginTop: 'calc(6px + env(safe-area-inset-top, 0px))' }}>
                     {visibleNavItems.map((item) => (
                         <button
                             key={item.name}
@@ -174,7 +228,7 @@ const MobileSidebarDrawer = ({ isOpen, onClose, activeTab, setActiveTab }) => {
                             style={itemButtonStyle(activeTab === item.name)}
                         >
                             <span style={{ color: activeTab === item.name ? 'var(--primary, #6366f1)' : 'inherit', display: 'flex' }}>
-                                <item.icon size={18} />
+                                <item.icon size={26} />
                             </span>
                         </button>
                     ))}

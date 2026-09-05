@@ -103,8 +103,33 @@ const MobileHeaderSearch = ({ setActiveTab }) => {
 
             {isOpen && (
                 <div style={{
-                    position: 'fixed', top: 'calc(60px + env(safe-area-inset-top, 0px) + 8px)', left: '12px', right: '12px', maxHeight: '70vh', overflowY: 'auto',
-                    background: 'var(--bg-surface)', backdropFilter: 'blur(var(--glass-blur, 16px)) saturate(105%)', WebkitBackdropFilter: 'blur(var(--glass-blur, 16px)) saturate(105%)',
+                    // 60px -> 48px: matches header.jsx's own mobile
+                    // minHeight, which was cut 60px -> 48px for a real
+                    // vertical-size complaint - this offset was hardcoded
+                    // against the old value, so it drifted stale (left a
+                    // growing gap under the header exposing page content)
+                    // the moment that height changed. Same value, kept in
+                    // sync by hand since there's no shared CSS var for it.
+                    position: 'fixed', top: 'calc(48px + env(safe-area-inset-top, 0px) + 8px)', left: '12px', right: '12px', maxHeight: '70vh', overflowY: 'auto',
+                    // Real, reported bug: var(--bg-surface) is a genuine
+                    // theme-driven token (low alpha on this app's Dynamic
+                    // sky theme in particular) - with only blur behind it,
+                    // this full-width overlay let real page content (the
+                    // Home dashboard cards, in the reported case) bleed
+                    // through badly enough to read as one overlapping mess
+                    // of text, not a legible dropdown. Same fixed, always-
+                    // opaque dark-glass treatment (+ matching text-color
+                    // token overrides) already used for this header's other
+                    // full-viewport mobile popovers (System Panel, Focus
+                    // Audio Studio) - a search results list needs to stay
+                    // legible over ANY page content on ANY theme, so it
+                    // can't be theme/wallpaper-dependent the way a small
+                    // in-page glass card can.
+                    background: 'rgba(15, 23, 42, 0.94)',
+                    '--text-primary': '#FFFFFF', '--text-secondary': 'rgba(255,255,255,0.75)',
+                    '--text-muted': 'rgba(255,255,255,0.55)', '--border-premium': 'rgba(255,255,255,0.14)',
+                    '--widget-bg': 'rgba(255,255,255,0.08)', '--bg-main': 'rgba(255,255,255,0.06)',
+                    backdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)', WebkitBackdropFilter: 'blur(max(var(--glass-blur, 20px), 16px)) saturate(180%)',
                     border: '1px solid var(--border-premium)', borderRadius: '16px', padding: '10px', zIndex: 1100,
                     boxShadow: '0 10px 25px rgba(0,0,0,0.3)', WebkitAppRegion: 'no-drag',
                 }}>

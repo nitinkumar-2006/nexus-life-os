@@ -316,6 +316,32 @@
     --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.12));
 }
 
+/* RAIN CONTRAST FLOOR - a real, reported gap the dusk floor above doesn't
+   cover. DashboardLayout.jsx reroutes day/dawn to "dusk" while it's
+   actually raining (see DynamicBackground.jsx's own onPhaseChange comment)
+   so text correctly switches light - but that reroute only fixes text
+   COLOR, not how DARK the sky actually is. Real rain only mildly dims the
+   sky (DynamicBackground.jsx's own rainDimAlpha is a 0.16-0.24 blend, not
+   a real dusk/night gradient), so the still-fairly-bright rained-on
+   daytime sky visibly bled straight through the thin 0.14 dusk floor,
+   reading as washed-out/low-contrast everywhere ("bahut kuch dikh hi nahi
+   raha... bariish mein sab chhup gaya") - confirmed live by forcing
+   weatherState to 'rain' and screenshotting. `data-weather-rain` (see
+   DashboardLayout.jsx) is raised independently of sky-phase specifically
+   for this, with meaningfully higher floors than dusk's own, and - unlike
+   the dawn/dusk floors above - genuinely extended to the sidebar/header
+   too: those sit at a bare 3% tint normally, which was exactly why sidebar
+   icons specifically were reported as hard to see against a still-bright
+   rainy sky. max() only ever raises the user's own live glass-alpha
+   setting, never replaces it, same idiom as every floor above. */
+:root[data-theme="dynamic"][data-weather-rain="true"] {
+    --bg-surface: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.32));
+    --widget-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.28));
+    --sidebar-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.28));
+    --header-bg: rgba(15, 23, 42, max(var(--nexus-user-glass-alpha, 0.03), 0.28));
+    --popover-bg: rgba(15, 23, 42, 0.92);
+}
+
 /* Global fallback to prevent pitch-black rendering bugs */
 body {
     background-color: var(--bg-main, #0F0F17);
