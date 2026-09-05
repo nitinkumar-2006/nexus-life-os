@@ -10,6 +10,7 @@ import { TOOL_DEFINITIONS, executeToolCall } from '../utils/aiTools.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { GEMINI_API_KEY_FALLBACK } from '../config/aiConfig.js';
 import AILayout from '../components/ai/AILayout.jsx';
 
 // Real personas - each genuinely changes response routing (not just a
@@ -96,14 +97,24 @@ const AIPage = ({ setActiveTab: setAppActiveTab }) => {
         try {
             const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
             return {
-                geminiApiKey: saved.geminiApiKey || '', geminiApiKeyConfirmed: !!saved.geminiApiKeyConfirmed,
+                // Real, explicit request: fall back to the app's own
+                // default Gemini key when the user hasn't set their own
+                // (same precedent as SPOTIFY_CLIENT_ID_FALLBACK in
+                // streamingConfig.js) - treated as "confirmed" too since
+                // there's nothing for the user to confirm on a key they
+                // never typed. A real user-entered key always wins the
+                // moment one exists.
+                geminiApiKey: saved.geminiApiKey || GEMINI_API_KEY_FALLBACK, geminiApiKeyConfirmed: !!saved.geminiApiKeyConfirmed || !saved.geminiApiKey,
                 openaiApiKey: saved.openaiApiKey || '', openaiApiKeyConfirmed: !!saved.openaiApiKeyConfirmed,
                 grokApiKey: saved.grokApiKey || '', grokApiKeyConfirmed: !!saved.grokApiKeyConfirmed,
                 deepseekApiKey: saved.deepseekApiKey || '', deepseekApiKeyConfirmed: !!saved.deepseekApiKeyConfirmed,
             };
         } catch (e) {
+            // localStorage itself unreachable (private browsing, quota) -
+            // the default key still works, same as it would for any
+            // other first-run install with nothing saved yet.
             return {
-                geminiApiKey: '', geminiApiKeyConfirmed: false, openaiApiKey: '', openaiApiKeyConfirmed: false,
+                geminiApiKey: GEMINI_API_KEY_FALLBACK, geminiApiKeyConfirmed: true, openaiApiKey: '', openaiApiKeyConfirmed: false,
                 grokApiKey: '', grokApiKeyConfirmed: false, deepseekApiKey: '', deepseekApiKeyConfirmed: false,
             };
         }

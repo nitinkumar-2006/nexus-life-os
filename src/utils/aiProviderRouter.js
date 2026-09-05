@@ -24,9 +24,13 @@
 import { generateStructuredContent, GeminiApiError } from './geminiClient.js';
 import { streamGrokResponse, GrokApiError, buildGrokImageContent } from './grokClient.js';
 import { streamDeepseekResponse, DeepseekApiError } from './deepseekClient.js';
+import { GEMINI_API_KEY_FALLBACK } from '../config/aiConfig.js';
 
+// localStorage itself unreachable (private browsing, quota) - the
+// default Gemini key still works here too, same as any other first-run
+// install with nothing saved yet.
 const EMPTY_AI_PROVIDER_SETTINGS = {
-    geminiApiKey: '', geminiApiKeyConfirmed: false,
+    geminiApiKey: GEMINI_API_KEY_FALLBACK, geminiApiKeyConfirmed: true,
     openaiApiKey: '', openaiApiKeyConfirmed: false,
     grokApiKey: '', grokApiKeyConfirmed: false,
     deepseekApiKey: '', deepseekApiKeyConfirmed: false,
@@ -42,7 +46,14 @@ export const readAiProviderSettings = () => {
     try {
         const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
         return {
-            geminiApiKey: saved.geminiApiKey || '', geminiApiKeyConfirmed: !!saved.geminiApiKeyConfirmed,
+            // Real, explicit request: fall back to the app's own default
+            // Gemini key when the user hasn't set their own - and treat
+            // that as "confirmed" too (there's nothing for the user to
+            // confirm, it's already a real, working key). A real user-
+            // entered key always wins the moment one exists, exactly
+            // like Spotify's own SPOTIFY_CLIENT_ID_FALLBACK precedent in
+            // streamingConfig.js.
+            geminiApiKey: saved.geminiApiKey || GEMINI_API_KEY_FALLBACK, geminiApiKeyConfirmed: !!saved.geminiApiKeyConfirmed || !saved.geminiApiKey,
             openaiApiKey: saved.openaiApiKey || '', openaiApiKeyConfirmed: !!saved.openaiApiKeyConfirmed,
             grokApiKey: saved.grokApiKey || '', grokApiKeyConfirmed: !!saved.grokApiKeyConfirmed,
             deepseekApiKey: saved.deepseekApiKey || '', deepseekApiKeyConfirmed: !!saved.deepseekApiKeyConfirmed,

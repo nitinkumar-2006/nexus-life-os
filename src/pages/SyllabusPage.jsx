@@ -15,6 +15,7 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import { extractSyllabusStructure, classifySyllabusFile } from '../utils/syllabusExtraction.js';
 import { resolveActiveAiProvider, readAiProviderSettings } from '../utils/aiProviderRouter.js';
 import { searchYoutubeVideos, buildYoutubeSearchUrl, YoutubeApiError } from '../utils/youtubeClient.js';
+import { YOUTUBE_API_KEY_FALLBACK } from '../config/streamingConfig.js';
 import AttachmentMenu from '../components/AttachmentMenu.jsx';
 import CameraCapture from '../components/CameraCapture.jsx';
 
@@ -36,10 +37,15 @@ const readAiKeySettings = () => {
         const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
         return {
             ...providerSettings,
-            youtubeApiKey: saved.youtubeApiKey || '', youtubeApiKeyConfirmed: !!saved.youtubeApiKeyConfirmed,
+            // Real, explicit request: fall back to the app's own default
+            // YouTube key when the user hasn't set their own (same
+            // precedent as getYoutubeApiKey() in streamingConfig.js) -
+            // treated as "confirmed" too since there's nothing for the
+            // user to confirm on a key they never typed.
+            youtubeApiKey: saved.youtubeApiKey || YOUTUBE_API_KEY_FALLBACK, youtubeApiKeyConfirmed: !!saved.youtubeApiKeyConfirmed || !saved.youtubeApiKey,
         };
     } catch (e) {
-        return { ...providerSettings, youtubeApiKey: '', youtubeApiKeyConfirmed: false };
+        return { ...providerSettings, youtubeApiKey: YOUTUBE_API_KEY_FALLBACK, youtubeApiKeyConfirmed: true };
     }
 };
 

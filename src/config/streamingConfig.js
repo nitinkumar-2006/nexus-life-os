@@ -128,16 +128,23 @@ export const isAppleMusicConfigured = () => {
 // separate "connect" handshake the way Spotify/Apple need: a YouTube Data
 // API key authenticates the APP to Google, not a specific user, so a
 // confirmed key IS the connection.
-export const isYoutubeConfigured = () => {
-    try {
-        const saved = JSON.parse(localStorage.getItem('nexus_global_settings') || '{}');
-        return !!saved.youtubeApiKeyConfirmed && !!(saved.youtubeApiKey || '').trim();
-    } catch (e) {
-        return false;
-    }
-};
+//
+// Real, explicit request: a real, working default key (created under the
+// app owner's own Google Cloud project - "YouTube Data API v3" enabled)
+// so this works the moment anyone downloads the app, same precedent as
+// SPOTIFY_CLIENT_ID_FALLBACK above. A key embedded in a browser bundle or
+// compiled APK is visible to anyone who looks (devtools' Network tab, or
+// decompiling the APK) - real mitigations actually worth doing on this
+// key in Google Cloud Console (console.cloud.google.com/apis/
+// credentials): set "Application restrictions" (HTTP referrers for the
+// deployed domain, Android apps for the APK's package name + SHA-1), and
+// know its free daily quota (10,000 units - about 100 searches) is
+// SHARED across every install using this default key, not per-user.
+export const YOUTUBE_API_KEY_FALLBACK = 'AIzaSyDLAX-3o5TjMS7iBRUVGt9voS1d9OdHhTU';
 
-export const getYoutubeApiKey = () => readSavedSetting('youtubeApiKey');
+export const isYoutubeConfigured = () => !!getYoutubeApiKey();
+
+export const getYoutubeApiKey = () => readSavedSetting('youtubeApiKey') || YOUTUBE_API_KEY_FALLBACK;
 
 // --- Saavn (unofficial JioSaavn API wrapper) ---
 // No credentials of any kind - every public mirror of this API is
