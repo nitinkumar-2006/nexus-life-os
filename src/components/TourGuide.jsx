@@ -154,7 +154,16 @@ const TourGuide = ({ tourId, steps, onFinish, onBeforeStep }) => {
                 className="nexus-tour-card"
                 style={{
                     position: 'fixed', top: tooltipTop, bottom: tooltipBottom, left: tooltipLeft, width: tooltipWidth,
-                    background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px',
+                    // Real, confirmed bug (live device screenshots): with
+                    // --bg-surface, on a low glass-alpha setting this
+                    // card was see-through enough that its own title/body
+                    // text visually collided with whatever page content
+                    // sat behind it - looked like broken overlap, not
+                    // just "a bit transparent". --popover-bg is this
+                    // app's own established solid-floor token for this
+                    // exact case (System Diagnostics/Audio Studio/
+                    // Notifications already use it for the same reason).
+                    background: 'var(--popover-bg)', border: '1px solid var(--border-premium)', borderRadius: '18px',
                     padding: '18px', boxShadow: '0 16px 40px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', gap: '12px',
                     boxSizing: 'border-box',
                     // The real guarantee (the clamp above is just a

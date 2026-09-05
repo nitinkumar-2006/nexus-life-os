@@ -16,7 +16,7 @@
 // A PIN can't stand in for the very first sign-in itself, since there's no
 // live session yet for it to unlock.
 import { useState } from 'react';
-import { Mail, Phone, Lock, User as UserIcon, LogIn, UserPlus, AlertCircle, KeyRound, X, CheckCircle, Loader2 } from 'lucide-react';
+import { Mail, Phone, Lock, User as UserIcon, LogIn, UserPlus, AlertCircle, KeyRound, X, CheckCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getAuthErrorMessage } from '../utils/authErrorMessages.js';
 import { isValidPhoneNumber, phoneToSyntheticEmail } from '../utils/phoneAuth.js';
@@ -54,6 +54,9 @@ const LoginPage = () => {
     // type it themselves - still fully editable for anyone outside India.
     const [phone, setPhone] = useState('+91 ');
     const [password, setPassword] = useState('');
+    // Real, requested gap: no way at all to check what you typed before
+    // submitting - a plain masked field with zero show/hide toggle.
+    const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     // Separate from isSubmitting so the two buttons never fight over one
@@ -305,7 +308,15 @@ const LoginPage = () => {
                     <label htmlFor="login-page-password" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#CBD5E1', marginBottom: '6px' }}><Lock size={13} /> Password</label>
                     <div style={{ position: 'relative' }}>
                         <Lock size={16} color="#64748B" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                        <input id="login-page-password" name="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="nexus-login-input" style={glassInputStyle(false)} />
+                        <input id="login-page-password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="nexus-login-input" style={{ ...glassInputStyle(false), paddingRight: '42px' }} />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer', padding: '6px', display: 'flex' }}
+                        >
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                     </div>
                     {mode === 'signup' && <PasswordStrengthIndicator password={password} />}
                     {mode === 'login' && identifierType === 'email' && (

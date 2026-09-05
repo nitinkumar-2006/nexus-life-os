@@ -19,7 +19,19 @@ import { getLocalDateString } from './dateUtils.js';
 
 const SmsFinance = registerPlugin('SmsFinance');
 
-export const isSmsFinanceBridgeAvailable = () => Capacitor.isNativePlatform();
+// Real, confirmed fact (not a guess): READ_SMS/RECEIVE_SMS were removed
+// from AndroidManifest.xml entirely (Play Protect install-block fix -
+// see that file's own comment) - the native SmsFinancePlugin classes
+// are still compiled in, but a permission request now genuinely cannot
+// succeed: Android denies it immediately since it's not even declared,
+// confirmed live via the system's own "App was denied access to SMS"
+// dialog. Returning false here (not Capacitor.isNativePlatform()) hides
+// every dead "Enable SMS Auto-Tracking" affordance this powers
+// (FinancePage.jsx's SMS card, PermissionsOnboarding.jsx's SMS step)
+// from a single point, instead of offering a control that can only ever
+// fail. Flip this back only if the manifest permission is ever
+// reinstated.
+export const isSmsFinanceBridgeAvailable = () => false;
 
 // Resolves to the granted state for the single "sms" permission alias
 // (covers RECEIVE_SMS + READ_SMS together - see the plugin's own

@@ -15,13 +15,22 @@
 // exactly what the in-app Enable buttons on Home/Calendar/Finance still
 // cover later.
 import { useState } from 'react';
-import { MapPin, Calendar as CalendarIcon, MessageSquareText, Sparkles, ChevronRight } from 'lucide-react';
+import { MapPin, Calendar as CalendarIcon, Sparkles, ChevronRight } from 'lucide-react';
 import { Geolocation } from '@capacitor/geolocation';
 import { requestDeviceCalendarPermission } from '../utils/nativeCalendarBridge.js';
-import { requestSmsFinancePermission } from '../utils/smsFinanceBridge.js';
 
 export const PERMISSIONS_ONBOARDING_KEY = 'nexus_permissions_onboarding_completed';
 
+// Real, confirmed bug fixed by removing the SMS step that used to live
+// here: AndroidManifest.xml no longer declares READ_SMS/RECEIVE_SMS at
+// all (removed as a Play Protect install-block fix), so tapping "Allow"
+// on that step could never actually succeed - Android denies it
+// immediately since the permission isn't even declared, confirmed live
+// via the system's own "App was denied access to SMS" dialog. Offering
+// a permission step that can only ever fail was a real, confusing
+// first-launch experience, not a small cosmetic issue - see
+// smsFinanceBridge.js's own isSmsFinanceBridgeAvailable() for the same
+// fix applied to Finance's own SMS card.
 const STEPS = [
     {
         id: 'location',
@@ -36,13 +45,6 @@ const STEPS = [
         title: 'Calendar Sync',
         body: 'Nexus can read your device calendar to bring existing events straight into your Calendar Hub schedule - read-only, nothing is ever added or changed on your device calendar.',
         request: async () => { await requestDeviceCalendarPermission(); },
-    },
-    {
-        id: 'sms',
-        icon: MessageSquareText,
-        title: 'Finance Auto-Tracking',
-        body: 'Nexus can automatically log bank transactions from incoming SMS, so Finance stays up to date without manual entry. Only messages that look like a real transaction are ever read - everything else is ignored.',
-        request: async () => { await requestSmsFinancePermission(); },
     },
 ];
 
@@ -93,7 +95,15 @@ const PermissionsOnboarding = ({ onComplete }) => {
             }}
         >
             <div style={{
-                width: '100%', maxWidth: '380px', background: 'var(--bg-surface)', border: '1px solid var(--border-premium)',
+                // Real, confirmed bug: --bg-surface respects the user's
+                // own glass-transparency slider, which can go low enough
+                // to make this card's text visually collide with
+                // whatever's behind it (confirmed via a real device
+                // screenshot). --popover-bg is this app's own established,
+                // solid-floor token for exactly this case - already used
+                // by System Diagnostics/Audio Studio/Notifications for
+                // the same reason.
+                width: '100%', maxWidth: '380px', background: 'var(--popover-bg)', border: '1px solid var(--border-premium)',
                 borderRadius: '24px', padding: '28px 24px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px', textAlign: 'center',
             }}>
@@ -105,7 +115,7 @@ const PermissionsOnboarding = ({ onComplete }) => {
                         <div>
                             <h2 style={{ fontSize: '19px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Welcome to Nexus</h2>
                             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-                                A few optional permissions unlock the full experience - local weather, calendar sync, and automatic finance tracking. You can allow or skip each one, and change your mind anytime in Settings.
+                                A couple of optional permissions unlock the full experience - local weather and calendar sync. You can allow or skip each one, and change your mind anytime in Settings.
                             </p>
                         </div>
                         <button
