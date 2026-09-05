@@ -1,52 +1,16 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Lightened per explicit feedback: the earlier near-black tile
-         (#1B1B29 to #0D0D14) read dark and dull sitting on a real home
-         screen next to other apps' icons. Same indigo family as the
-         app's own primary accent color (#6366F1, used throughout the
-         app's UI), just pulled several steps brighter so it actually
-         catches light instead of disappearing into a dark square. -->
-    <radialGradient id="tileGrad" cx="30%" cy="22%" r="95%">
-      <stop offset="0%" stop-color="#5B52F0"/>
-      <stop offset="55%" stop-color="#4B3FD6"/>
-      <stop offset="100%" stop-color="#3B32B8"/>
-    </radialGradient>
-
-    <!-- The flow-stroke mark itself: one continuous gradient sweep,
-         sky blue to violet to pink, unchanged in concept from the
-         approved "Option A" pick - only the surrounding tile got
-         brighter, this stays the vivid focal element. -->
-    <linearGradient id="markGrad" x1="168" y1="366" x2="378" y2="150" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#38BDF8"/>
-      <stop offset="50%" stop-color="#B497FF"/>
-      <stop offset="100%" stop-color="#FB7BC0"/>
+    <!-- Exact mark, pulled from the original approved widget's own saved
+         SVG data (not redrawn/estimated) - a single flowing stroke,
+         gradient sky blue to violet to pink, horizontal direction.
+         Background is that same approved deep indigo, one lightness
+         step up per explicit follow-up feedback (#1E1B4B -> #332D75) -
+         nothing else about the mark changed. -->
+    <linearGradient id="markGrad" x1="151.7" y1="256" x2="360.3" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset="0.5" stop-color="#A78BFA"/>
+      <stop offset="1" stop-color="#F472B6"/>
     </linearGradient>
-
-    <!-- Soft, contained glow behind the stroke - a blurred duplicate of
-         the same shape, not a filter on the live edges, so the crisp
-         vector stays crisp at 32px while still reading as "glowing" at
-         256px. Brightened alongside everything else. -->
-    <filter id="softGlow" x="-70%" y="-70%" width="240%" height="240%">
-      <feGaussianBlur stdDeviation="13" result="blur"/>
-      <feColorMatrix in="blur" type="matrix"
-        values="0 0 0 0 0.72  0 0 0 0 0.75  0 0 0 0 1.0  0 0 0 0.65 0"/>
-    </filter>
-
-    <!-- A brighter "light hitting glass" cue along the top edge - the
-         main lever for the requested lightness beyond the base tile
-         color itself. -->
-    <radialGradient id="rimLight" cx="28%" cy="6%" r="65%">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.32"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
-
-    <!-- Small bright sheen behind the flared head of the stroke, giving
-         the mark itself an extra hit of light where the eye lands. -->
-    <radialGradient id="sheen" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
-
     <clipPath id="tileClip">
       <rect x="52" y="52" width="408" height="408" rx="96"/>
     </clipPath>
@@ -56,39 +20,9 @@
        drops cleanly into any OS's own icon mask (circle, squircle,
        rounded square) without ever showing a seam. -->
 
-  <!-- Rounded-square tile - the icon's actual background. -->
-  <rect x="52" y="52" width="408" height="408" rx="96" fill="url(#tileGrad)"/>
-  <rect x="52.5" y="52.5" width="407" height="407" rx="95.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.14" stroke-width="1"/>
-
+  <rect x="52" y="52" width="408" height="408" rx="96" fill="#332D75"/>
   <g clip-path="url(#tileClip)">
-    <!-- Broad top-left light source, doing most of the "brighten the
-         whole tile" work rather than just the mark. -->
-    <ellipse cx="150" cy="30" rx="280" ry="150" fill="url(#rimLight)"/>
-    <!-- Sheen pooled behind the stroke's wide head. -->
-    <circle cx="352" cy="150" r="130" fill="url(#sheen)"/>
-  </g>
-
-  <!-- The signature mark: a single flowing brushstroke, tapered to a
-       point at one end and flared open at the other - abstract on
-       purpose (no literal letterform), reads as motion/flow rather
-       than a static icon. -->
-  <g clip-path="url(#tileClip)">
-    <path filter="url(#softGlow)"
-      d="M168,366 C150,286 172,206 236,172 C288,144 328,156 352,132
-         C366,118 378,140 378,160 C338,198 300,202 258,226
-         C212,252 188,308 168,366 Z"
-      fill="url(#markGrad)"/>
-    <path
-      d="M168,366 C150,286 172,206 236,172 C288,144 328,156 352,132
-         C366,118 378,140 378,160 C338,198 300,202 258,226
-         C212,252 188,308 168,366 Z"
-      fill="url(#markGrad)"/>
-
-    <!-- One light streak riding the upper edge of the ribbon - the
-         detail that reads as "premium, catching light" up close at
-         256px, and just quietly brightens the stroke at 32px. -->
-    <path d="M196,322 C200,264 222,214 262,190 C292,172 316,166 336,152"
-      fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="9"
-      stroke-linecap="round"/>
+    <path d="M151.7,360.3 C151.7,165.3 256,165.3 256,256 C256,346.7 360.3,346.7 360.3,165.3"
+      fill="none" stroke="url(#markGrad)" stroke-width="41" stroke-linecap="round"/>
   </g>
 </svg>
