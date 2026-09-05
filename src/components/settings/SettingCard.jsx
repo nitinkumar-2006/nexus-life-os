@@ -17,8 +17,16 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 
-const SettingCard = ({ icon: Icon, title, subtitle, defaultOpen = false, children, tourId }) => {
+const SettingCard = ({ icon: Icon, title, subtitle, defaultOpen = false, children, tourId, forceOpen = false }) => {
     const [isOpen, setIsOpen] = useState(defaultOpen);
+    // Real, requested gap: a replayed tour (see the new "Replay App
+    // Tours" button) can spotlight a card the user has since manually
+    // collapsed - the tour's own scroll/position math still works, but
+    // there'd be nothing visible inside to point at. forceOpen only ever
+    // raises a floor on top of the user's own toggle - it never fights a
+    // manual collapse once the tour moves past this step (isOpen itself
+    // is untouched either way).
+    const open = isOpen || forceOpen;
 
     return (
         <div className="setting-card" data-tour-id={tourId}>
@@ -26,7 +34,7 @@ const SettingCard = ({ icon: Icon, title, subtitle, defaultOpen = false, childre
                 type="button"
                 className="setting-card-header"
                 onClick={() => setIsOpen((v) => !v)}
-                aria-expanded={isOpen}
+                aria-expanded={open}
             >
                 <div className="setting-card-header-left">
                     <div className="setting-card-icon">
@@ -37,10 +45,10 @@ const SettingCard = ({ icon: Icon, title, subtitle, defaultOpen = false, childre
                         {subtitle && <span className="setting-card-subtitle">{subtitle}</span>}
                     </div>
                 </div>
-                <ChevronDown size={20} className={`setting-card-chevron${isOpen ? ' is-open' : ''}`} />
+                <ChevronDown size={20} className={`setting-card-chevron${open ? ' is-open' : ''}`} />
             </button>
 
-            <div className={`setting-card-body${isOpen ? ' is-open' : ''}`}>
+            <div className={`setting-card-body${open ? ' is-open' : ''}`}>
                 <div className="setting-card-body-inner">
                     <div className="setting-card-body-content">
                         {children}

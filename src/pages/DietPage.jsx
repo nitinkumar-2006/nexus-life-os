@@ -6,9 +6,15 @@ import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumberInput.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 const DietPage = () => {
     const isMobile = useIsMobile();
+    // Mobile-only, real-first-visit-only tour - same pattern as every
+    // other page's tour (see FinancePage.jsx/CalendarPage.jsx).
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('diet'));
     const { settings, updateSetting } = useGlobalSettings();
     // 1. FIXED: Zeroed out Profile & Goals
     const [profile, setProfile] = useState(() => {
@@ -362,7 +368,8 @@ const DietPage = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
-            
+            {showTour && <TourGuide tourId="diet" steps={TOUR_STEPS.diet} onFinish={() => setShowTour(false)} />}
+
             {/* Header Section */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
@@ -380,7 +387,7 @@ const DietPage = () => {
                             <Plus size={18} /> Add Meal
                         </button>
                     )}
-                    <button onClick={() => { setTempProfile(profile); setTempWaterGoal(settings.dailyHydrationGoal); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
+                    <button data-tour-id="diet-profile" onClick={() => { setTempProfile(profile); setTempWaterGoal(settings.dailyHydrationGoal); setIsEditingProfile(true); }} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', background: 'var(--widget-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-premium)', borderRadius: '12px', fontWeight: '700', fontSize: '14px', cursor: 'pointer' }}>
                         <User size={18} /> Profile
                     </button>
                 </div>
@@ -414,7 +421,7 @@ const DietPage = () => {
             </div>
 
             {/* Navigation Tabs */}
-            <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto' }}>
+            <div data-tour-id="diet-tabs" style={{ display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto' }}>
                 {['Dashboard', 'DailyLog', 'FoodDatabase', 'GroceryAI'].map((tab) => (
                     <button 
                         key={tab} onClick={() => setActiveTab(tab)}

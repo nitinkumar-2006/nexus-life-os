@@ -10,6 +10,9 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import GpaCalculator from '../components/GpaCalculator.jsx';
 import { getLocalDateString } from '../utils/dateUtils.js';
 import { generateStructuredJSON, readAiProviderSettings } from '../utils/aiProviderRouter.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 const SYLLABUS_STORAGE_KEY = 'nexus_syllabus_subjects';
 const SYLLABUS_JUMP_KEY = 'nexus_syllabus_jump_target';
@@ -92,6 +95,9 @@ const AiGenerateBar = ({ subjects, subjectValue, onSubjectChange, onGenerate, is
 
 const StudyPage = ({ setActiveTab }) => {
     const isMobile = useIsMobile();
+    // Mobile-only, real-first-visit-only tour - same pattern as every
+    // other page's tour (see FinancePage.jsx/CalendarPage.jsx).
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('study'));
     // Subjects genuinely come from the Syllabus module now, not a separate,
     // static nexus_study_subjects list - StudyPage's own subject.progress/
     // completedUnits fields never actually updated after creation (the
@@ -703,7 +709,8 @@ const StudyPage = ({ setActiveTab }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
-            
+            {showTour && <TourGuide tourId="study" steps={TOUR_STEPS.study} onFinish={() => setShowTour(false)} />}
+
             {/* Header Section - title and every action button share one
                 row even on mobile (buttons drop to icon-only there)
                 instead of the button group wrapping onto its own row
@@ -759,6 +766,7 @@ const StudyPage = ({ setActiveTab }) => {
 
                     {internalTab !== 'Quizzes' && internalTab !== 'Calculator' && (
                         <button
+                            data-tour-id="study-new"
                             title={internalTab === 'Subjects' ? 'Add Subject in Syllabus' : internalTab === 'Assignments' ? 'Add Assignment' : internalTab === 'Notes' ? 'New Note' : 'New Flashcard'}
                             onClick={() => {
                                 if (internalTab === 'Subjects') { if (typeof setActiveTab === 'function') setActiveTab('Syllabus'); return; }
@@ -858,7 +866,7 @@ const StudyPage = ({ setActiveTab }) => {
                 Part 1A locked this module to exactly 4 tabs (no room for a
                 5th "Queue" tab) but this needs to stay visible regardless
                 of which tab is active. */}
-            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: 'var(--premium-shadow)' }}>
+            <div data-tour-id="study-queue" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '22px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: 'var(--premium-shadow)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                     <Layers size={18} color="var(--accent)" />
                     <h3 style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Daily Study Queue</h3>

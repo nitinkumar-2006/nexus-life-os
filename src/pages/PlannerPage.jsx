@@ -10,9 +10,15 @@ import { toTitleCase } from '../utils/textFormat.js';
 import { sanitizeNumberInput } from '../utils/smartNumberInput.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { getLocalDateString } from '../utils/dateUtils.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 const PlannerPage = ({ setActiveTab }) => {
     const { taskComplete, modalOpen } = useMicroFeedback();
     const isMobile = useIsMobile();
+    // Mobile-only, real-first-visit-only tour - same pattern as every
+    // other page's tour (see FinancePage.jsx/CalendarPage.jsx).
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('planner'));
     // 1. FIXED: Removed all hardcoded dummy data. Now if storage is empty, it returns a 100% blank array [].
     const [tasks, setTasks] = useState(() => {
         const saved = localStorage.getItem('nexus_planner_tasks');
@@ -227,14 +233,16 @@ const PlannerPage = ({ setActiveTab }) => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease' }}>
-            
+            {showTour && <TourGuide tourId="planner" steps={TOUR_STEPS.planner} onFinish={() => setShowTour(false)} />}
+
             {/* Header Section */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div>
                     <h1 style={{ fontSize: isMobile ? '22px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0 }}>Planner Hub</h1>
                 </div>
-                
+
                 <button
+                    data-tour-id="planner-new-task"
                     onClick={openAddModal}
                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 22px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', boxShadow: '0 0 20px rgba(var(--primary-rgb), 0.3)' }}
                 >
@@ -276,7 +284,7 @@ const PlannerPage = ({ setActiveTab }) => {
             </div>
 
             {/* Navigation Tabs */}
-            <div style={{
+            <div data-tour-id="planner-tabs" style={{
                 display: 'flex', gap: '10px', overflowX: 'auto', paddingBottom: '4px',
                 maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
                 WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',

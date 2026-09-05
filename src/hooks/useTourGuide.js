@@ -26,3 +26,21 @@ export const markTourSeen = (tourId) => {
         // reappears next visit, not a broken page.
     }
 };
+
+// Real, requested gap closed: once a tour was dismissed there was no way
+// to see it again short of manually clearing localStorage. This is the
+// one, global "start over" a user actually wants - not a per-section
+// reset UI (with 11 short, skippable tours, that would be its own
+// clutter). Scans by prefix rather than a hardcoded tour-id list, so it
+// stays correct as new tours are added later without needing an update
+// here.
+export const resetAllTours = () => {
+    try {
+        Object.keys(localStorage)
+            .filter((key) => key.startsWith(TOUR_STORAGE_PREFIX))
+            .forEach((key) => localStorage.removeItem(key));
+    } catch (e) {
+        // Nothing meaningful to recover here - worst case the replay
+        // button silently doesn't reset anything.
+    }
+};

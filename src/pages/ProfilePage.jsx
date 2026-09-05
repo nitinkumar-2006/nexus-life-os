@@ -9,6 +9,9 @@ import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumber
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { getLocalDateString } from '../utils/dateUtils.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 import {
     User, BookOpen, Flame, Save,
     CheckCircle, Sparkles, Edit3, Dumbbell,
@@ -207,6 +210,9 @@ const ProfileStatCard = ({ icon: Icon, iconColor, value, label }) => (
 
 const ProfilePage = () => {
     const isMobile = useIsMobile();
+    // Mobile-only, real-first-visit-only tour - same pattern as every
+    // other page's tour (see FinancePage.jsx/CalendarPage.jsx).
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('profile'));
     const { settings, updateSetting } = useGlobalSettings();
     const { user, isConfigured, logout } = useAuth();
     const { isSyncing, lastSyncedAt } = useCloudSync();
@@ -551,6 +557,7 @@ const ProfilePage = () => {
 
     return (
         <div className="profile-page-root" style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative', paddingBottom: '40px' }}>
+            {showTour && <TourGuide tourId="profile" steps={TOUR_STEPS.profile} onFinish={() => setShowTour(false)} />}
 
             {/* Success Toast - was previously positioned relative to the
                 header section removed above; now positioned relative to
@@ -762,7 +769,7 @@ const ProfilePage = () => {
                         style tab strip) instead of 5 icon+text buttons
                         wrapping across multiple cramped lines. Desktop
                         keeps its existing wrap-to-multiple-lines layout. */}
-                    <div className="profile-tabs-row" style={{
+                    <div className="profile-tabs-row" data-tour-id="profile-tabs" style={{
                         display: 'flex', gap: '12px', marginTop: '32px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '16px',
                         flexWrap: isMobile ? 'nowrap' : 'wrap',
                         overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch',

@@ -3,6 +3,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Clock, BookOpen, Dumbbell, Apple, Cpu, CheckCircle, Calendar, Plus, Trash2, DollarSign, Copy, X, Circle, GraduationCap, FileText, CheckSquare, Activity, BarChart3, Sparkles, RotateCcw, ClipboardList, Hourglass, Eraser, Pencil, Save } from 'lucide-react';
 import { toTitleCase } from '../utils/textFormat.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 // Subtle, macOS-inspired category colors - used as a left accent + icon
 // tint per entry so a category is instantly identifiable at a glance,
@@ -63,6 +66,9 @@ const formatDurationLabel = (totalMinutes) => {
 
 const TimetablePage = () => {
     const isMobile = useIsMobile();
+    // Mobile-only, real-first-visit-only tour - same pattern as every
+    // other page's tour (see FinancePage.jsx/CalendarPage.jsx).
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('dailytable'));
     const [selectedDay, setSelectedDay] = useState('Monday');
     
     // Initial default or loaded from localStorage
@@ -361,6 +367,7 @@ const TimetablePage = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            {showTour && <TourGuide tourId="dailytable" steps={TOUR_STEPS.dailytable} onFinish={() => setShowTour(false)} />}
             <h1 style={{ fontSize: isMobile ? '20px' : '28px', fontWeight: '800', color: 'var(--text-primary)', margin: 0, whiteSpace: 'nowrap' }}>Daily Table & Manual Planner</h1>
 
             {/* Real, computed stats for the selected day - mirrors Planner
@@ -394,7 +401,7 @@ const TimetablePage = () => {
                 second stacked row just to fit its own full-width button;
                 it now lives inside the form below, right above the time
                 picker, so this row stays one line on every viewport. */}
-            <div style={{
+            <div data-tour-id="dailytable-days" style={{
                 display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px',
                 maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
                 WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
@@ -660,6 +667,7 @@ const TimetablePage = () => {
                         )}
                         <button
                             type="button"
+                            data-tour-id="dailytable-add"
                             onClick={openAddModal}
                             style={{
                                 display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', borderRadius: '9999px',

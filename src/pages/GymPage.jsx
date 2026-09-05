@@ -7,6 +7,9 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import { sanitizeNumberInput, normalizeNumberOnBlur } from '../utils/smartNumberInput.js';
 import { useGlobalSettings } from '../context/GlobalUserSettingsContext.jsx';
 import { getLocalDateString } from '../utils/dateUtils.js';
+import TourGuide from '../components/TourGuide.jsx';
+import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { TOUR_STEPS } from '../constants/tourSteps.js';
 
 const KG_PER_LB = 0.45359237;
 // All weight data is stored in kilograms internally regardless of the
@@ -19,6 +22,9 @@ const displayToKg = (value, unit) => (unit === 'lbs' ? (Number(value) || 0) * KG
 
 const GymPage = () => {
     const isMobile = useIsMobile();
+    // Mobile-only, real-first-visit-only tour - same pattern as every
+    // other page's tour (see FinancePage.jsx/CalendarPage.jsx).
+    const [showTour, setShowTour] = useState(() => isMobile && !hasSeenTour('gym'));
     const { settings } = useGlobalSettings();
     const weightUnit = settings.weightUnit === 'lbs' ? 'lbs' : 'kg';
     // 1. Fitness Profile
@@ -502,7 +508,8 @@ const GymPage = () => {
     // ==========================================
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px', animation: 'fadeInScale 0.3s ease', position: 'relative' }}>
-            
+            {showTour && <TourGuide tourId="gym" steps={TOUR_STEPS.gym} onFinish={() => setShowTour(false)} />}
+
             {/* Header Section - title and every action button share one
                 row even on mobile (buttons drop to icon-only there via
                 each one's own {!isMobile && '...'} label) instead of the
@@ -515,7 +522,7 @@ const GymPage = () => {
 
                 <div style={{ display: 'flex', flexWrap: 'nowrap', gap: isMobile ? '6px' : '10px', flexShrink: 0 }}>
                     {activeTab === 'Dashboard' && (
-                        <button title="Add Workout Plan" onClick={openAddPlanModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '10px' : '10px 20px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        <button data-tour-id="gym-add-plan" title="Add Workout Plan" onClick={openAddPlanModal} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: isMobile ? '10px' : '10px 20px', flexShrink: 0, boxSizing: 'border-box', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             <Plus size={isMobile ? 16 : 18} /> {!isMobile && 'Add Workout Plan'}
                         </button>
                     )}
@@ -567,7 +574,7 @@ const GymPage = () => {
             {/* Navigation Tabs - fade-masked horizontal scroll (matching
                 the same pattern used on Timetable/Study/Syllabus) plus
                 taller mobile padding for a real touch target. */}
-            <div style={{
+            <div data-tour-id="gym-tabs" style={{
                 display: 'flex', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '4px', overflowX: 'auto',
                 maskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',
                 WebkitMaskImage: isMobile ? 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)' : 'none',

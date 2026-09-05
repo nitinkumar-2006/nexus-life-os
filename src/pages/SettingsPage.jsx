@@ -29,8 +29,9 @@ import { GLASS_ACCENT_TINTS } from '../constants/glassAccentTints.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import VoiceAssistantSettings from '../components/VoiceAssistantSettings.jsx';
 import TourGuide from '../components/TourGuide.jsx';
-import { hasSeenTour } from '../hooks/useTourGuide.js';
+import { hasSeenTour, resetAllTours } from '../hooks/useTourGuide.js';
 import { TOUR_STEPS } from '../constants/tourSteps.js';
+import { MODULE_META } from '../constants/moduleMeta.js';
 import { WALLPAPER_OPTIONS, WALLPAPER_CATEGORIES } from '../constants/wallpaperOptions.js';
 import { FONT_OPTIONS, FONT_CATEGORIES, DEFAULT_FONT_ID, getFontOption } from '../constants/fontOptions.js';
 import { loadFontStylesheet, preloadFontsForPreview } from '../utils/fontLoader.js';
@@ -2323,7 +2324,13 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
 
     return (
         <div className="settings-shell" style={{ paddingBottom: '60px' }}>
-            {showTour && <TourGuide tourId="settings" steps={TOUR_STEPS.settings} onFinish={() => setShowTour(false)} />}
+            {/* onBeforeStep: real, confirmed bug fix - settings-modules
+                and settings-display only render inside the
+                'general'/'appearance' category tabs (see each step's own
+                `category` field in tourSteps.js), but this page always
+                opens on 'account'. Without this, steps 2 and 3 used to
+                spotlight nothing on a real first run. */}
+            {showTour && <TourGuide tourId="settings" steps={TOUR_STEPS.settings} onFinish={() => setShowTour(false)} onBeforeStep={(step) => step.category && setActiveCategory(step.category)} />}
 
             <SettingsLayout
                 categories={SETTINGS_CATEGORIES}
@@ -2339,7 +2346,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                 )}
             >
                 {activeCategory === 'account' && (
-                <SettingCard icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile" tourId="settings-account" defaultOpen>
+                <SettingCard icon={User} title="Account & Profile Preferences" subtitle="Connected sign-in, cloud account, and your full profile" tourId="settings-account" defaultOpen forceOpen={showTour}>
                     <button
                         type="button"
                         onClick={() => setActiveTab && setActiveTab('Profile')}
@@ -2354,6 +2361,33 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         </div>
                         <ArrowUpRight size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
                     </button>
+
+                    {/* Real, requested gap closed: once a tour was
+                        dismissed/skipped there was no way to see it
+                        again short of manually clearing localStorage.
+                        Mobile-only (same gate every tour already uses -
+                        tours never render on desktop, so this would be a
+                        dead button there). Resets every section's tour
+                        at once (see resetAllTours's own comment for why
+                        a per-section reset UI would be its own clutter),
+                        then restarts THIS page's own tour immediately so
+                        the button's effect is visible right away instead
+                        of only on other pages' next visit. */}
+                    {isMobile && (
+                        <button
+                            type="button"
+                            onClick={() => { resetAllTours(); setShowTour(true); }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '14px 18px', background: 'var(--widget-bg)', border: '1px solid var(--border-premium)', borderRadius: '14px', cursor: 'pointer', width: '100%', fontFamily: 'inherit', textAlign: 'left' }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                <RotateCcw size={16} color="var(--accent)" />
+                                <div style={{ minWidth: 0 }}>
+                                    <strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>Replay App Tours</strong>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>See the first-time guide again, on every section</span>
+                                </div>
+                            </div>
+                        </button>
+                    )}
 
                     <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '20px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-premium)', paddingBottom: '12px' }}><Cloud size={20} color="var(--accent)" /><h3 style={{ fontSize: '16px', fontWeight: '800', color: 'var(--text-primary)' }}>Cloud Sync & Account Management</h3></div>
@@ -2734,7 +2768,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                     </div>
                 </SettingCard>
 
-                <SettingCard icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS" tourId="settings-modules" defaultOpen>
+                <SettingCard icon={LayoutDashboard} title="OS Module Manager" subtitle="Toggle which Hubs are active across the OS" tourId="settings-modules" defaultOpen forceOpen={showTour}>
                     {/* Real, live-caught mobile bug fixed on every row in
                         this file that pairs a label with a ToggleSwitch:
                         the row is a big padded card with the label taking
@@ -2749,13 +2783,34 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                         the switch from firing it twice) and
                         cursor:pointer so the whole card behaves the way
                         it already visually reads. */}
+                    {/* Real, requested gap closed: every row here used
+                        to be just a name and a switch - no way to know
+                        what a Hub actually does before toggling it, or
+                        why Finance specifically starts off on a native
+                        build. MODULE_META (src/constants/moduleMeta.js)
+                        is the one place this copy lives - the tour's own
+                        settings-modules step just says "tap a card",
+                        it doesn't duplicate this text. */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                        {Object.keys(settings.activeModules).map(mod => (
-                            <div key={mod} onClick={() => handleModuleToggle(mod)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
-                                <strong style={{ fontSize: '14px', color: 'var(--text-primary)', textTransform: 'capitalize' }}>{mod} Hub</strong>
-                                <ToggleSwitch checked={settings.activeModules[mod]} onChange={() => handleModuleToggle(mod)} />
-                            </div>
-                        ))}
+                        {Object.keys(settings.activeModules).map(mod => {
+                            const meta = MODULE_META[mod];
+                            const isOn = settings.activeModules[mod];
+                            const offNote = meta?.offByDefaultNote && !isOn ? meta.offByDefaultNote(Capacitor.isNativePlatform()) : null;
+                            return (
+                                <div key={mod} onClick={() => handleModuleToggle(mod)} style={{ display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--widget-bg)', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--border-premium)', cursor: 'pointer' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <strong style={{ fontSize: '14px', color: 'var(--text-primary)', textTransform: 'capitalize' }}>{meta?.label || `${mod} Hub`}</strong>
+                                        <ToggleSwitch checked={isOn} onChange={() => handleModuleToggle(mod)} />
+                                    </div>
+                                    {meta?.description && (
+                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>{meta.description}</span>
+                                    )}
+                                    {offNote && (
+                                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4, fontStyle: 'italic' }}>{offNote}</span>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </SettingCard>
 
@@ -3539,7 +3594,7 @@ const SettingsPage = ({ setActiveTab, onMobileOverlayChange }) => {
                 )}
 
                 {activeCategory === 'appearance' && (
-                <SettingCard icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and visual adjustments" tourId="settings-display" defaultOpen>
+                <SettingCard icon={Monitor} title="Display & Environment" subtitle="Theme, startup, and visual adjustments" tourId="settings-display" defaultOpen forceOpen={showTour}>
                     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '10px' : '0' }}>
                         <div><strong style={{ fontSize: '14px', color: 'var(--text-primary)', display: 'block' }}>System Theme</strong><span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose your visual environment</span></div>
                         <select id="themeMode" name="themeMode" aria-label="System Theme" value={settings.themeMode} onChange={(e) => handleChange('themeMode', e.target.value)} style={{ width: isMobile ? '100%' : 'auto', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border-premium)', background: 'var(--surface-inset)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', cursor: 'pointer', fontWeight: '600', boxSizing: isMobile ? 'border-box' : 'content-box' }}>

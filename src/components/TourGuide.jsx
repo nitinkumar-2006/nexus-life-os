@@ -16,13 +16,13 @@
 // short-lived rAF poll after every step change, since the target can
 // still be settling into place right when a step becomes active
 // (post-scrollIntoView animation, conditionally-rendered content, etc.).
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { ChevronRight, ChevronLeft, X } from 'lucide-react';
 import { markTourSeen } from '../hooks/useTourGuide.js';
 
 const SPOTLIGHT_PADDING = 8;
 
-const TourGuide = ({ tourId, steps, onFinish }) => {
+const TourGuide = ({ tourId, steps, onFinish, onBeforeStep }) => {
     const [stepIndex, setStepIndex] = useState(0);
     const [rect, setRect] = useState(null);
     const rafRef = useRef(null);
@@ -34,10 +34,28 @@ const TourGuide = ({ tourId, steps, onFinish }) => {
         if (!el) { setRect(null); return; }
         const r = el.getBoundingClientRect();
         setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-        if (r.top < 0 || r.bottom > window.innerHeight) {
-            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        // Real, confirmed clipping: several pages (Planner's filter
+        // tabs, Diet's nav tabs, Timetable's day selector) put their
+        // tour target inside a horizontally-scrolling row
+        // (overflowX: 'auto'). Only checking vertical bounds left a
+        // target scrolled off to the side never brought into view -
+        // this app scrolls plenty of things sideways, not just up/down.
+        if (r.top < 0 || r.bottom > window.innerHeight || r.left < 0 || r.right > window.innerWidth) {
+            el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
         }
     }, [stepIndex, steps]);
+
+    // Real, requested gap: SettingsPage.jsx's own tour steps live behind
+    // different category tabs, so switching steps sometimes needs the
+    // host page to also switch tabs before this component can even find
+    // the next target. useLayoutEffect (not useEffect) so that host-side
+    // state change commits and paints BEFORE this effect's own measure()
+    // runs - otherwise there'd be a one-frame flash of the dimmed
+    // backdrop over the previous (wrong) tab.
+    useLayoutEffect(() => {
+        const step = steps[stepIndex];
+        if (step && onBeforeStep) onBeforeStep(step);
+    }, [stepIndex, steps, onBeforeStep]);
 
     useEffect(() => {
         measure();
@@ -132,6 +150,8 @@ const TourGuide = ({ tourId, steps, onFinish }) => {
             <div onClick={finish} style={{ position: 'fixed', inset: 0 }} />
 
             <div
+                key={stepIndex}
+                className="nexus-tour-card"
                 style={{
                     position: 'fixed', top: tooltipTop, bottom: tooltipBottom, left: tooltipLeft, width: tooltipWidth,
                     background: 'var(--bg-surface)', border: '1px solid var(--border-premium)', borderRadius: '18px',
@@ -151,10 +171,10 @@ const TourGuide = ({ tourId, steps, onFinish }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                     <div style={{ display: 'flex', gap: '5px' }}>
                         {steps.map((s, i) => (
-                            <div key={s.target} style={{ width: '16px', height: '3px', borderRadius: '2px', background: i === stepIndex ? 'var(--primary)' : 'var(--border-premium)' }} />
+                            <div key={s.target} className="nexus-tour-dot" style={{ width: i === stepIndex ? '20px' : '16px', height: '3px', borderRadius: '2px', background: i === stepIndex ? 'var(--primary)' : 'var(--border-premium)' }} />
                         ))}
                     </div>
-                    <button type="button" onClick={finish} aria-label="Close tour" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', flexShrink: 0, display: 'flex' }}>
+                    <button type="button" onClick={finish} aria-label="Close tour" className="nexus-tour-btn" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', flexShrink: 0, display: 'flex' }}>
                         <X size={16} />
                     </button>
                 </div>
@@ -164,19 +184,34 @@ const TourGuide = ({ tourId, steps, onFinish }) => {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
                     {stepIndex > 0 ? (
-                        <button type="button" onClick={handleBack} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontWeight: '700', fontSize: '13px', cursor: 'pointer', padding: '6px 4px', fontFamily: 'inherit' }}>
+                        <button type="button" onClick={handleBack} className="nexus-tour-btn" style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontWeight: '700', fontSize: '13px', cursor: 'pointer', padding: '6px 4px', fontFamily: 'inherit' }}>
                             <ChevronLeft size={14} /> Back
                         </button>
                     ) : (
-                        <button type="button" onClick={finish} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontWeight: '600', fontSize: '13px', cursor: 'pointer', padding: '6px 4px', fontFamily: 'inherit' }}>
+                        <button type="button" onClick={finish} className="nexus-tour-btn" style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontWeight: '600', fontSize: '13px', cursor: 'pointer', padding: '6px 4px', fontFamily: 'inherit' }}>
                             Skip
                         </button>
                     )}
-                    <button type="button" onClick={handleNext} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '9px 18px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    <button type="button" onClick={handleNext} className="nexus-tour-btn" style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '9px 18px', background: 'var(--primary)', color: 'var(--text-on-primary)', border: 'none', borderRadius: '9999px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' }}>
                         {stepIndex === steps.length - 1 ? 'Got it' : 'Next'} {stepIndex < steps.length - 1 && <ChevronRight size={14} />}
                     </button>
                 </div>
             </div>
+            {/* Component-scoped, own @keyframes - deliberately NOT
+                reusing HomePage.jsx's page-local `fadeInScale` name,
+                since that keyframe is only actually @-defined once, on
+                Home's own <style> block; referencing it from any other
+                page (this component now mounts from 11 different pages)
+                would silently no-op unless Home happened to already be
+                mounted in the same session. Purely decorative - no
+                position/clamping math above changed. */}
+            <style>{`
+                @keyframes nexusTourCardIn { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+                .nexus-tour-card { animation: nexusTourCardIn 0.22s ease; }
+                .nexus-tour-dot { transition: width 0.2s ease, background 0.2s ease; }
+                .nexus-tour-btn { transition: transform 0.12s ease, opacity 0.12s ease; }
+                .nexus-tour-btn:active { transform: scale(0.94); opacity: 0.85; }
+            `}</style>
         </div>
     );
 };
