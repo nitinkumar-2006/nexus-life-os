@@ -55,6 +55,13 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // Explicit, not just relying on capacitor-android's own transitive
+    // dependency on this - Gradle's `implementation` visibility doesn't
+    // guarantee that module's OWN dependencies are resolvable symbols
+    // for THIS module's own source (MainActivity.java directly imports
+    // androidx.activity.EdgeToEdge/SystemBarStyle for the edge-to-edge
+    // nav-bar-color fix - see MainActivity.java's own comment).
+    implementation "androidx.activity:activity:$androidxActivityVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
