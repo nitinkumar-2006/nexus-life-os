@@ -723,7 +723,19 @@ const Header = ({ setActiveTab, isMobile, onOpenMenu }) => {
                         overflow/ellipsis handling means an unusually
                         narrow screen truncates "NEXUS" instead of
                         letting it visually collide with the icons. */}
-                    <span style={{ fontSize: '15px', fontWeight: '900', letterSpacing: '0.6px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>NEXUS</span>
+                    {/* Same gradient wordmark treatment as the boot
+                        splash / login page (AppSplashScreen.jsx,
+                        index.html, LoginPage.jsx) - explicit request:
+                        this read as plain, generic white text next to
+                        the now-gradient logo mark. Every layout property
+                        (fontSize/fontWeight/letterSpacing/whiteSpace/
+                        overflow/minWidth) is untouched on purpose - only
+                        color/background changed, so nothing shifts. */}
+                    <span style={{
+                        fontSize: '15px', fontWeight: '900', letterSpacing: '0.6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+                        background: 'linear-gradient(90deg, #38BDF8 0%, #A78BFA 50%, #F472B6 100%)',
+                        WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent',
+                    }}>NEXUS</span>
                 </div>
             )}
 
